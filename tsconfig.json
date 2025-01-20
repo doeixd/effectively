@@ -1,0 +1,23 @@
+{
+  "exclude": ["node_modules"],
+  "include": ["src", "types"],
+  "compilerOptions": {
+    "module": "ESNext",
+    "lib": ["ESNext"],
+    "importHelpers": true,
+    "declaration": true,
+    "sourceMap": true,
+    "rootDir": "./src",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "moduleResolution": "bundler",
+    "jsx": "react",
+    "esModuleInterop": true,
+    "target": "es2018",
+    "useDefineForClassFields": false,
+    "declarationMap": true
+  }
+}
