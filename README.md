@@ -2,7 +2,7 @@
 A lightweight, type-safe effect system for TypeScript inspired by algebraic effects, featuring built-in concurrency primitives and error handling.
 
 ## Overview
-Effectively separates effects (what you want to do) from their implementation (how you want to do it). It includes priority-based scheduling, error handling, and concurrency primitives like retries and rate limiting.
+Effectively separates effects (what you want to do) from their implementation (how you want to do it). It includes priority-based scheduling, error handling, and concurrency primitives like retries and rate limiting. Aiming to be useful, and easy to understand.
 
 ## Features
 - 🎯 Type-safe effect definitions and handlers
