@@ -27,13 +27,17 @@ import { defineEffect, defineHandler, contextRoot } from 'effectively'
 // Define an effect
 const log = defineEffect<(message: string) => void>('log')
 
-// Use the effect
+// Create a effect context
 await contextRoot(async () => {
+
   // Define how the effect should be handled
   defineHandler('log', (message: string) => {
-    console.log(`[${new Date().toISOString()}] ${message}`)
-  }, 'high')  // Optional priority
 
+    console.log(`[${new Date().toISOString()}] ${message}`)
+
+  })
+
+  // Use the effect
   await log('Hello, effectively!')
 })
 ```
