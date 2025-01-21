@@ -73,7 +73,12 @@ export type EffectHandler<T extends (...args: any[]) => any = AnyFunction> = T
 export function defineEffect <H extends EffectHandler>  (name: string, defaultHandler?: H) {
  return ((...args: Parameters<H>): ReturnType<H> => {
 
-   const ctx = getEffectContext()
+   try {
+   var ctx = getEffectContext()
+   } catch (e) {
+    // @ts-expect-error
+    ctx = undefined
+   }
 
    if (!ctx) {
      throw new Error(`No context provided when defining effect ${name}`)
