@@ -1,103 +1,168 @@
-// errorHandling.ts
+// errors.ts
 import { defineEffect, defineHandler } from './createEffect'
 import { getEffectContext } from './context'
-import { backoff } from './concurrency'
 
-// Type definitions for our error handling system
-export type ErrorHandler<E extends Error> = (error: E) => Promise<void> | void
+// Enhanced error handler type
+export type ErrorHandler<E extends Error> = (
+  error: E,
+  options?: ErrorHandlingOptions
+) => Promise<void> | void
+
 export type ErrorHandlerMap = Map<Function, ErrorHandler<any>>
 
-// Extend the runtime context to include error handlers
-declare module './context' {
-  interface EffectRuntimeContext {
-    errorHandlers: ErrorHandlerMap
+// Add error handlers to runtime context
+// declare module './context' {
+//   interface EffectRuntimeContext {
+//     // errorHandlers: ErrorHandlerMap
+//     currentErrorBoundary?: ErrorBoundary
+//   }
+// }
+
+// Error handling options
+export interface ErrorHandlingOptions {
+  retry?: boolean
+  maxRetries?: number
+  recover?: boolean
+  rethrow?: boolean
+}
+
+// Error boundary for scoping error handling
+export class ErrorBoundary {
+  private handlers = new Map<Function, ErrorHandler<any>>()
+  private parent?: ErrorBoundary
+  
+  constructor(parent?: ErrorBoundary) {
+    this.parent = parent
+  }
+
+  register<E extends Error>(
+    errorType: new (...args: any[]) => E,
+    handler: ErrorHandler<E>
+  ) {
+    this.handlers.set(errorType, handler)
+  }
+
+  async handle(error: Error, options?: ErrorHandlingOptions): Promise<void> {
+    // Find most specific handler in current boundary
+    let currentProto = Object.getPrototypeOf(error)
+    while (currentProto !== Object.prototype) {
+      const handler = this.handlers.get(currentProto.constructor)
+      if (handler) {
+        await handler(error, options)
+        if (!options?.rethrow) {
+          return
+        }
+      }
+      currentProto = Object.getPrototypeOf(currentProto)
+    }
+
+    // If no handler found and we have a parent, try parent boundary
+    if (this.parent) {
+      await this.parent.handle(error, options)
+      return
+    }
+
+    // No handler found in any boundary
+    throw error
   }
 }
 
-
 // Effect for handling errors
-export type ErrorHandler2 = <E extends Error>(error: E) => Promise<void> | void
-export const handleError = defineEffect<ErrorHandler2>('handleError')
+export const handleError = defineEffect<
+  (error: Error, options?: ErrorHandlingOptions) => Promise<void>
+>('handleError')
 
-// Helper to register error handlers
+// Effect for creating error boundaries
+export const createErrorBoundary = defineEffect<
+  (fn: () => Promise<any>) => Promise<any>
+>('createErrorBoundary')
+
+// Helper to register error handlers in current boundary
 export function registerErrorHandler<E extends Error>(
   errorType: new (...args: any[]) => E,
   handler: ErrorHandler<E>
 ) {
   const ctx = getEffectContext()
-  if (!ctx.runtime.errorHandlers) {
-    ctx.runtime.errorHandlers = new Map()
+  const boundary = ctx.runtime.currentErrorBoundary
+  
+  if (!boundary) {
+    throw new Error('No error boundary found in current context')
   }
-  ctx.runtime.errorHandlers.set(errorType, handler)
+  
+  boundary.register(errorType, handler)
 }
 
-// Default error handler setup
-defineHandler('handleError', async (error: Error) => {
-  const ctx = getEffectContext()
-  const handlers = ctx.runtime.errorHandlers
-
-  // Find the most specific handler for this error type
-  let currentProto = Object.getPrototypeOf(error)
-  while (currentProto !== Object.prototype) {
-    const handler = handlers.get(currentProto.constructor)
-    if (handler) {
-      return handler(error)
+// Set up error handling system
+export function setupErrorHandling() {
+  // Handler for error handling effect
+  defineHandler('handleError', async (error: Error, options?: ErrorHandlingOptions) => {
+    const ctx = getEffectContext()
+    const boundary = ctx.runtime.currentErrorBoundary
+    
+    if (!boundary) {
+      throw error
     }
-    currentProto = Object.getPrototypeOf(currentProto)
-  }
 
-  // Default handler if no specific handler found
-  console.error('Unhandled error:', error)
-  throw error
+    await boundary.handle(error, options)
+  })
+
+  // Handler for creating error boundaries
+  defineHandler('createErrorBoundary', async (fn: () => Promise<any>) => {
+    const ctx = getEffectContext()
+    const parentBoundary = ctx.runtime.currentErrorBoundary
+    const newBoundary = new ErrorBoundary(parentBoundary)
+    
+    // Set new boundary as current
+    ctx.runtime.currentErrorBoundary = newBoundary
+    
+    try {
+      return await fn()
+    } finally {
+      // Restore parent boundary
+      ctx.runtime.currentErrorBoundary = parentBoundary
+    }
+  })
+}
+
+// Example usage:
+/*
+await createErrorBoundary(async () => {
+  // Register handlers for this boundary
+  registerErrorHandler(ValidationError, async (error) => {
+    console.log('Validation failed:', error.message)
+  })
+
+  registerErrorHandler(DatabaseError, async (error, options) => {
+    if (options?.retry && options.maxRetries) {
+      // Implement retry logic
+    }
+    console.error('Database error:', error.message)
+  })
+
+  try {
+    await riskyOperation()
+  } catch (error) {
+    if (error instanceof Error) {
+      // Will be handled by appropriate handler in current boundary
+      // or parent boundaries
+      await handleError(error, { retry: true, maxRetries: 3 })
+    }
+  }
 })
 
-// Example custom error types
-export class ValidationError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'ValidationError'
-  }
-}
+// Nested boundaries
+await createErrorBoundary(async () => {
+  registerErrorHandler(NetworkError, async (error) => {
+    // Handle network errors
+  })
 
-export class DatabaseError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'DatabaseError'
-  }
-}
+  await createErrorBoundary(async () => {
+    registerErrorHandler(ValidationError, async (error) => {
+      // This handler takes precedence over parent handlers
+      // for ValidationErrors in this scope
+    })
 
-export interface RecoveryOptions {
-  retryCount: number
-  backoff: (attempt: number) => number
-  shouldRetry: (error: Error) => boolean
-  fallback: () => void
-}
-
-export function withRecovery (options: RecoveryOptions) {
-  return <T>(operation: (...args: unknown[]) => Promise<T>) => { 
-    let attempts = 0
-    let retryCount = options.retryCount ?? 3
-    let _backoff = options.backoff ?? backoff.constant(1000)
-    let shouldRetry = options.shouldRetry ?? ((error: Error) => true)
-    let fallback = options.fallback ?? (() => undefined as T)
-
-    return (async (...args: any[]) => {
-      while (true) {
-        try {
-          return await operation(...args)
-        } catch (error) {
-          if (!shouldRetry(error as Error)) {
-            throw error
-          }
-          if (attempts >= retryCount) {
-            return fallback()
-          }
-          attempts++
-          const delay = _backoff(attempts)
-
-          await new Promise((resolve) => setTimeout(resolve, delay))
-        }
-      }
-    }) as typeof operation
-  }
-}
+    await someOperation()
+  })
+})
+*/

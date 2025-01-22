@@ -1,5 +1,7 @@
-import { AnyFunction, EffectContext, getEffectContext } from "./context"
+import { EffectContext, getEffectContext } from "./context"
 import { EffectHandler } from "./createEffect"
+
+type AnyFunction = (...args: any[]) => any
 
 export interface IResource <T> {
   get (last?: T):  T
