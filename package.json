@@ -44,6 +44,7 @@
     "access": "public"
   },
   "dependencies": {
+    "defu": "^6.1.4",
     "unctx": "^2.4.1"
   }
 }

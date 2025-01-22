@@ -3,7 +3,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createScheduler } from "./scheduler";
 import { EffectHandler } from "./createEffect";
 import { ErrorHandlerMap, handleError } from "./errors";
-import { cleanupResources, ResourceMap } from "./resource";
+import { cleanupResources, ResourcesMap } from "./resource";
+import defu from "defu";
 
 export interface EffectHandlerContext  {
   [key: string]: EffectHandler
@@ -14,7 +15,7 @@ export interface EffectRuntimeContext {
   errorHandlers: ErrorHandlerMap
 }
 
-export interface EffectContext <H extends EffectHandlerContext = EffectHandlerContext, R extends EffectRuntimeContext = EffectRuntimeContext, Re extends ResourceMap<string> = ResourceMap<string>>  {
+export interface EffectContext <H extends EffectHandlerContext = EffectHandlerContext, R extends EffectRuntimeContext = EffectRuntimeContext, Re extends ResourcesMap = ResourcesMap>  {
   handlers: H
   runtime: R
   resources: Re
@@ -35,7 +36,7 @@ export const createDefaultEffectContext = <C extends EffectContext = EffectConte
     scheduler: createScheduler(),
     errorHandlers: new Map() as ErrorHandlerMap
   }),
-  resources: new Map() as ResourceMap
+  resources: new Map() as ResourcesMap
 }))
 
 
@@ -72,3 +73,20 @@ export const contextRoot = <C extends EffectContext> (cb: AnyFunction, context?:
   }
 }))
 
+export function withContext <C extends EffectContext> (context?: C) {
+  return (cb: AnyFunction) => async () => await contextRoot(cb, context)
+}
+
+export async function nestedContext <C extends EffectContext> (cb: AnyFunction, newContext?: C) {
+  if (!newContext) {
+    newContext = structuredClone(getEffectContext<C>()) as C 
+  }
+
+  const nestedContext = defu({}, structuredClone(getEffectContext<C>()), structuredClone(newContext) as typeof newContext)
+
+  return await contextRoot(cb, nestedContext)
+}
+
+export function withNestedContext <C extends EffectContext> (newContext?: C) {
+  return (cb: AnyFunction) => async () => await nestedContext(cb, newContext)
+}

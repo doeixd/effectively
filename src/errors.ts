@@ -1,6 +1,7 @@
 // errorHandling.ts
 import { defineEffect, defineHandler } from './createEffect'
 import { getEffectContext } from './context'
+import { backoff } from './concurrency'
 
 // Type definitions for our error handling system
 export type ErrorHandler<E extends Error> = (error: E) => Promise<void> | void
@@ -12,6 +13,7 @@ declare module './context' {
     errorHandlers: ErrorHandlerMap
   }
 }
+
 
 // Effect for handling errors
 export type ErrorHandler2 = <E extends Error>(error: E) => Promise<void> | void
@@ -61,5 +63,41 @@ export class DatabaseError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'DatabaseError'
+  }
+}
+
+export interface RecoveryOptions {
+  retryCount: number
+  backoff: (attempt: number) => number
+  shouldRetry: (error: Error) => boolean
+  fallback: () => void
+}
+
+export function withRecovery (options: RecoveryOptions) {
+  return <T>(operation: (...args: unknown[]) => Promise<T>) => { 
+    let attempts = 0
+    let retryCount = options.retryCount ?? 3
+    let _backoff = options.backoff ?? backoff.constant(1000)
+    let shouldRetry = options.shouldRetry ?? ((error: Error) => true)
+    let fallback = options.fallback ?? (() => undefined as T)
+
+    return (async (...args: any[]) => {
+      while (true) {
+        try {
+          return await operation(...args)
+        } catch (error) {
+          if (!shouldRetry(error as Error)) {
+            throw error
+          }
+          if (attempts >= retryCount) {
+            return fallback()
+          }
+          attempts++
+          const delay = _backoff(attempts)
+
+          await new Promise((resolve) => setTimeout(resolve, delay))
+        }
+      }
+    }) as typeof operation
   }
 }

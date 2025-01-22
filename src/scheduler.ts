@@ -11,7 +11,10 @@ export interface Task<T> {
 class PriorityQueue<T> {
     private heap: Task<T>[] = []
     
-    enqueue(task: Task<T>) {
+    enqueue(task: Task<T>, dependsOn?: Task<unknown>) {
+        const priority = dependsOn ? Math.max(dependsOn.priority, task.priority) : task.priority
+        task.priority = priority
+
         this.heap.push(task)
         this.bubbleUp(this.heap.length - 1)
     }
@@ -76,7 +79,7 @@ export function createScheduler() {
     let paused = false
     
     return {
-        schedule<T>(executable: () => T | Promise<T>, priority = 0): Promise<T> {
+        schedule<T>(executable: () => T | Promise<T>, priority = 0, dependsOn?: Task<unknown>): Promise<T> {
             const { promise, resolve } = Promise.withResolvers<T>()
             
             const task: Task<unknown> = {
@@ -85,7 +88,7 @@ export function createScheduler() {
                 resolver: resolve as (value: unknown | PromiseLike<unknown>) => void
             }
             
-            tasks.enqueue(task)
+            tasks.enqueue(task, dependsOn)
 
             if (!isProcessing && !paused) {
                 this.process()
