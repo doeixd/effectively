@@ -1,5 +1,11 @@
 import { getEffectContext } from "./context"
 
+type Async<T extends (...args: any[]) => any> = T extends (...args: infer Args) => infer R
+  ? R extends Promise<any>
+    ? (...args: Args) => R
+    : (...args: Args) => Promise<R>
+  : never;
+
 /**
  * Generic function type used for effects and handlers
  */
@@ -14,15 +20,26 @@ export type Priority = number | 'high' | 'medium' | 'low'
  * Type for effect handlers
  */
 export type EffectHandler<T extends (...args: any[]) => any = AnyFunction> = T
-
+export interface EffectMetadata {
+  name: string
+  description?: string
+  tags?: string[]
+  deprecated?: boolean
+  experimental?: boolean
+  since?: string
+}
+export interface HandlerMetadata extends EffectMetadata {
+  priority?: number
+}
 /**
  * Create a new effect
  */
 export function defineEffect<H extends EffectHandler>(
-  name: string, 
-  defaultHandler?: H
-): H {
-  const effect = ((...args: Parameters<H>): ReturnType<H> => {
+  name: string,
+  defaultHandler?: H,
+  metadata?: EffectMetadata
+): Async<H> {
+  const effect = ((...args: Parameters<H>): Promise<ReturnType<H>> => {
     try {
       const ctx = getEffectContext()
       if (!ctx) {
@@ -31,7 +48,7 @@ export function defineEffect<H extends EffectHandler>(
 
       const handler = ctx.handlers[name] as undefined | H
       if (handler && typeof handler === 'function') {
-        return handler(...args)
+        return Promise.resolve(handler(...args))
       }
 
       if (defaultHandler && typeof defaultHandler === 'function') {
@@ -42,7 +59,7 @@ export function defineEffect<H extends EffectHandler>(
     } catch (error) {
       throw error
     }
-  }) as H
+  }) as Async<H>
 
   return effect
 }
@@ -97,11 +114,11 @@ export function composeEffects<TArgs extends unknown[], TResult>(
 ): (...args: TArgs) => Promise<TResult> {
   return async (...args: TArgs) => {
     let result = await operation(...args)
-    
+
     for (const effect of effects) {
       result = await effect(...args)
     }
-    
+
     return result
   }
 }
@@ -113,7 +130,7 @@ export function composeEffectsParallel<TArgs extends unknown[], TResult>(
   return async (...args: TArgs) => {
     const effectPromises = effects.map(effect => effect(...args))
     const operationPromise = operation(...args)
-    
+
     await Promise.all(effectPromises)
     return operationPromise
   }

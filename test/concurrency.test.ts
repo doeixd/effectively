@@ -8,7 +8,7 @@ import {
  withJitter,
  combinedEffect,
  setupConcurrencyHandlers 
-} from '../src/concurrency.ts'
+} from '../src/concurrency'
 
 
 describe('Concurrency Primitives', () => {

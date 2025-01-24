@@ -1,4 +1,4 @@
-import { AnyFunction, getEffectContext } from "./context";
+import { getEffectContext } from "./context";
 import { defineEffect, defineHandler } from "./createEffect";
 
 export type ContinuationFn<T, R> = (value: T) => R

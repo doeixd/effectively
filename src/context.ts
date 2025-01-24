@@ -1,15 +1,16 @@
 import { createContext } from "unctx"
 import { AsyncLocalStorage } from "node:async_hooks"
 import { createScheduler } from "./scheduler"
-import { EffectHandler } from "./createEffect"
+import { EffectHandler, type EffectMetadata, type HandlerMetadata } from "./createEffect"
 import { ErrorHandlerMap, ErrorBoundary, handleError } from "./errors"
 import { ResourcesMap } from "./resource"
 
 declare global {
   var __effectContext__: EffectContext | undefined
 }
-export interface EffectHandlerContext {
-  [key: string]: EffectHandler
+export interface EffectHandlerContext <T extends string = string> {
+  handlers: Record<T, EffectHandler>
+  metadata: Map<T, HandlerMetadata>
 }
 
 export interface EffectRuntimeContext {
@@ -17,17 +18,20 @@ export interface EffectRuntimeContext {
   errorHandlers: ErrorHandlerMap
   currentErrorBoundary?: ErrorBoundary
   metadata: Record<string, unknown>
+  debug: boolean
 }
 
 export interface EffectContext<
   H extends EffectHandlerContext = EffectHandlerContext,
   R extends EffectRuntimeContext = EffectRuntimeContext,
-  Re extends ResourcesMap = ResourcesMap
+  Re extends ResourcesMap = ResourcesMap,
+  P extends EffectContext<any, any, any, any> = EffectContext<any, any, any, any>,
 > {
-  handlers: H
+  handlers: H['handlers']
+  handlerMetadata: H['metadata']
   runtime: R
   resources: Re
-  parent?: EffectContext
+  parent?: P
   values: Map<string, unknown>
 }
 
@@ -36,47 +40,70 @@ export const effectContext = createContext<EffectContext>({
   AsyncLocalStorage
 })
 
-export const createDefaultEffectContext = <C extends EffectContext = EffectContext>() => ({
-  handlers: {} as C['handlers'],
-  runtime: {
-    scheduler: createScheduler(),
-    errorHandlers: new Map() as ErrorHandlerMap,
-    metadata: {},
-    currentErrorBoundary: new ErrorBoundary()
-  },
-  resources: new Map() as ResourcesMap,
-  values: new Map()
-})
+export function createDefaultEffectContext<C extends EffectContext = EffectContext>(
+  options: {
+    debug?: boolean
+    defaultMetadata?: Record<string, HandlerMetadata>
+  } = {}
+): C {
+  return {
+    handlers: {} as C['handlers'],
+    handlerMetadata: new Map(Object.entries(options.defaultMetadata || {})),
+    runtime: {
+      scheduler: createScheduler(),
+      errorHandlers: new Map(),
+      currentErrorBoundary: new ErrorBoundary(),
+      metadata: {},
+      debug: options.debug ?? false
+    },
+    resources: new Map(),
+    values: new Map()
+  } as C
+}
 
-export const getEffectContext = <C extends EffectContext>() => {
-  try {
-    var ctx: EffectContext | undefined = effectContext.use()
-  } catch (e) {
-    ctx = undefined
+
+export function getEffectContext<C extends EffectContext>(useGlobalThisAsContext: boolean = true): C {
+  const ctx = effectContext.use()
+
+  if (!ctx) {
+    if (useGlobalThisAsContext) {
+      if (process.env.NODE_ENV === 'development') {
+        console.warn(
+          'No effect context found in current async scope. ' +
+          'Creating new global context. This may indicate a bug.'
+        )
+      }
+      return setupGlobalEffectContext<C>()
+    } else {
+      throw new Error('No effect context found, used outside of effect root')
+    }
   }
 
-  if (ctx) return ctx as C
-  return setupGlobalEffectContext<C>()
+  return ctx as C
 }
 
 export const setupGlobalEffectContext = <C extends EffectContext>() => {
-  if (!globalThis['__effectContext__']) {
-    const ctx = createDefaultEffectContext<C>()
-    ctx.runtime.currentErrorBoundary = new ErrorBoundary()
-    globalThis['__effectContext__'] = ctx
+  try {
+    if (!globalThis['__effectContext__']) {
+      const ctx = createDefaultEffectContext<C>()
+      ctx.runtime.currentErrorBoundary = new ErrorBoundary()
+      globalThis['__effectContext__'] = ctx
+    }
+    return globalThis['__effectContext__'] as C
+  } catch(e) {
+    throw new Error('Was unable to setup effect context on global this', { cause: e })
   }
-  return globalThis['__effectContext__'] as C
 }
 
 export function getValue<T>(key: string): T | undefined {
   const ctx = getEffectContext()
   const value = ctx.values.get(key)
   if (value !== undefined) return value as T
-  
+
   if (ctx.parent) {
     return getValue<T>(key)
   }
-  
+
   return undefined
 }
 
@@ -99,12 +126,12 @@ export function createNestedContext<
   } = {}
 ): EffectContext<H, R, Re> {
   const parentBoundary = parent.runtime.currentErrorBoundary
-  
+
   const nestedContext: EffectContext<H, R, Re> = {
     parent,
     values: new Map(),
     resources: new Map() as Re,
-    handlers: Object.create(parent.handlers, 
+    handlers: Object.create(parent.handlers,
       Object.getOwnPropertyDescriptors(options.handlers || {})) as H,
     runtime: {
       scheduler: parent.runtime.scheduler,
@@ -113,7 +140,7 @@ export function createNestedContext<
       metadata: { ...parent.runtime.metadata, ...options.metadata }
     } as R
   }
-  
+
   return nestedContext
 }
 
@@ -153,13 +180,14 @@ export function withNestedContext<
     errorBoundary?: boolean
   }
 ) {
-  return (cb: (...args: any[]) => any) => 
-    async () => {
+  return (cb: (...args: any[]) => any) =>
+    (async () => {
       const parent = getEffectContext<C>()
       const nestedContext = createNestedContext<H, R, Re, C>(parent, options)
       return await contextRoot<C>(cb, nestedContext as C)
-    }
+    })
 }
+
 
 export async function cleanupContext(context: EffectContext) {
   for (const [_, resource] of context.resources) {
@@ -168,7 +196,7 @@ export async function cleanupContext(context: EffectContext) {
         await (resource as { cleanup: () => Promise<void> }).cleanup()
       } catch (e) {
         if (e instanceof Error && context.runtime.currentErrorBoundary) {
-          await handleError(e, { rethrow: false })
+          await context.runtime.currentErrorBoundary.handle(e, { rethrow: false })
         } else {
           console.error('Error during resource cleanup:', e)
         }

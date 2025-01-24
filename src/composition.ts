@@ -1,146 +1,208 @@
-// Type utilities for handling promises and results
-type Awaited<T> = T extends Promise<infer U> ? U : T
-export type MaybePromise<T> = T | Promise<T>
-export type UnwrapPromise<T> = T extends Promise<infer U> ? U : T
+// composition.ts
+import { Effect } from './types'
 
-/**
- * Ensures the return type is always a Promise
- */
-export type AsyncEffect<Args extends any[] = any[], Return = any> =
-  (...args: Args) => Promise<UnwrapPromise<Return>>
+type Effect <Args extends any[], Return> = (...args: Args) => Return
 
-/**
- * Helper to ensure an effect's result is a promise
- */
-export function ensurePromise<T>(value: MaybePromise<T>): Promise<T> {
-  return value instanceof Promise ? value : Promise.resolve(value)
+// Type helpers
+type UnwrapPromise<T> = T extends Promise<infer U> ? U : T
+type MaybePromise<T> = T | Promise<T>
+
+// Enhanced effect type with metadata
+interface EffectMetadata {
+  readonly name?: string
+  readonly enhancers: readonly string[]
+}
+
+// Effect type that preserves metadata through composition
+interface EnhancedEffect<Args extends any[] = any[], Return = any>
+  extends Effect<Args, Return> {
+  metadata?: EffectMetadata
+}
+
+// Type-safe enhancer
+type Enhancer<E extends EnhancedEffect> = {
+  (effect: E): E
+  readonly name?: string
 }
 
 /**
- * Convert any effect to an async effect
+ * Pipe an effect through a series of enhancers left-to-right
  */
-export function asAsync<Args extends any[], Return>(
-  effect: Effect<Args, Return>
-): AsyncEffect<Args, Return> {
-  return async (...args: Args): Promise<UnwrapPromise<Return>> => ensurePromise(effect(...args) as MaybePromise<UnwrapPromise<Return>>)
-}
-/**
- * Generic type for both effects and handlers
- */
-export type Effect<in out Args extends any[] = any[], in out Return = any> = 
-  (...args: Args) => MaybePromise<Return>
-
-/**
- * Generic type for functions that enhance effects/handlers
- */
-export type Enhancer<E extends Effect> = 
-  (effect: E) => E
-
-/**
- * Compose multiple enhancers right-to-left
- */
-export function compose<E extends Effect>(...enhancers: Enhancer<E>[]): Enhancer<E> {
-  return (effect: E) => 
-    enhancers.reduceRight((enhanced, enhance) => enhance(enhanced), effect)
-}
-
-/**
- * Compose multiple enhancers left-to-right
- */
-export function flow<E extends Effect>(...enhancers: Enhancer<E>[]): Enhancer<E> {
-  return (effect: E) => 
-    enhancers.reduce((enhanced, enhance) => enhance(enhanced), effect)
-}
-
-/**
- * Apply an enhancer to an effect/handler
- */
-export function enhance<E extends Effect>(
+export function pipe<E extends EnhancedEffect, A>(
   effect: E,
-  enhancer: Enhancer<E>
-): E {
-  return enhancer(effect)
-}
+  f1: Enhancer<E>
+): A extends E ? A : E
 
-/**
- * Apply multiple enhancers to an effect/handler left-to-right
- */
-export function pipe<E extends Effect>(
+export function pipe<E extends EnhancedEffect, A extends EnhancedEffect, B>(
+  effect: E,
+  f1: Enhancer<E>,
+  f2: Enhancer<A>
+): B extends E ? B : E
+
+export function pipe<E extends EnhancedEffect, A extends EnhancedEffect, B extends EnhancedEffect, C>(
+  effect: E,
+  f1: Enhancer<E>,
+  f2: Enhancer<A>,
+  f3: Enhancer<B>
+): C extends E ? C : E
+
+export function pipe<E extends EnhancedEffect>(
   effect: E,
   ...enhancers: Enhancer<E>[]
 ): E {
-  return flow(...enhancers)(effect)
+  const enhanced = enhancers.reduce((e, enhance) => enhance(e), effect)
+
+  // Preserve metadata through composition
+  enhanced.metadata = {
+    enhancers: [
+      ...(effect.metadata?.enhancers || []),
+      ...enhancers.map(e => e.name || 'unknown')
+    ]
+  }
+
+  return enhanced
 }
 
 /**
- * Combine multiple effects/handlers into one that runs them in sequence
+ * Compose enhancers right-to-left
  */
-export function sequence<E extends Effect>(...effects: E[]): E {
-  return (async (...args: Parameters<E>): Promise<ReturnType<E>> => {
-    let result: any
+export function compose<E extends EnhancedEffect>(
+  ...enhancers: Enhancer<E>[]
+): Enhancer<E> {
+  return (effect: E) => pipe(effect, ...enhancers.reverse())
+}
+
+/**
+ * Run effects in sequence
+ */
+export function sequence<Args extends any[], Return>(
+  ...effects: EnhancedEffect<Args, Return>[]
+): EnhancedEffect<Args, Return> {
+  return async (...args: Args): Promise<Return> => {
+    let result: Return | undefined
+
     for (const effect of effects) {
       result = await effect(...args)
     }
-    return result
-  }) as E
-}
 
-/**
- * Combine multiple effects/handlers into one that runs them in parallel
- */
-export function parallel<E extends Effect>(...effects: E[]): E {
-  return (async (...args: Parameters<E>): Promise<ReturnType<E>> => {
-    const results = await Promise.all(effects.map(e => e(...args)))
-    return results[results.length - 1]
-  }) as E
-}
-
-/**
- * Type-safe builder pattern for combining enhancers and effects/handlers
- */
-export class EffectBuilder<E extends Effect> {
-  private enhancers: Enhancer<E>[] = []
-
-  enhance(enhancer: Enhancer<E>): this {
-    this.enhancers.push(enhancer)
-    return this
-  }
-
-  build(effect: E): E {
-    return pipe(effect, ...this.enhancers)
+    return result!
   }
 }
 
-// Example usage with both effects and handlers:
+/**
+ * Run effects in parallel
+ */
+export function parallel<Args extends any[], Return>(
+  ...effects: EnhancedEffect<Args, MaybePromise<Return>>[]
+): EnhancedEffect<Args, Return[]> {
+  return async (...args: Args): Promise<Return[]> => {
+    const results = await Promise.all(
+      effects.map(effect => effect(...args))
+    )
+    return results
+  }
+}
+
+/**
+ * Create a named enhancer
+ */
+export function createEnhancer<E extends EnhancedEffect>(
+  name: string,
+  enhance: (effect: E) => E
+): Enhancer<E> {
+  const enhancer: Enhancer<E> = (effect: E) => enhance(effect)
+  enhancer.name = name
+  return enhancer
+}
+
+/**
+ * Transform effect arguments
+ */
+export function mapArgs<E extends EnhancedEffect, NewArgs extends any[]>(
+  effect: E,
+  transform: (...args: NewArgs) => Parameters<E>
+): EnhancedEffect<NewArgs, ReturnType<E>> {
+  return async (...args: NewArgs) => effect(...transform(...args))
+}
+
+/**
+ * Transform effect result
+ */
+export function mapResult<E extends EnhancedEffect, NewReturn>(
+  effect: E,
+  transform: (result: ReturnType<E>) => MaybePromise<NewReturn>
+): EnhancedEffect<Parameters<E>, NewReturn> {
+  return async (...args: Parameters<E>) => transform(await effect(...args))
+}
+
+/**
+ * Apply type-safe validation to effect arguments
+ */
+export function withValidation<E extends EnhancedEffect>(
+  validate: (...args: Parameters<E>) => boolean | Promise<boolean>
+): Enhancer<E> {
+  return createEnhancer('validate', (effect) => {
+    return async (...args: Parameters<E>) => {
+      if (!await validate(...args)) {
+        throw new Error('Validation failed')
+      }
+      return effect(...args)
+    }
+  })
+}
+
+/**
+ * Handle errors from an effect
+ */
+export function withErrorHandler<E extends EnhancedEffect>(
+  handler: (error: Error, ...args: Parameters<E>) => ReturnType<E> | Promise<ReturnType<E>>
+): Enhancer<E> {
+  return createEnhancer('errorHandler', (effect) => {
+    return async (...args: Parameters<E>) => {
+      try {
+        return await effect(...args)
+      } catch (error) {
+        if (error instanceof Error) {
+          return handler(error, ...args)
+        }
+        throw error
+      }
+    }
+  })
+}
+
+// Example usage:
 /*
-// With effects
-const baseEffect = defineEffect('operation')
-const enhancedEffect = flow(
-  withTimeout(5000),
-  withRetry({ attempts: 3, delay: 1000 })
-)(baseEffect)
+const fetchUser = defineEffect<(id: string) => Promise<User>>('fetchUser')
+const validateUser = defineEffect<(user: User) => Promise<boolean>>('validateUser')
+const saveUser = defineEffect<(user: User) => Promise<void>>('saveUser')
 
-// With handlers
-const baseHandler = (data: string) => Promise.resolve(data)
-const enhancedHandler = flow(
+// Compose complex operations
+const processUser = pipe(
+  fetchUser,
   withTimeout(5000),
-  withRetry({ attempts: 3, delay: 1000 })
-)(baseHandler)
-
-// Combining both
-const combinedOperation = sequence(
-  validationEffect,
-  transformHandler,
-  saveEffect
+  withRetry({ attempts: 3 }),
+  mapResult(async user => ({
+    ...user,
+    processedAt: new Date()
+  })),
+  withValidation(user => user.id !== undefined),
+  withErrorHandler(async (error, id) => {
+    logger.error(`Failed to process user ${id}`, error)
+    throw error
+  })
 )
 
-// Reusable enhancer combinations
-const withResilience = flow(
-  withTimeout(5000),
-  withRetry({ attempts: 3, delay: 1000 })
+// Run effects in sequence
+const createUser = sequence(
+  validateUser,
+  processUser,
+  saveUser
 )
 
-// Works with both:
-const resilientEffect = withResilience(baseEffect)
-const resilientHandler = withResilience(baseHandler)
+// Run effects in parallel
+const [user, preferences] = await parallel(
+  () => fetchUser(id),
+  () => fetchPreferences(id)
+)()
 */

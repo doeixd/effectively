@@ -1,6 +1,6 @@
 // createEffect.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { 
+import {
  defineEffect,
  defineHandler,
  getPriorityValue,
@@ -11,13 +11,13 @@ import { getEffectContext } from '../src/context'
 import { contextRoot } from '../src/context'
 
 // Mock the context module
-vi.mock('./context', async () => {
- const actual = await vi.importActual('./context')
- return {
-   ...actual,
-   getEffectContext: vi.fn()
- }
-})
+// vi.mock('./context', async () => {
+//  const actual = await vi.importActual('./context')
+//  return {
+//    ...actual,
+//    getEffectContext: vi.fn()
+//  }
+// })
 
 describe('Effect Creation and Handling', () => {
  beforeEach(() => {
@@ -38,7 +38,7 @@ describe('Effect Creation and Handling', () => {
 
      const defaultHandler = () => 'default result'
      const effect = defineEffect('test', defaultHandler)
-     
+
      expect(effect).toBeInstanceOf(Function)
      expect(effect()).toBe('default result')
    })
@@ -78,14 +78,14 @@ describe('Effect Creation and Handling', () => {
    it('should properly type the effect parameters', async () => {
      await contextRoot(async () => {
        const effect = defineEffect<(x: number, y: string) => boolean>('test')
-       
+
        defineHandler('test', (x: number, y: string) => {
          return x > 0 && y.length > 0
        })
 
        // These should type check:
        effect(42, 'test')
-       
+
        // These should not type check:
        // @ts-expect-error
        effect('wrong', 123)
@@ -109,19 +109,19 @@ describe('Effect Creation and Handling', () => {
    it('should wrap handler with scheduler except for "then"', async () => {
      await contextRoot(async () => {
        const scheduleSpy = vi.spyOn(getEffectContext().runtime.scheduler, 'schedule')
-       
+
        // Normal handler
        defineHandler('test', () => 'result')
        const effect = defineEffect('test')
        await effect()
-       
+
        expect(scheduleSpy).toHaveBeenCalled()
 
        // 'then' handler
        defineHandler('then', () => 'result')
        const thenEffect = defineEffect('then')
        await thenEffect()
-       
+
        // Should not be scheduled
        expect(scheduleSpy).toHaveBeenCalledTimes(1)
      })
@@ -175,9 +175,9 @@ describe('Effect Creation and Handling', () => {
    it('should maintain handler priority order', async () => {
      await contextRoot(async () => {
        const order: string[] = []
-       
+
        const effect = defineEffect<() => void>('test')
-       
+
        defineHandler('test', () => {
          order.push('high')
        }, 'high')
@@ -187,7 +187,7 @@ describe('Effect Creation and Handling', () => {
        }, 'low')
 
        await effect()
-       
+
        expect(order).toEqual(['high', 'low'])
      })
    })
@@ -200,7 +200,7 @@ describe('Effect Creation and Handling', () => {
 
        // These should type check:
        defineHandler('test', (x: number) => x.toString())
-       
+
        // These should not type check:
        defineHandler('test', (x: string) => x)
        defineHandler('test', () => 42)

@@ -1,4 +1,3 @@
-// errors.ts
 import { defineEffect, defineHandler } from './createEffect'
 import { getEffectContext } from './context'
 
@@ -30,7 +29,7 @@ export interface ErrorHandlingOptions {
 export class ErrorBoundary {
   private handlers = new Map<Function, ErrorHandler<any>>()
   private parent?: ErrorBoundary
-  
+
   constructor(parent?: ErrorBoundary) {
     this.parent = parent
   }
@@ -67,16 +66,6 @@ export class ErrorBoundary {
   }
 }
 
-// Effect for handling errors
-export const handleError = defineEffect<
-  (error: Error, options?: ErrorHandlingOptions) => Promise<void>
->('handleError')
-
-// Effect for creating error boundaries
-export const createErrorBoundary = defineEffect<
-  (fn: () => Promise<any>) => Promise<any>
->('createErrorBoundary')
-
 // Helper to register error handlers in current boundary
 export function registerErrorHandler<E extends Error>(
   errorType: new (...args: any[]) => E,
@@ -84,45 +73,42 @@ export function registerErrorHandler<E extends Error>(
 ) {
   const ctx = getEffectContext()
   const boundary = ctx.runtime.currentErrorBoundary
-  
+
   if (!boundary) {
     throw new Error('No error boundary found in current context')
   }
-  
+
   boundary.register(errorType, handler)
 }
 
-// Set up error handling system
-export function setupErrorHandling() {
-  // Handler for error handling effect
-  defineHandler('handleError', async (error: Error, options?: ErrorHandlingOptions) => {
-    const ctx = getEffectContext()
-    const boundary = ctx.runtime.currentErrorBoundary
-    
-    if (!boundary) {
-      throw error
-    }
 
-    await boundary.handle(error, options)
-  })
+/**
+ * Creates a new error boundary for the duration of the provided function.
+ * The new boundary inherits from any existing parent boundary in the current context.
+ *
+ * @template T The return type of the provided function
+ * @param fn Function to execute within the new error boundary
+ * @returns Promise resolving to the function's return value
+ */
+export async function createErrorBoundary<T>(
+  fn: () => T | Promise<T>
+): Promise<T> {
+  const ctx = getEffectContext()
+  const parentBoundary = ctx.runtime.currentErrorBoundary
+  const newBoundary = new ErrorBoundary(parentBoundary)
 
-  // Handler for creating error boundaries
-  defineHandler('createErrorBoundary', async (fn: () => Promise<any>) => {
-    const ctx = getEffectContext()
-    const parentBoundary = ctx.runtime.currentErrorBoundary
-    const newBoundary = new ErrorBoundary(parentBoundary)
-    
-    // Set new boundary as current
-    ctx.runtime.currentErrorBoundary = newBoundary
-    
-    try {
-      return await fn()
-    } finally {
-      // Restore parent boundary
-      ctx.runtime.currentErrorBoundary = parentBoundary
-    }
-  })
+  // Set new boundary as current
+  ctx.runtime.currentErrorBoundary = newBoundary
+
+  try {
+    // Handle both sync and async functions
+    return await Promise.resolve(fn())
+  } finally {
+    // Restore parent boundary
+    ctx.runtime.currentErrorBoundary = parentBoundary
+  }
 }
+
 
 // Example usage:
 /*
