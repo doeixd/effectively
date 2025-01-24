@@ -1,23 +1,13 @@
 // composition.ts
-import { Effect } from './types'
+import { type Effect, type EnhancedEffect } from './createEffect'
 
-type Effect <Args extends any[], Return> = (...args: Args) => Return
 
 // Type helpers
 type UnwrapPromise<T> = T extends Promise<infer U> ? U : T
 type MaybePromise<T> = T | Promise<T>
 
 // Enhanced effect type with metadata
-interface EffectMetadata {
-  readonly name?: string
-  readonly enhancers: readonly string[]
-}
 
-// Effect type that preserves metadata through composition
-interface EnhancedEffect<Args extends any[] = any[], Return = any>
-  extends Effect<Args, Return> {
-  metadata?: EffectMetadata
-}
 
 // Type-safe enhancer
 type Enhancer<E extends EnhancedEffect> = {

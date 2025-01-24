@@ -1,16 +1,16 @@
 import { createContext } from "unctx"
 import { AsyncLocalStorage } from "node:async_hooks"
 import { createScheduler } from "./scheduler"
-import { EffectHandler, type EffectMetadata, type HandlerMetadata } from "./createEffect"
-import { ErrorHandlerMap, ErrorBoundary, handleError } from "./errors"
-import { ResourcesMap } from "./resource"
+import type { EffectHandler, EffectMetadata, HandlerMetadata } from "./createEffect"
+import { type ErrorHandlerMap, ErrorBoundary } from "./errors"
+import type { ResourcesMap } from "./resource"
 
 declare global {
   var __effectContext__: EffectContext | undefined
 }
-export interface EffectHandlerContext <T extends string = string> {
-  handlers: Record<T, EffectHandler>
-  metadata: Map<T, HandlerMetadata>
+
+export interface EffectHandlerContext {
+  [key: string]: EffectHandler
 }
 
 export interface EffectRuntimeContext {
@@ -21,18 +21,20 @@ export interface EffectRuntimeContext {
   debug: boolean
 }
 
+type AnyFunction = (...args:any[]) => any
+
 export interface EffectContext<
   H extends EffectHandlerContext = EffectHandlerContext,
   R extends EffectRuntimeContext = EffectRuntimeContext,
   Re extends ResourcesMap = ResourcesMap,
   P extends EffectContext<any, any, any, any> = EffectContext<any, any, any, any>,
 > {
-  handlers: H['handlers']
-  handlerMetadata: H['metadata']
+  handlers: H
   runtime: R
   resources: Re
   parent?: P
   values: Map<string, unknown>
+  cleanups: Set<AnyFunction>
 }
 
 export const effectContext = createContext<EffectContext>({
@@ -48,7 +50,8 @@ export function createDefaultEffectContext<C extends EffectContext = EffectConte
 ): C {
   return {
     handlers: {} as C['handlers'],
-    handlerMetadata: new Map(Object.entries(options.defaultMetadata || {})),
+    // handlerMetadata: new Map(Object.entries(options.defaultMetadata || {})),
+    cleanups: new Set<AnyFunction>(),
     runtime: {
       scheduler: createScheduler(),
       errorHandlers: new Map(),
@@ -131,8 +134,10 @@ export function createNestedContext<
     parent,
     values: new Map(),
     resources: new Map() as Re,
+    cleanups: new Set<AnyFunction>(),
     handlers: Object.create(parent.handlers,
       Object.getOwnPropertyDescriptors(options.handlers || {})) as H,
+    // handlerMetadata: new Map() as H['metadata'],
     runtime: {
       scheduler: parent.runtime.scheduler,
       errorHandlers: new Map(parent.runtime.errorHandlers),
@@ -156,7 +161,7 @@ export const contextRoot = <C extends EffectContext>(
       if (error instanceof Error) {
         const ctx = getEffectContext()
         if (ctx.runtime.currentErrorBoundary) {
-          await handleError(error)
+          ctx.runtime.currentErrorBoundary.handle(error)
           // If handleError doesn't throw, we've recovered
           return undefined
         }
@@ -190,6 +195,18 @@ export function withNestedContext<
 
 
 export async function cleanupContext(context: EffectContext) {
+  for (let cleanupFn of context.cleanups) {
+    try {
+      await cleanupFn()
+    } catch (e) {
+      if (e instanceof Error && context.runtime.currentErrorBoundary) {
+        await context.runtime.currentErrorBoundary.handle(e, { rethrow: false })
+      } else {
+        console.error('Error during resource cleanup:', e)
+      }
+    }
+  }
+
   for (const [_, resource] of context.resources) {
     if (typeof resource === 'object' && resource !== null && 'cleanup' in resource) {
       try {
@@ -206,4 +223,14 @@ export async function cleanupContext(context: EffectContext) {
 
   context.resources.clear()
   context.values.clear()
+}
+
+export function addCleanup(cb: AnyFunction) {
+  const ctx = getEffectContext()
+  ctx.cleanups.add(cb)
+}
+
+export function removeCleanup(cb: AnyFunction) {
+  const ctx = getEffectContext()
+  ctx.cleanups.delete(cb)
 }

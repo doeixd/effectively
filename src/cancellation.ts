@@ -1,6 +1,8 @@
 // cancellation.ts
-import { Effect, MaybePromise } from './types'
 import { defineEffect } from './createEffect'
+import type { Effect } from './createEffect'
+
+type MaybePromise <T> = Promise<T> | T
 
 export class CancellationToken {
   private cancelled = false

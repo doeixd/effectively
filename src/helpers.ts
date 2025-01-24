@@ -1,7 +1,8 @@
+export type Metadata = Record<string, any> & { name: string }
 /**
  * Generic type for both effects and handlers
  */
-export type Effect<Args extends any[] = any[], Return = any> = 
+export type Effect<Args extends any[] = any[], Return = any> =
   (...args: Args) => Return
 
 // Core error handling and retries
@@ -12,13 +13,13 @@ export const withRetry = (options: {
 }) => <E extends Effect>(effect: E): E => {
   return (async (...args: Parameters<E>): Promise<ReturnType<E>> => {
     let lastError: Error | undefined
-    
+
     for (let attempt = 1; attempt <= options.attempts; attempt++) {
       try {
         return await effect(...args)
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error))
-        
+
         if (attempt < options.attempts) {
           if (options.shouldRetry && !(await options.shouldRetry(lastError, attempt))) {
             break
@@ -27,19 +28,19 @@ export const withRetry = (options: {
         }
       }
     }
-    
+
     throw lastError
   }) as E
 }
 
-export const withTimeout = (timeout: number) => 
+export const withTimeout = (timeout: number) =>
   <E extends Effect>(effect: E): E => {
     return (async (...args: Parameters<E>): Promise<ReturnType<E>> => {
       let timeoutId: NodeJS.Timeout
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => reject(new Error('Operation timeout')), timeout)
       })
-      
+
       try {
         return await Promise.race([
           effect(...args),
@@ -82,25 +83,25 @@ export const withCache = <E extends Effect>(options: {
 }) => (effect: E): E => {
   const cache = new Map<string, { value: ReturnType<E>, timestamp: number }>()
   const keyFn = options.keyFn || ((...args) => JSON.stringify(args))
-  
+
   return (async (...args: Parameters<E>): Promise<ReturnType<E>> => {
     const key = keyFn(...args)
     const now = Date.now()
     const cached = cache.get(key)
-    
+
     if (cached && now - cached.timestamp < options.ttl) {
       return cached.value
     }
-    
+
     const result = await effect(...args)
     cache.set(key, { value: result, timestamp: now })
-    
+
     if (options.maxSize && cache.size > options.maxSize) {
       const oldestKey = Array.from(cache.entries())
         .sort(([, a], [, b]) => a.timestamp - b.timestamp)[0][0]
       cache.delete(oldestKey)
     }
-    
+
     return result
   }) as E
 }
@@ -111,33 +112,33 @@ export const withRateLimit = (options: {
   window: number
 }) => <E extends Effect>(effect: E): E => {
   const calls: number[] = []
-  
+
   return (async (...args: Parameters<E>): Promise<ReturnType<E>> => {
     const now = Date.now()
     calls.push(now)
-    
+
     // Remove old calls outside the window
     while (calls.length && calls[0] < now - options.window) {
       calls.shift()
     }
-    
+
     if (calls.length > options.maxCalls) {
       throw new Error('Rate limit exceeded')
     }
-    
+
     return effect(...args)
   }) as E
 }
 
 // Debounce
-export const withDebounce = (wait: number) => 
+export const withDebounce = (wait: number) =>
   <E extends Effect>(effect: E): E => {
     let timeout: NodeJS.Timeout
     let pendingPromise: Promise<ReturnType<E>> | null = null
-    
+
     return (async (...args: Parameters<E>): Promise<ReturnType<E>> => {
       if (pendingPromise) return pendingPromise
-      
+
       pendingPromise = new Promise((resolve, reject) => {
         clearTimeout(timeout)
         timeout = setTimeout(async () => {
@@ -151,7 +152,7 @@ export const withDebounce = (wait: number) =>
           }
         }, wait)
       })
-      
+
       return pendingPromise
     }) as E
   }
@@ -164,7 +165,7 @@ export const withCircuitBreaker = (options: {
   let failures = 0
   let lastFailure: number | null = null
   let isOpen = false
-  
+
   return (async (...args: Parameters<E>): Promise<ReturnType<E>> => {
     if (isOpen) {
       if (lastFailure && Date.now() - lastFailure > options.resetTimeout) {
@@ -174,7 +175,7 @@ export const withCircuitBreaker = (options: {
         throw new Error('Circuit breaker is open')
       }
     }
-    
+
     try {
       const result = await effect(...args)
       failures = 0
@@ -182,7 +183,7 @@ export const withCircuitBreaker = (options: {
     } catch (error) {
       failures++
       lastFailure = Date.now()
-      
+
       if (failures >= options.threshold) {
         isOpen = true
       }

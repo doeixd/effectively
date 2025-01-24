@@ -1,7 +1,5 @@
-import { EffectContext, getEffectContext } from "./context"
-import { EffectHandler } from "./createEffect"
-
-type AnyFunction = (...args: any[]) => any
+import { type EffectContext, getEffectContext } from "./context"
+import type { EffectHandler } from "./createEffect"
 
 export interface IResource <T> {
   get (last?: T):  T
@@ -39,8 +37,7 @@ export async function cleanupResources<T>(resources?: IResource<T>[]) {
     try {
       await resource?.cleanup?.(value)
     } catch (e) {
-      console.error(`Error cleaning up resource`)
-      console.error(e)
+      throw new Error('Error cleaning up resource', {cause: e})
     }
   }
 }
@@ -48,7 +45,7 @@ export async function cleanupResources<T>(resources?: IResource<T>[]) {
 export function useResource<T extends object>(resource: IResource<T>) {
   const ctx = getEffectContext()
   const last = ctx.resources.get(resource) as NonNullable<T> | undefined
- 
+
   const newResource = resource.get(last)
   ctx.resources.set(resource, newResource)
 

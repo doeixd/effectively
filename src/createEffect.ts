@@ -16,18 +16,53 @@ type AnyFunction = (...args: any[]) => any
  */
 export type Priority = number | 'high' | 'medium' | 'low'
 
-/**
- * Type for effect handlers
- */
-export type EffectHandler<T extends (...args: any[]) => any = AnyFunction> = T
+
+export interface Effect <in Args extends any[] = any[], out Return extends any = any> {
+  (...args: Args): Promise<Return>
+}
+
 export interface EffectMetadata {
-  name: string
+  readonly name: string
+  enhancers?: readonly string[]
   description?: string
   tags?: string[]
   deprecated?: boolean
   experimental?: boolean
   since?: string
+  [key: string]: any
 }
+
+// Effect type that preserves metadata through composition
+export interface EnhancedEffect<in out Args extends any[] = any[], in out Return = any>
+  extends Effect<Args, Return> {
+  metadata?: EffectMetadata
+}
+
+
+export function isEnhancedEffect(arg: any): arg is EnhancedEffect {
+  if (typeof arg !== 'function') return false
+
+  if (arg?.metadata && typeof arg.metadata == 'object')  return true
+
+  return false
+}
+
+/**
+ * Base handler interface for effects
+ */
+export interface EffectHandler {
+  (...args: any[]): any
+}
+
+/**
+ * Typed effect handler interface
+ * @template Args Arguments tuple type
+ * @template Return Return type
+ */
+export interface EffectHandler<Args extends any[] = any[], Return = any> {
+  (...args: Args): Return | Promise<Return>
+}
+
 export interface HandlerMetadata extends EffectMetadata {
   priority?: number
 }

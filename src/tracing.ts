@@ -1,5 +1,7 @@
-import { EffectHandler } from "./createEffect"
-import { asAsync, AsyncEffect, Effect, ensurePromise, flow, MaybePromise, UnwrapPromise } from "./composition"
+// import { asAsync, AsyncEffect, Effect, ensurePromise, flow, UnwrapPromise } from "./composition"
+import type { Effect, EnhancedEffect } from "./createEffect"
+
+const identity = <A extends any[], R>(effect: Effect<A, R>): Effect<A, R> => effect;
 
 // Core types for observability
 export interface SpanContext {
@@ -178,21 +180,21 @@ export class Logger {
       spanId: observabilityContext?.span?.id,
       traceId: observabilityContext?.span?.traceId
     }
-    this.onLog(record).catch(error => 
+    this.onLog(record).catch(error =>
       console.error('Error in logger:', error)
     )
   }
 
-  debug = (message: string, context?: Record<string, unknown>): void => 
+  debug = (message: string, context?: Record<string, unknown>): void =>
     this.log(LogLevel.DEBUG, message, context)
 
-  info = (message: string, context?: Record<string, unknown>): void => 
+  info = (message: string, context?: Record<string, unknown>): void =>
     this.log(LogLevel.INFO, message, context)
 
-  warn = (message: string, context?: Record<string, unknown>): void => 
+  warn = (message: string, context?: Record<string, unknown>): void =>
     this.log(LogLevel.WARN, message, context)
 
-  error = (message: string, context?: Record<string, unknown>): void => 
+  error = (message: string, context?: Record<string, unknown>): void =>
     this.log(LogLevel.ERROR, message, context)
 }
 
@@ -215,17 +217,16 @@ export interface TracingOptions {
   processor?: SpanProcessor
 }
 
-type EnhancedEffect<in out Args extends unknown[], Return> = Effect<Args, Return>
 
 /**
  * Enhanced withTracing that properly handles sync and async effects
  */
-export const withTracing = (options: TracingOptions) => 
+export const withTracing = (options: TracingOptions) =>
   <Args extends any[], Return>(effect: Effect<Args, Return>): Effect<Args, Return> => {
     return async (...args: Args): Promise<Awaited<Return>> => {
       const parentContext = getObservabilityContext()
       const traceId = parentContext?.span?.traceId || crypto.randomUUID()
-      
+
       const span: Span = {
         id: crypto.randomUUID(),
         name: options.name,
@@ -267,7 +268,7 @@ export const withTracing = (options: TracingOptions) =>
             traceId: parentContext.span.traceId
           })
         }
-        
+
         await options.processor?.processSpan(span)
         setObservabilityContext(parentContext)
       }
@@ -278,7 +279,7 @@ export const withTracing = (options: TracingOptions) =>
  * Enhanced withMetrics that properly handles sync and async effects
  */
 export const withMetrics = (
-  metrics: Record<string, { 
+  metrics: Record<string, {
     type: MetricType
     labels?: Record<string, string>
     description?: string
@@ -294,7 +295,7 @@ export const withMetrics = (
 
       Object.entries(metrics).forEach(([name, config]) => {
         if (!context?.metrics) return
-        
+
         switch (config.type) {
           case MetricType.COUNTER:
             context.metrics.counter(name, 1, config.labels)
@@ -361,7 +362,7 @@ export const withLogging = (options: {
 export const withObservability = (options: {
   name: string
   kind?: SpanKind
-  metrics?: Record<string, { 
+  metrics?: Record<string, {
     type: MetricType
     labels?: Record<string, string>
     description?: string
@@ -371,11 +372,43 @@ export const withObservability = (options: {
     context?: Record<string, unknown>
   }
   processor?: SpanProcessor
-}) => <Args extends any[], Return>(effect: Effect<Args, Return>): AsyncEffect<Args, Return> => {
-  const asyncEffect = asAsync(effect)
-  return flow(
+}) => <Args extends any[], Return extends any>(effect: Effect<Args, Return>): AsyncEffect<Args, Return> => {
+  const asyncEffect = asAsync(effect) as AsyncEffect<Args, Return>
+  return asyncFlow(
     withTracing({ name: options.name, kind: options.kind, processor: options.processor }),
-    options.metrics ? withMetrics(options.metrics) : (x: EnhancedEffect<Args, Return>) => x,
-    options.logging ? withLogging(options.logging) : (x: AsyncEffect<Args, Return>) => x
+    options.metrics ? withMetrics(options.metrics) : identity,
+    options.logging ? withLogging(options.logging) : identity,
   )(asyncEffect)
+}
+
+function flow<Args extends any[], Return>(
+  ...fns: Array<(effect: Effect<Args, Return>) => Effect<Args, Return>>
+): (effect: Effect<Args, Return>) => Effect<Args, Return> {
+  return (effect: Effect<Args, Return>): Effect<Args, Return> => {
+    return fns.reduce((acc, fn) => fn(acc), effect)
+  }
+}
+function asAsync<Args extends any[], Return>(effect: Effect<Args, Return>): AsyncEffect<Args, Return> {
+  return async (...args: Args): Promise<UnwrapPromise<Return>> => {
+    return await ensurePromise(effect(...args)) as UnwrapPromise<Return>
+  }
+}
+function ensurePromise<T>(value: T | Promise<T>): Promise<T> {
+  if (value instanceof Promise) {
+    return value;
+  }
+  return Promise.resolve(value);
+}
+
+export type UnwrapPromise<T> = T extends Promise<infer U> ? U : T
+
+export type AsyncEffect<in Args extends any[] = any[], out Return = any> =
+  (...args: Args) => Promise<UnwrapPromise<Return>>
+
+export function asyncFlow<Args extends any[], Return>(
+  ...fns: Array<(effect: AsyncEffect<Args, Return>) => AsyncEffect<Args, Return>>
+): (effect: AsyncEffect<Args, Return>) => AsyncEffect<Args, Return> {
+  return (effect: AsyncEffect<Args, Return>): AsyncEffect<Args, Return> => {
+    return fns.reduce((acc, fn) => fn(acc), effect);
+  }
 }

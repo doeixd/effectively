@@ -1,6 +1,5 @@
 import { getEffectContext } from "./context"
 import { defineEffect } from "./createEffect"
-import { handleError } from "./errors"
 
 export interface TaskOptions {
   priority?: number
@@ -22,6 +21,9 @@ export interface Task<T> {
   retryCount: number
   state: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
 }
+
+export class Aborted extends Error {}
+export class TimedOut extends Error {}
 
 class PriorityQueue<T> {
   private heap: Task<T>[] = []
@@ -144,7 +146,7 @@ export function createScheduler() {
       // Handle abort signal
       if (options.signal) {
         if (options.signal.aborted) {
-          reject(new Error('Task cancelled'))
+          reject(new Aborted('Task cancelled'))
           return promise
         }
 
@@ -152,7 +154,7 @@ export function createScheduler() {
           if (task.state !== 'completed') {
             task.state = 'cancelled'
             tasks.remove(task.id)
-            reject(new Error('Task cancelled'))
+            reject(new Aborted('Task cancelled'))
           }
         })
       }
@@ -171,7 +173,7 @@ export function createScheduler() {
       if (task && task.state !== 'completed') {
         task.state = 'cancelled'
         tasks.remove(taskId)
-        task.rejecter(new Error('Task cancelled'))
+        task.rejecter(new Aborted('Task cancelled'))
       }
     },
 
@@ -209,7 +211,7 @@ export function createScheduler() {
           // Handle timeout
           const timeoutPromise = task.options.timeout
             ? new Promise((_, reject) => {
-              setTimeout(() => reject(new Error('Task timeout')), task.options.timeout)
+              setTimeout(() => reject(new TimedOut('Task timeout')), task.options.timeout)
             })
             : null
 

@@ -1,35 +1,35 @@
 /**
 * A lightweight, type-safe effect system for TypeScript inspired by algebraic effects.
-* 
+*
 * Features:
 * - Type-safe effect definitions and handlers
 * - Priority-based task scheduling
 * - Sophisticated error handling
 * - Built-in concurrency primitives
 * - Composable effects
-* 
+*
 * @example
 * ```ts
 * import { defineEffect, defineHandler, contextRoot } from 'effectivly'
-* 
+*
 * // Define an effect
 * const log = defineEffect<(msg: string) => void>('log')
-* 
+*
 * await contextRoot(async () => {
 *   // Define the handler
 *   defineHandler('log', (msg) => {
 *     console.log(`[${new Date().toISOString()}] ${msg}`)
 *   }, 'high')
-* 
+*
 *   // Use the effect
 *   await log('Hello world!')
 * })
 * ```
-* 
+*
 * @packageDocumentation
 */
 
-export { 
+export {
  contextRoot,
  getEffectContext,
  createDefaultEffectContext,
@@ -41,38 +41,38 @@ export {
 
 /**
 * Create a new effect with optional default handler.
-* 
+*
 * @param name - Unique name for the effect
 * @param defaultHandler - Optional default implementation
-* 
+*
 * @example
 * ```ts
 * // Simple effect
 * const log = defineEffect<(msg: string) => void>('log')
-* 
+*
 * // Effect with default handler
 * const getTime = defineEffect('getTime', () => new Date().toISOString())
-* 
+*
 * // Effect with complex types
 * interface User {
 *   id: number
 *   name: string
 * }
-* 
+*
 * const saveUser = defineEffect<(user: User) => Promise<void>>('saveUser')
 * ```
 */
-export { 
+export {
  defineEffect,
  defineHandler,
  getPriorityValue,
  type Priority,
- type EffectHandler 
+ type EffectHandler
 } from './createEffect'
 
 /**
 * Concurrency primitives for retry logic and rate limiting.
-* 
+*
 * @example
 * ```ts
 * // Retry with exponential backoff
@@ -84,7 +84,7 @@ export {
 *     shouldRetry: (error) => error instanceof NetworkError
 *   }
 * )
-* 
+*
 * // Rate limiting
 * const rateLimitedApi = await rateLimit(
 *   async () => callApi(),
@@ -94,7 +94,7 @@ export {
 *     fairness: true
 *   }
 * )
-* 
+*
 * // Combine effects
 * const resilientApi = await combinedEffect(
 *   [
@@ -120,23 +120,23 @@ export {
 
 /**
 * Error handling system with inheritance-based handler resolution.
-* 
+*
 * @example
 * ```ts
 * class ValidationError extends Error {}
 * class DatabaseError extends Error {}
-* 
+*
 * await contextRoot(async () => {
 *   // Register error handlers
 *   registerErrorHandler(ValidationError, async (error) => {
 *     console.log('Validation failed:', error.message)
 *   })
-* 
+*
 *   registerErrorHandler(DatabaseError, async (error) => {
 *     console.error('Database error:', error.message)
 *     await notifyAdmin(error)
 *   })
-* 
+*
 *   try {
 *     await saveUser(user)
 *   } catch (error) {
@@ -146,7 +146,6 @@ export {
 * ```
 */
 export {
- handleError,
  registerErrorHandler,
  type ErrorHandler,
  type ErrorHandlerMap
@@ -154,31 +153,31 @@ export {
 
 /**
 * Priority-based task scheduler.
-* 
+*
 * @example
 * ```ts
 * const scheduler = createScheduler()
-* 
+*
 * // Schedule high priority task
 * await scheduler.schedule(
 *   async () => importantOperation(),
 *   'high'
 * )
-* 
+*
 * // Pause processing
 * scheduler.pause()
-* 
+*
 * // Queue up some tasks while paused
-* const tasks = [1, 2, 3].map(i => 
+* const tasks = [1, 2, 3].map(i =>
 *   scheduler.schedule(
 *     () => processItem(i),
 *     'low'
 *   )
 * )
-* 
+*
 * // Resume processing
 * scheduler.resume()
-* 
+*
 * // Wait for all tasks
 * await Promise.all(tasks)
 * ```
@@ -191,17 +190,17 @@ export {
 
 /**
 * Continuation management for complex control flows.
-* 
+*
 * @example
 * ```ts
 * const getUser = Cont(next => userId => {
 *   return then(next, fetchUser(userId))
 * })
-* 
+*
 * const verifyUser = Cont(next => user => {
 *   return then(next, validateUser(user))
 * })
-* 
+*
 * const processUser = chain(
 *   getUser,
 *   verifyUser,
