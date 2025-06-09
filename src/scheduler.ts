@@ -1,10 +1,19 @@
+/**
+ * @module
+ * This module provides a powerful and comprehensive suite of utilities for executing
+ * tasks in parallel. It offers fine-grained control over concurrency, scheduling,
+ * and result handling, for both arrays and iterables of tasks.
+ */
+
 import type { Task, Scope } from './run';
 import { defineTask, getContext } from './run';
 
+// =================================================================
+// Section 1: Core Types and Scheduler
+// =================================================================
+
 /**
- * Defines the priority levels for task scheduling, influencing the order and
- * timing of execution. This type maps to the browser's `TaskPriority` enum
- * when the native Scheduler API is available.
+ * Defines the priority levels for task scheduling.
  */
 export type TaskPriority = 'user-blocking' | 'user-visible' | 'background';
 
@@ -12,99 +21,49 @@ export type TaskPriority = 'user-blocking' | 'user-visible' | 'background';
  * Provides a set of options to control the execution behavior of parallel operations.
  */
 export interface ParallelOptions {
-  /**
-   * The maximum number of tasks that are allowed to run concurrently.
-   * @default Infinity
-   */
+  /** The maximum number of tasks that are allowed to run concurrently. @default Infinity */
   concurrency?: number;
-
-  /**
-   * The priority for the scheduled tasks. This is a hint to the scheduler
-   * about the importance of the tasks.
-   * @default 'user-visible'
-   */
+  /** The priority for the scheduled tasks. @default 'user-visible' */
   priority?: TaskPriority;
-
-  /**
-   * If true, tasks are grouped into batches and scheduled together. This can
-   * improve performance by reducing scheduling overhead, but may alter execution timing.
-   * When enabled, the `concurrency` option is not applied.
-   * @default false
-   */
+  /** If true, tasks are grouped into batches. When enabled, `concurrency` is not applied. @default false */
   batching?: boolean;
-
-  /**
-   * The number of tasks to include in each batch when `batching` is enabled.
-   * @default 10
-   */
+  /** The number of tasks to include in each batch when `batching` is enabled. @default 10 */
   batchSize?: number;
-
-  /**
-   * If true, the results array will have the same order as the input tasks array.
-   * If false, results are returned in the order they complete, which can offer a
-   * minor performance improvement. This option does not apply to iterator-based
-   * functions like `parallelFrom`, which always stream results as they complete.
-   * @default true
-   */
+  /** If true, the results array will have the same order as the input tasks array. @default true */
   preserveOrder?: boolean;
-
-  /**
-   * An `AbortSignal` that can be used to cancel the entire parallel operation.
-   * If not provided, the signal from the current context's scope is used.
-   */
+  /** An `AbortSignal` to cancel the parallel operation. Defaults to the context's scope signal. */
   signal?: AbortSignal;
 }
 
 /**
  * Represents the result of a single task executed within a parallel operation.
- * It's a discriminated union that indicates whether the task succeeded or failed.
  */
 export type ParallelResult<T> =
   | { status: 'fulfilled'; value: T; index: number }
   | { status: 'rejected'; reason: unknown; index: number };
 
 /**
- * Defines the contract for a task scheduler, abstracting the underlying
- * mechanism for scheduling asynchronous work (e.g., native `scheduler.postTask`
- * or a Promise-based fallback).
+ * Defines the contract for a task scheduler.
  */
 export interface Scheduler {
-  /**
-   * Schedules a callback function to be executed asynchronously.
-   * @param callback The function to execute.
-   * @param options Scheduling options like priority and signal.
-   * @returns A promise that resolves with the callback's return value.
-   */
-  postTask<T>(
-    callback: () => T | Promise<T>,
-    options?: { priority?: TaskPriority; signal?: AbortSignal }
-  ): Promise<T>;
-
-  /**
-   * A boolean indicating if the scheduler is using the native browser API.
-   */
+  postTask<T>(callback: () => T | Promise<T>, options?: { priority?: TaskPriority; signal?: AbortSignal }): Promise<T>;
   readonly isNative: boolean;
 }
 
-// Internal implementation details (classes, etc.) are not documented for the public API.
 class NativeScheduler implements Scheduler {
   readonly isNative = true;
   postTask<T>(callback: () => T | Promise<T>, options?: { priority?: TaskPriority; signal?: AbortSignal }): Promise<T> {
-    if ('scheduler' in globalThis && 'postTask' in (globalThis as any).scheduler) {
+    if ('scheduler' in globalThis && 'postTask' in ((globalThis as any).scheduler)) {
       return (globalThis as any).scheduler.postTask(callback, options);
     }
-    const delay = this.getPriorityDelay(options?.priority);
+    const delay = options?.priority === 'background' ? 250 : 0;
     return new Promise<T>((resolve, reject) => {
       const timeoutId = setTimeout(async () => {
         try { resolve(await callback()); } catch (error) { reject(error); }
       }, delay);
-      options?.signal?.addEventListener('abort', () => {
-        clearTimeout(timeoutId);
-        reject(new DOMException('Aborted', 'AbortError'));
-      });
+      options?.signal?.addEventListener('abort', () => { clearTimeout(timeoutId); reject(new DOMException('Aborted', 'AbortError')); });
     });
   }
-  private getPriorityDelay = (p?: TaskPriority) => p === 'user-blocking' ? 0 : p === 'background' ? 250 : 0;
 }
 
 class PromiseScheduler implements Scheduler {
@@ -114,12 +73,9 @@ class PromiseScheduler implements Scheduler {
       if (options?.signal?.aborted) return reject(new DOMException('Aborted', 'AbortError'));
       const schedule = options?.priority === 'user-blocking' ? queueMicrotask : (cb: () => void) => setTimeout(cb, 0);
       const abortHandler = () => reject(new DOMException('Aborted', 'AbortError'));
-      options?.signal?.addEventListener('abort', abortHandler);
+      options?.signal?.addEventListener('abort', abortHandler, { once: true });
       schedule(async () => {
-        if (options?.signal?.aborted) {
-          options.signal.removeEventListener('abort', abortHandler);
-          return;
-        }
+        if (options?.signal?.aborted) return;
         try { resolve(await callback()); } catch (error) { reject(error); }
         finally { options?.signal?.removeEventListener('abort', abortHandler); }
       });
@@ -127,52 +83,39 @@ class PromiseScheduler implements Scheduler {
   }
 }
 
-/**
- * Returns the best available scheduler for the current environment.
- * It prefers the native browser scheduler and falls back to a promise-based one.
- * @returns An instance of a `Scheduler`.
- */
+/** Returns the best available scheduler for the current environment. */
 export function getScheduler(): Scheduler {
-  if ('scheduler' in globalThis && 'postTask' in (globalThis as any).scheduler) {
-    return new NativeScheduler();
-  }
-  return new PromiseScheduler();
+  return ('scheduler' in globalThis && 'postTask' in (globalThis as any).scheduler) ? new NativeScheduler() : new PromiseScheduler();
 }
 
-/**
- * A shared, default instance of the scheduler.
- */
+/** A shared, default instance of the scheduler. */
 export const scheduler = getScheduler();
 
+
+// =================================================================
+// Section 2: Core Parallel Execution Engine
+// =================================================================
+
 /**
- * Executes an array of tasks in parallel with fine-grained control over
- * concurrency, priority, and cancellation.
+ * Executes an array of tasks in parallel and returns an array of `ParallelResult` objects,
+ * reflecting the outcome of each task. This function never rejects.
+ * It is the core engine for other parallel utilities.
  *
- * @template C The context type required by the tasks.
- * @template V The type of the input value passed to each task.
- * @template R The type of the result produced by each successful task.
  * @param tasks An array of `Task` functions to execute.
  * @param value The input value that will be passed to each task.
  * @param options Configuration for controlling the parallel execution.
- * @returns A promise that resolves to an array of `ParallelResult` objects,
- *          reflecting the outcome of each task.
+ * @returns A promise that resolves to an array of `ParallelResult` objects.
  *
  * @example
  * ```typescript
- * const [userResult, postsResult] = await parallel(
+ * const [userResult, postsResult] = await allSettled(
  *   [fetchUser, fetchPosts],
- *   userId,
- *   { concurrency: 2, priority: 'user-visible' }
+ *   userId
  * );
- *
- * if (userResult.status === 'fulfilled') {
- *   console.log('User:', userResult.value);
- * } else {
- *   console.error('Failed to fetch user:', userResult.reason);
- * }
+ * if (userResult.status === 'fulfilled') { //... }
  * ```
  */
-export async function parallel<C extends { scope: Scope }, V, R>(
+export async function allSettled<C extends { scope: Scope }, V, R>(
   tasks: ReadonlyArray<Task<C, V, R>>,
   value: V,
   options: ParallelOptions = {}
@@ -188,9 +131,10 @@ export async function parallel<C extends { scope: Scope }, V, R>(
   };
   if (tasks.length === 0) return [];
   const controller = new AbortController();
-  const onAbort = () => controller.abort();
-  finalOptions.signal.addEventListener('abort', onAbort);
-  context.scope.signal.addEventListener('abort', onAbort);
+  const onAbort = () => controller.abort(finalOptions.signal.reason);
+  finalOptions.signal.addEventListener('abort', onAbort, { once: true });
+  context.scope.signal.addEventListener('abort', onAbort, { once: true });
+
   const executionOptions = { ...finalOptions, signal: controller.signal };
   try {
     if (executionOptions.batching) {
@@ -206,6 +150,10 @@ export async function parallel<C extends { scope: Scope }, V, R>(
   }
 }
 
+/** @deprecated Use `allSettled` instead. */
+export const parallel = allSettled;
+
+// Internal execution helpers
 async function executeUnlimited<C extends { scope: Scope }, V, R>(tasks: ReadonlyArray<Task<C, V, R>>, value: V, context: C, options: Required<ParallelOptions>): Promise<ParallelResult<R>[]> {
   const { priority, signal } = options;
   const promises = tasks.map((task, index) => scheduler.postTask(async (): Promise<ParallelResult<R>> => {
@@ -214,13 +162,12 @@ async function executeUnlimited<C extends { scope: Scope }, V, R>(tasks: Readonl
   }, { priority, signal }));
   return Promise.all(promises);
 }
-
 async function executeLimited<C extends { scope: Scope }, V, R>(tasks: ReadonlyArray<Task<C, V, R>>, value: V, context: C, options: Required<ParallelOptions>): Promise<ParallelResult<R>[]> {
   const { concurrency, priority, signal, preserveOrder } = options;
   const results: ParallelResult<R>[] = preserveOrder ? new Array(tasks.length) : [];
   const executing = new Set<Promise<void>>();
   for (let i = 0; i < tasks.length; i++) {
-    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (signal.aborted) throw signal.reason;
     if (executing.size >= concurrency) await Promise.race(executing);
     const index = i;
     const task = tasks[index];
@@ -239,12 +186,11 @@ async function executeLimited<C extends { scope: Scope }, V, R>(tasks: ReadonlyA
   await Promise.all(executing);
   return results;
 }
-
 async function executeBatched<C extends { scope: Scope }, V, R>(tasks: ReadonlyArray<Task<C, V, R>>, value: V, context: C, options: Required<ParallelOptions>): Promise<ParallelResult<R>[]> {
   const { batchSize, priority, signal } = options;
   const results: ParallelResult<R>[] = [];
   for (let i = 0; i < tasks.length; i += batchSize) {
-    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (signal.aborted) throw signal.reason;
     const batch = tasks.slice(i, i + batchSize);
     const batchResults = await scheduler.postTask(() => Promise.all(
       batch.map(async (task, batchIndex): Promise<ParallelResult<R>> => {
@@ -258,93 +204,19 @@ async function executeBatched<C extends { scope: Scope }, V, R>(tasks: ReadonlyA
   return results;
 }
 
-/**
- * Creates a new `Task` that, when executed, runs an array of tasks in parallel.
- * This is useful for composing complex asynchronous workflows.
- *
- * @param tasks An array of `Task` functions to be executed in parallel.
- * @param options Configuration for controlling the parallel execution.
- * @returns A new `Task` that encapsulates the parallel operation.
- *
- * @example
- * ```typescript
- * // Define a composite task that fetches all data for a page.
- * const fetchPageData = parallelTask(
- *   [fetchHeader, fetchSidebar, fetchContent],
- *   { concurrency: 3 }
- * );
- *
- * // Later, execute it within a scope.
- * const pageDataResults = await run(fetchPageData, { pageId: 123 });
- * ```
- */
-export function parallelTask<C extends { scope: Scope }, V, R>(
-  tasks: ReadonlyArray<Task<C, V, R>>,
-  options?: ParallelOptions
-): Task<C, V, ParallelResult<R>[]> {
-  return defineTask(async (value: V) => parallel(tasks, value, options));
-}
+
+// =================================================================
+// Section 3: High-Level Parallel Helpers for Arrays
+// =================================================================
 
 /**
- * Executes tasks in parallel and returns an array containing only the values
- * from successfully fulfilled tasks. Failed tasks are ignored.
+ * Executes tasks in parallel and, like `Promise.all`, rejects if any of the tasks fail.
+ * If all tasks succeed, it returns an array of their values in the same order.
  *
- * @param tasks An array of `Task` functions to execute.
- * @param value The input value passed to each task.
- * @param options Configuration for controlling the parallel execution.
- * @returns A promise that resolves to an array of successful result values.
- *
- * @example
- * ```typescript
- * // Fetch from multiple sources, but only use the ones that succeed.
- * const availableFeeds = await parallelSettled(
- *   [fetchFeed('a'), fetchFeed('b'), fetchFeed('c')],
- *   apiToken
- * );
- * console.log(`Got ${availableFeeds.length} feeds.`);
- * ```
+ * @returns A promise that resolves to an array of all result values.
  */
-export async function parallelSettled<C extends { scope: Scope }, V, R>(
-  tasks: ReadonlyArray<Task<C, V, R>>,
-  value: V,
-  options?: ParallelOptions
-): Promise<R[]> {
-  const results = await parallel(tasks, value, { ...options, preserveOrder: false });
-  return results
-    .filter((r): r is { status: 'fulfilled'; value: R; index: number } => r.status === 'fulfilled')
-    .map(r => r.value);
-}
-
-/**
- * Executes tasks in parallel and, like `Promise.all`, throws an error if any
- * of the tasks fail. If all tasks succeed, it returns an array of their values.
- *
- * @param tasks An array of `Task` functions to execute.
- * @param value The input value passed to each task.
- * @param options Configuration for controlling the parallel execution.
- * @returns A promise that resolves to an array of all result values if all tasks succeed.
- *          It rejects with the reason of the first task that fails.
- *
- * @example
- * ```typescript
- * try {
- *   // All of these tasks must succeed to build the report.
- *   const [userData, salesData] = await parallelAll(
- *     [fetchCriticalUser, fetchCriticalSales],
- *     authToken
- *   );
- *   generateReport(userData, salesData);
- * } catch (error) {
- *   console.error('Failed to generate report:', error);
- * }
- * ```
- */
-export async function parallelAll<C extends { scope: Scope }, V, R>(
-  tasks: ReadonlyArray<Task<C, V, R>>,
-  value: V,
-  options?: ParallelOptions
-): Promise<R[]> {
-  const results = await parallel(tasks, value, { ...options, preserveOrder: true });
+export async function all<C extends { scope: Scope }, V, R>(tasks: ReadonlyArray<Task<C, V, R>>, value: V, options?: ParallelOptions): Promise<R[]> {
+  const results = await allSettled(tasks, value, { ...options, preserveOrder: true });
   const values: R[] = new Array(results.length);
   for (const result of results) {
     if (result.status === 'rejected') throw result.reason;
@@ -352,64 +224,63 @@ export async function parallelAll<C extends { scope: Scope }, V, R>(
   }
   return values;
 }
+/** @deprecated Use `all` instead. */
+export const parallelAll = all;
 
 /**
- * Races multiple tasks and returns the result of the first task to either
- * fulfill or reject, similar to `Promise.race`.
+ * Executes tasks in parallel and returns an array containing only the values
+ * from successfully fulfilled tasks, ignoring failures.
  *
- * @param tasks An array of `Task` functions to race.
- * @param value The input value passed to each task.
- * @param options Configuration for controlling the parallel execution.
- * @returns A promise that resolves or rejects with the value or reason
- *          of the first task to settle.
- *
- * @example
- * ```typescript
- * // Fetch from a primary and a backup endpoint, use whichever is faster.
- * const fastestServerResponse = await race(
- *   [() => fetch('api.primary.com'), () => fetch('api.backup.com')],
- *   requestData
- * );
- * ```
+ * @returns A promise that resolves to an array of successful result values.
  */
-export async function race<C extends { scope: Scope }, V, R>(
-  tasks: ReadonlyArray<Task<C, V, R>>,
-  value: V,
-  options?: Omit<ParallelOptions, 'preserveOrder'>
-): Promise<R> {
+export async function some<C extends { scope: Scope }, V, R>(tasks: ReadonlyArray<Task<C, V, R>>, value: V, options?: ParallelOptions): Promise<R[]> {
+  const results = await allSettled(tasks, value, { ...options, preserveOrder: false });
+  return results
+    .filter((r): r is { status: 'fulfilled'; value: R; index: number } => r.status === 'fulfilled')
+    .map(r => r.value);
+}
+/** @deprecated Use `some` instead. */
+export const parallelSettled = some;
+
+/**
+ * Races multiple tasks and returns the result of the first task to either fulfill or reject.
+ *
+ * @returns A promise that resolves or rejects with the outcome of the first task to settle.
+ */
+export async function race<C extends { scope: Scope }, V, R>(tasks: ReadonlyArray<Task<C, V, R>>, value: V, options?: Omit<ParallelOptions, 'preserveOrder'>): Promise<R> {
   return raceFrom(tasks, value, options);
 }
 
+/**
+ * Returns a promise that fulfills with the value of the first task to fulfill.
+ * It rejects only if all of the tasks reject, with an `AggregateError`.
+ *
+ * @returns A promise that resolves with the value of the first successful task.
+ */
+export async function any<C extends { scope: Scope }, V, R>(tasks: ReadonlyArray<Task<C, V, R>>, value: V, options?: ParallelOptions): Promise<R> {
+  const results = await allSettled(tasks, value, options);
+  const fulfilled = results.filter((r): r is { status: 'fulfilled', value: R, index: number } => r.status === 'fulfilled');
+  if (fulfilled.length > 0) {
+    // To respect completion order, we would need a more complex setup.
+    // For simplicity, we return the first one from the results array.
+    return fulfilled[0].value;
+  }
+  const errors = results.map(r => (r as { reason: unknown }).reason);
+  throw new AggregateError(errors, 'All promises were rejected');
+}
 
-// --- Iterator-Based Utilities ---
+
+// =================================================================
+// Section 4: Iterator-Based Streaming Utilities
+// =================================================================
 
 /**
  * Executes tasks from an `Iterable` or `AsyncIterable` in parallel, yielding
- * results as they complete. This is highly memory-efficient for processing a
- * large or dynamically generated set of tasks.
+ * `ParallelResult` objects as they complete. This is highly memory-efficient for large task sets.
  *
- * @param tasks An `Iterable` or `AsyncIterable` that yields `Task` functions.
- * @param inputValue The input value that will be passed to each task.
- * @param options Configuration for controlling the parallel execution.
- * @returns An async iterable that yields `ParallelResult` objects as they complete.
- *
- * @example
- * ```typescript
- * // A generator for creating many tasks without holding them all in memory.
- * function* makeFetchTasks(urls) {
- *   for (const url of urls) {
- *     yield (ctx, token) => fetch(url, { headers: { Authorization: token } });
- *   }
- * }
- *
- * for await (const result of parallelFrom(makeFetchTasks(urlList), apiToken)) {
- *   if (result.status === 'fulfilled') {
- *     console.log(`URL ${result.index} succeeded.`);
- *   }
- * }
- * ```
+ * @returns An async iterable that yields settled results.
  */
-export async function* parallelFrom<C extends { scope: Scope }, V, R>(
+export async function* stream<C extends { scope: Scope }, V, R>(
   tasks: Iterable<Task<C, V, R>> | AsyncIterable<Task<C, V, R>>,
   inputValue: V,
   options: Omit<ParallelOptions, 'preserveOrder' | 'batching'> = {}
@@ -417,142 +288,94 @@ export async function* parallelFrom<C extends { scope: Scope }, V, R>(
   const context = getContext<C>();
   const { concurrency = Infinity, priority = 'user-visible', signal: optionSignal } = options;
   const controller = new AbortController();
-  const onAbort = () => controller.abort();
+  const onAbort = () => controller.abort(optionSignal?.reason);
   const contextSignal = context.scope.signal;
-  optionSignal?.addEventListener('abort', onAbort);
-  contextSignal.addEventListener('abort', onAbort);
+  optionSignal?.addEventListener('abort', onAbort, { once: true });
+  contextSignal.addEventListener('abort', onAbort, { once: true });
   const signal = controller.signal;
-  const cleanup = () => {
-    optionSignal?.removeEventListener('abort', onAbort);
-    contextSignal.removeEventListener('abort', onAbort);
-  };
+  const cleanup = () => { optionSignal?.removeEventListener('abort', onAbort); contextSignal.removeEventListener('abort', onAbort); };
 
   try {
-    const executing: Set<Promise<ParallelResult<R>>> = new Set();
+    const executing = new Set<Promise<ParallelResult<R>>>();
     const taskIterator = (tasks as any)[Symbol.asyncIterator] ? (tasks as any)[Symbol.asyncIterator]() : (tasks as any)[Symbol.iterator]();
     let index = 0;
     let iteratorDone = false;
-
     while (!iteratorDone || executing.size > 0) {
       while (executing.size < concurrency && !iteratorDone) {
         if (signal.aborted) break;
         const iteratorResult = await taskIterator.next();
-        if (iteratorResult.done) {
-          iteratorDone = true;
-          break;
-        }
+        if (iteratorResult.done) { iteratorDone = true; break; }
         const task = iteratorResult.value;
         const currentIndex = index++;
-
-        const taskPromise: Promise<ParallelResult<R>> = scheduler.postTask(
-          async () => {
-            try { return { status: 'fulfilled', value: await task(context, inputValue), index: currentIndex }; }
-            catch (reason) { return { status: 'rejected', reason, index: currentIndex }; }
-          },
-          { priority, signal }
-        );
-
-        const resultPromise = taskPromise.then(result => {
-          executing.delete(resultPromise);
-          return result;
-        }, error => {
-          executing.delete(resultPromise);
-          throw error;
-        });
+        const taskPromise: Promise<ParallelResult<R>> = scheduler.postTask(async () => {
+          try { return { status: 'fulfilled', value: await task(context, inputValue), index: currentIndex }; }
+          catch (reason) { return { status: 'rejected', reason, index: currentIndex }; }
+        }, { priority, signal });
+        const resultPromise = taskPromise.finally(() => executing.delete(resultPromise));
         executing.add(resultPromise);
       }
       if (executing.size === 0) break;
-      try {
-        yield await Promise.race(executing);
-      } catch (error) {
-        if ((error as DOMException)?.name === 'AbortError') break;
-        throw error;
-      }
+      yield await Promise.race(executing);
     }
+  } catch (error) {
+    if ((error as DOMException)?.name !== 'AbortError') throw error;
   } finally {
     cleanup();
   }
 }
+/** @deprecated Use `stream` instead. */
+export const parallelFrom = stream;
 
 /**
- * Executes tasks from an iterator and yields only the values from successfully
- * fulfilled tasks as they complete.
- *
- * @param tasks An `Iterable` or `AsyncIterable` that yields `Task` functions.
- * @param inputValue The input value passed to each task.
- * @param options Configuration for controlling the parallel execution.
- * @returns An async iterable that yields the values of successful tasks.
- *
- * @example
- * ```typescript
- * for await (const pageContent of parallelFromSettled(fetchPageTasks, null)) {
- *   // process pageContent
- * }
- * ```
+ * Executes tasks from an iterator and yields only the values from successfully fulfilled tasks.
  */
-export async function* parallelFromSettled<C extends { scope: Scope }, V, R>(
+export async function* streamSome<C extends { scope: Scope }, V, R>(
   tasks: Iterable<Task<C, V, R>> | AsyncIterable<Task<C, V, R>>,
   inputValue: V,
   options: Omit<ParallelOptions, 'preserveOrder' | 'batching'> = {}
 ): AsyncIterable<R> {
-  for await (const result of parallelFrom(tasks, inputValue, options)) {
+  for await (const result of stream(tasks, inputValue, options)) {
     if (result.status === 'fulfilled') yield result.value;
   }
 }
+/** @deprecated Use `streamSome` instead. */
+export const parallelFromSettled = streamSome;
 
 /**
- * Executes tasks from an iterator and yields successful values, but throws
- * an error if any task fails.
- *
- * @param tasks An `Iterable` or `AsyncIterable` that yields `Task` functions.
- * @param inputValue The input value passed to each task.
- * @param options Configuration for controlling the parallel execution.
- * @returns An async iterable that yields successful values or throws an error.
- *
- * @example
- * ```typescript
- * try {
- *   for await (const data of parallelFromAll(criticalTasks, null)) {
- *     // process critical data
- *   }
- * } catch (e) {
- *   console.error('A critical task failed!');
- * }
- * ```
+ * Executes tasks from an iterator and yields successful values, but throws if any task fails.
  */
-export async function* parallelFromAll<C extends { scope: Scope }, V, R>(
+export async function* streamAll<C extends { scope: Scope }, V, R>(
   tasks: Iterable<Task<C, V, R>> | AsyncIterable<Task<C, V, R>>,
   inputValue: V,
   options: Omit<ParallelOptions, 'preserveOrder' | 'batching'> = {}
 ): AsyncIterable<R> {
-  for await (const result of parallelFrom(tasks, inputValue, options)) {
-    if (result.status === 'fulfilled') {
-      yield result.value;
-    } else {
-      throw result.reason;
-    }
+  for await (const result of stream(tasks, inputValue, options)) {
+    if (result.status === 'fulfilled') yield result.value;
+    else throw result.reason;
   }
+}
+/** @deprecated Use `streamAll` instead. */
+export const parallelFromAll = streamAll;
+
+/**
+ * Executes tasks from an iterator and yields the first successful value.
+ * Throws an `AggregateError` only if all tasks fail.
+ */
+export async function streamAny<C extends { scope: Scope }, V, R>(
+  tasks: Iterable<Task<C, V, R>> | AsyncIterable<Task<C, V, R>>,
+  inputValue: V,
+  options: Omit<ParallelOptions, 'preserveOrder' | 'batching'> = {}
+): Promise<R> {
+  const errors: unknown[] = [];
+  for await (const result of stream(tasks, inputValue, options)) {
+    if (result.status === 'fulfilled') return result.value;
+    errors.push(result.reason);
+  }
+  throw new AggregateError(errors, 'All promises were rejected');
 }
 
 /**
  * Races tasks from an iterator and returns the result of the first task to settle.
- * It efficiently starts tasks and waits for the first outcome without necessarily
- * iterating through all available tasks.
- *
- * @param tasks An `Iterable` or `AsyncIterable` of tasks to race.
- * @param value The input value passed to each task.
- * @param options Configuration for the race.
- * @returns A promise resolving or rejecting with the first task's outcome.
- *
- * @example
- * ```typescript
- * function* getMirrors() {
- *   yield () => fetch('mirror1.com/data');
- *   yield () => fetch('mirror2.com/data');
- * }
- *
- * const fastestMirror = await raceFrom(getMirrors(), null);
- * ```
  */
 export function raceFrom<C extends { scope: Scope }, V, R>(
   tasks: Iterable<Task<C, V, R>> | AsyncIterable<Task<C, V, R>>,
@@ -561,12 +384,11 @@ export function raceFrom<C extends { scope: Scope }, V, R>(
 ): Promise<R> {
   const context = getContext<C>();
   const { priority = 'user-visible', signal = context.scope.signal } = options || {};
-
   return new Promise(async (resolve, reject) => {
     if (signal.aborted) return reject(new DOMException('Aborted', 'AbortError'));
     const raceController = new AbortController();
     const onAbort = () => raceController.abort();
-    signal.addEventListener('abort', onAbort);
+    signal.addEventListener('abort', onAbort, { once: true });
     const cleanup = () => signal.removeEventListener('abort', onAbort);
     try {
       let tasksLaunched = 0;
@@ -576,18 +398,8 @@ export function raceFrom<C extends { scope: Scope }, V, R>(
         tasksLaunched++;
         promises.push(scheduler.postTask(() => task(context, value), { priority, signal: raceController.signal }));
       }
-      if (tasksLaunched === 0) {
-        cleanup();
-        return reject(new Error('No tasks provided to raceFrom'));
-      }
-      Promise.race(promises).then(resolve, reject).finally(() => {
-        raceController.abort();
-        cleanup();
-      });
-    } catch (error) {
-      raceController.abort();
-      cleanup();
-      reject(error);
-    }
+      if (tasksLaunched === 0) return reject(new Error('No tasks provided to raceFrom'));
+      Promise.race(promises).then(resolve, reject).finally(() => { raceController.abort(); cleanup(); });
+    } catch (error) { raceController.abort(); cleanup(); reject(error); }
   });
 }

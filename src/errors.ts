@@ -52,6 +52,7 @@ export function createErrorType<T extends any[]>(
   // Define a class expression that extends the provided parent.
   // This is the modern, type-safe way to handle inheritance.
   class CustomError extends parent {
+    name: string;
     constructor(...args: T) {
       // `super(...args)` correctly calls the parent constructor.
       // This replaces the problematic `parent.apply(this, args)`.
