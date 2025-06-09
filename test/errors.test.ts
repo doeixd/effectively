@@ -6,8 +6,8 @@ import {
  ValidationError,
  DatabaseError,
  type ErrorHandler 
-} from '../src/errors'
-import { contextRoot } from '../src/context'
+} from '../src-old/errors'
+import { contextRoot } from '../src-old/context'
 
 describe('Error Handling System', () => {
  // Spy on console.error for default handler

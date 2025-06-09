@@ -7,7 +7,7 @@ import {
  getEffectContext,
  contextRoot,
  type EffectContext
-} from '../src/context'
+} from '../src-old/context'
 
 describe('Context Management', () => {
  beforeEach(() => {

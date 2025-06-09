@@ -1,6 +1,6 @@
 // concurrency.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { contextRoot } from '../src/context'
+import { contextRoot } from '../src-old/context'
 import { 
  retry, 
  rateLimit, 
@@ -8,7 +8,7 @@ import {
  withJitter,
  combinedEffect,
  setupConcurrencyHandlers 
-} from '../src/concurrency'
+} from '../src-old/concurrency'
 
 
 describe('Concurrency Primitives', () => {
