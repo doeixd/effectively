@@ -1,8 +1,13 @@
+![npm](https://img.shields.io/npm/v/effectively)
+![license](https://img.shields.io/npm/l/effectively)
+<style>
+  h1,h2,h3,h4,h5,h6 {
+    padding-top: 1.5lh
+  }
+</style>
 # Effectively 🚂
 
 **Build resilient TypeScript applications without the complexity.**
-
-![npm](https://img.shields.io/npm/v/effectively?style=for-the-badge) ![license](https://img.shields.io/npm/l/effectively?style=for-the-badge) ![types](https://img.shields.io/npm/types/effectively?style=for-the-badge)
 
 Effectively is a lightweight toolkit that brings structure and safety to asynchronous TypeScript code. It feels like a natural extension of `async/await`, not a replacement for it.
 
@@ -24,6 +29,8 @@ npm install effectively neverthrow
 ```
 
 *Note: `neverthrow` is a peer dependency for typed error handling.*
+
+<br />
 
 ## 🚀 Understanding the Core Intuition: A Getting Started Guide
 
