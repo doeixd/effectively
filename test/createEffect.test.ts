@@ -6,9 +6,9 @@ import {
  getPriorityValue,
  type Priority,
  type EffectHandler
-} from '../src/createEffect'
-import { getEffectContext } from '../src/context'
-import { contextRoot } from '../src/context'
+} from '../src-old/createEffect'
+import { getEffectContext } from '../src-old/context'
+import { contextRoot } from '../src-old/context'
 
 // Mock the context module
 // vi.mock('./context', async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { contextRoot, EffectContext, getEffectContext } from "../src/context";
-import { defineEffect, defineHandler } from "../src/createEffect";
+import { contextRoot, EffectContext, getEffectContext } from "../src-old/context";
+import { defineEffect, defineHandler } from "../src-old/createEffect";
 
 
 

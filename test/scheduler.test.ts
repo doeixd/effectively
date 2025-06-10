@@ -1,8 +1,8 @@
 // scheduler.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createScheduler, type Task } from '../src/scheduler'
-import { contextRoot } from '../src/context'
-import { handleError } from '../src/errors'
+import { createScheduler, type Task } from '../src-old/scheduler'
+import { contextRoot } from '../src-old/context'
+import { handleError } from '../src-old/errors'
 
 // Mock error handling
 vi.mock('./errors', () => ({

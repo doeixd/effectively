@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { IResource, ResourcesMap, getResources, getResourceValues, getResourceValue, cleanupResources, useResource, withResources } from '../src/resource'
-import { getEffectContext, setupGlobalEffectContext, EffectContext } from '../src/context'
-import { EffectHandler } from '../src/createEffect'
+import { IResource, ResourcesMap, getResources, getResourceValues, getResourceValue, cleanupResources, useResource, withResources } from '../src-old/resource'
+import { getEffectContext, setupGlobalEffectContext, EffectContext } from '../src-old/context'
+import { EffectHandler } from '../src-old/createEffect'
 
 describe('Resource Management', () => {
   let mockContext: EffectContext
