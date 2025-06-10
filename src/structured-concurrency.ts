@@ -41,22 +41,19 @@ import { all } from './scheduler';
 export function forkJoin<C extends { scope: Scope }, V, T extends Record<string, Task<C, V, any>>>(
   tasks: T
 ): Task<C, V, { [K in keyof T]: T[K] extends Task<C, V, infer R> ? R : never }> {
-  return defineTask(async (value: V) => {
-    // This task's closure captures the `tasks` object. When executed by `run`,
-    // it will have access to a context via `getContext`.
-    const context = getContext<C>();
+  return async (context: C, value: V) => {
     const taskEntries = Object.entries(tasks);
 
     // Create an array of zero-argument executable tasks. Each new task's closure
     // captures the specific `task`, the shared `context`, and the `value`.
     // This prepares them to be run by the `all` scheduler utility.
     const executableTasks = taskEntries.map(
-      ([_key, task]) => defineTask(() => task(context, value))
+      ([_key, task]) => async () => task(context, value)
     );
 
     // Use the `all` utility to run all tasks in parallel.
     // The `null` input is appropriate because the values are already baked into the tasks' closures.
-    const results = await all(executableTasks, null);
+    const results = await all(executableTasks, null, undefined, context);
 
     // Reconstruct the result object, mapping parallel results back to their original keys.
     const resultObject = {} as { [K in keyof T]: any };
@@ -66,7 +63,7 @@ export function forkJoin<C extends { scope: Scope }, V, T extends Record<string,
     }
 
     return resultObject as { [K in keyof T]: T[K] extends Task<C, V, infer R> ? R : never }
-  });
+  };
 }
 
 /**
@@ -98,8 +95,7 @@ export function ift<C extends { scope: Scope }, V, R1, R2>(
   onTrue: Task<C, V, R1>,
   onFalse: Task<C, V, R2>
 ): Task<C, V, R1 | R2> {
-  return defineTask(async (value: V) => {
-    const context = getContext<C>();
+  return async (context: C, value: V) => {
     // Await the predicate and then execute the appropriate task, passing it
     // the necessary context and value.
     if (await predicate(value, context)) {
@@ -107,7 +103,7 @@ export function ift<C extends { scope: Scope }, V, R1, R2>(
     } else {
       return onFalse(context, value);
     }
-  });
+  };
 }
 
 /**
@@ -133,14 +129,13 @@ export function allTuple<C extends { scope: Scope }, V, T extends ReadonlyArray<
   tasks: T
 ): Task<C, V, { -readonly [K in keyof T]: T[K] extends Task<C, V, infer R> ? R : never }> {
   // The implementation logic is nearly identical to forkJoin, but for arrays.
-  return defineTask(async (value: V) => {
-    const context = getContext<C>();
+  return async (context: C, value: V) => {
     const executableTasks = tasks.map(
-      (task) => defineTask(() => task(context, value))
+      (task) => async () => task(context, value)
     );
-    const results = await all(executableTasks, null);
+    const results = await all(executableTasks, null, undefined, context);
     // The result from `all` is `any[]`, but we can safely cast it to the
     // more specific tuple type inferred by TypeScript.
     return results as any;
-  });
+  };
 }

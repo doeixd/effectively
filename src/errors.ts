@@ -129,8 +129,7 @@ export function withErrorBoundary<C extends { scope: Scope }, V, R>(
   task: Task<C, V, R>,
   handlers: ErrorHandler<C, R>[]
 ): Task<C, V, R> {
-  return defineTask(async (value: V) => {
-    const context = getContext<C>();
+  return async (context: C, value: V): Promise<R> => {
     try {
       return await task(context, value);
     } catch (error) {
@@ -146,7 +145,7 @@ export function withErrorBoundary<C extends { scope: Scope }, V, R>(
 
       throw error;
     }
-  });
+  };
 }
 
 

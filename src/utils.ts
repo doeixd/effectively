@@ -182,25 +182,24 @@ export function createWorkflow<C, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R1
 export function createWorkflow<C, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>, j: Task<C, R9, R10>, k: Task<C, R10, R11>, l: Task<C, R11, R12>): Task<C, V, R12>;
 export function createWorkflow(...steps: any[]): Task<any, any, any> {
   if (steps.length === 0) {
-    return defineTask(async (v) => v); // Identity task
+    return async (context: any, v: any) => v; // Identity task
   }
 
   const toTask = (step: any): Task<any, any, any> => {
     if (typeof step === 'function' && step.__task_id) return step;
-    // FIX: Must match defineTask's expected signature.
-    return defineTask(async (value: any) => step(value));
+    // Convert plain function to task
+    return async (context: any, value: any) => step(value);
   };
 
   const allTasks = steps.map(toTask);
 
-  return defineTask(async (initialValue: any) => {
-    const context = getContext();
+  return async (context: any, initialValue: any) => {
     let currentValue = initialValue;
     for (const task of allTasks) {
       currentValue = await task(context, currentValue);
     }
     return currentValue;
-  });
+  };
 }
 
 /**
@@ -242,7 +241,7 @@ export const chain = createWorkflow;
  * ```
  */
 export function fromValue<T>(value: T): Task<any, null, T> {
-  return defineTask(() => Promise.resolve(value));
+  return async (context: any, _: null): Promise<T> => value;
 }
 
 /**
@@ -256,7 +255,7 @@ export function fromValue<T>(value: T): Task<any, null, T> {
  * ```
  */
 export function fromPromise<T>(promise: Promise<T>): Task<any, null, T> {
-  return defineTask(() => promise);
+  return async (context: any, _: null): Promise<T> => promise;
 }
 
 /**
@@ -274,7 +273,7 @@ export function fromPromise<T>(promise: Promise<T>): Task<any, null, T> {
 export function fromPromiseFn<C extends { scope: Scope }, T>(
   fn: (context: C) => Promise<T>
 ): Task<C, null, T> {
-  return defineTask(() => fn(getContext<C>()));
+  return async (context: C, _: null): Promise<T> => fn(context);
 }
 
 
@@ -299,8 +298,10 @@ export function fromPromiseFn<C extends { scope: Scope }, T>(
 export function map<C extends { scope: Scope }, V, R>(
   f: (value: V, context: C) => R | Promise<R>
 ): Task<C, V, R> {
-  // FIX: This must be async to ensure a Promise is always returned.
-  return defineTask(async (value: V) => f(value, getContext<C>()));
+  return async (context: C, value: V): Promise<R> => {
+    const result = f(value, context);
+    return result instanceof Promise ? result : Promise.resolve(result);
+  };
 }
 
 /**
@@ -319,11 +320,10 @@ export function map<C extends { scope: Scope }, V, R>(
 export function flatMap<C extends { scope: Scope }, V, R>(
   f: (value: V, context: C) => Task<C, V, R>
 ): Task<C, V, R> {
-  return defineTask((value: V) => {
-    const context = getContext<C>();
+  return async (context: C, value: V): Promise<R> => {
     const nextTask = f(value, context);
     return nextTask(context, value);
-  });
+  };
 }
 
 // --- Direct Composition Helpers (standalone) ---
@@ -342,11 +342,10 @@ export function mapTask<C extends { scope: Scope }, V, A, B>(
   task: Task<C, V, A>,
   f: (value: A) => B | Promise<B>
 ): Task<C, V, B> {
-  return defineTask(async (value: V) => {
-    const context = getContext<C>();
+  return async (context: C, value: V): Promise<B> => {
     const result = await task(context, value);
     return f(result);
-  });
+  };
 }
 
 /**
@@ -363,12 +362,11 @@ export function andThenTask<C extends { scope: Scope }, In, A, B>(
   task: Task<C, In, A>,
   f: (value: A) => Task<C, A, B>
 ): Task<C, In, B> {
-  return defineTask(async (inputValue: In) => {
-    const context = getContext<C>();
+  return async (context: C, inputValue: In): Promise<B> => {
     const intermediateResult = await task(context, inputValue);
     const nextTask = f(intermediateResult);
     return nextTask(context, intermediateResult);
-  });
+  };
 }
 
 /**
@@ -384,11 +382,11 @@ export function andThenTask<C extends { scope: Scope }, In, A, B>(
  * ```
  */
 export function pick<T extends object, K extends keyof T>(...keys: K[]): Task<any, T, Pick<T, K>> {
-  return defineTask((value: T) => {
+  return async (context: any, value: T): Promise<Pick<T, K>> => {
     const newObj = {} as Pick<T, K>;
     for (const key of keys) if (Object.prototype.hasOwnProperty.call(value, key)) newObj[key] = value[key];
-    return Promise.resolve(newObj);
-  });
+    return newObj;
+  };
 }
 
 
@@ -413,10 +411,9 @@ export function when<C extends { scope: Scope }, V>(
   predicate: (value: V, context: C) => boolean | Promise<boolean>,
   task: Task<C, V, V>
 ): Task<C, V, V> {
-  return defineTask(async (value: V) => {
-    const context = getContext<C>();
+  return async (context: C, value: V): Promise<V> => {
     return (await predicate(value, context)) ? task(context, value) : value;
-  });
+  };
 }
 
 /**
@@ -454,15 +451,14 @@ export function doWhile<C extends { scope: Scope }, V>(
   task: Task<C, V, V>,
   predicate: (value: V, context: C) => boolean | Promise<boolean>
 ): Task<C, V, V> {
-  return defineTask(async (initialValue: V) => {
-    const context = getContext<C>();
+  return async (context: C, initialValue: V): Promise<V> => {
     let currentValue = initialValue;
     while (await predicate(currentValue, context)) {
       if (context.scope.signal.aborted) throw new DOMException('Aborted', 'AbortError');
       currentValue = await task(context, currentValue);
     }
     return currentValue;
-  });
+  };
 }
 
 /**
@@ -480,10 +476,10 @@ export function doWhile<C extends { scope: Scope }, V>(
 export function tap<C extends { scope: Scope }, V>(
   f: (value: V, context: C) => void | Promise<void>
 ): Task<C, V, V> {
-  return defineTask(async (value: V) => {
-    await f(value, getContext<C>());
+  return async (context: C, value: V): Promise<V> => {
+    await f(value, context);
     return value;
-  });
+  };
 }
 
 /**
@@ -499,9 +495,8 @@ export function tap<C extends { scope: Scope }, V>(
  * ```
  */
 export function sleep(ms: number): Task<any, any, void> {
-  return defineTask(() => {
-    const context = getContext();
-    if (context.scope.signal.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
+  return async (context: any, _: any): Promise<void> => {
+    if (context.scope.signal.aborted) throw new DOMException('Aborted', 'AbortError');
     return new Promise((resolve, reject) => {
       const timer = setTimeout(resolve, ms);
       context.scope.signal.addEventListener('abort', () => {
@@ -509,7 +504,7 @@ export function sleep(ms: number): Task<any, any, void> {
         reject(new DOMException('Aborted', 'AbortError'));
       }, { once: true });
     });
-  });
+  };
 }
 
 
@@ -534,15 +529,14 @@ export function tapError<C extends { scope: Scope }, V, R>(
   task: Task<C, V, R>,
   f: (error: unknown, context: C) => void | Promise<void>
 ): Task<C, V, R> {
-  return defineTask(async (value: V) => {
-    const context = getContext<C>();
+  return async (context: C, value: V): Promise<R> => {
     try {
       return await task(context, value);
     } catch (error) {
       if (!isBacktrackSignal(error)) await f(error, context);
       throw error;
     }
-  });
+  };
 }
 
 /**
@@ -561,14 +555,14 @@ export function tapError<C extends { scope: Scope }, V, R>(
 export function attempt<C extends { scope: Scope }, V, R, E extends Error>(
   task: Task<C, V, R>
 ): Task<C, V, Result<R, E>> {
-  return defineTask(async (value: V) => {
+  return async (context: C, value: V): Promise<Result<R, E>> => {
     try {
-      return ok(await task(getContext<C>(), value));
+      return ok(await task(context, value));
     } catch (error) {
       if (isBacktrackSignal(error)) throw error;
       return err(error as E);
     }
-  });
+  };
 }
 
 export interface RetryOptions {
@@ -593,8 +587,9 @@ export function withRetry<C extends { scope: Scope; logger?: Logger }, V, R>(
   options: RetryOptions = {}
 ): Task<C, V, R> {
   const { attempts = 3, delayMs = 100, backoff = 'exponential', shouldRetry = () => true } = options;
-  return defineTask(async (value: V) => {
-    const context = getContext<C>();
+  
+  // Return a function that matches the Task signature
+  const retryTask = async (context: C, value: V): Promise<R> => {
     const logger = context.logger || noopLogger;
     let lastError: unknown;
     for (let i = 0; i < attempts; i++) {
@@ -607,12 +602,20 @@ export function withRetry<C extends { scope: Scope; logger?: Logger }, V, R>(
         if (i < attempts - 1) {
           const currentDelay = backoff === 'exponential' ? delayMs * 2 ** i : delayMs;
           logger.warn(`Task '${task.name || 'anonymous'}' failed. Retrying in ${currentDelay}ms... (Attempt ${i + 1}/${attempts})`, { error });
-          await sleep(currentDelay)(context, null);
+          // Simple delay without context dependency
+          await new Promise(resolve => setTimeout(resolve, currentDelay));
         }
       }
     }
     throw lastError;
-  });
+  };
+  
+  // Copy the task ID if it exists for backtracking support
+  if (task.__task_id) {
+    retryTask.__task_id = task.__task_id;
+  }
+  
+  return retryTask as Task<C, V, R>;
 }
 
 // =================================================================
@@ -654,13 +657,13 @@ export function memoize<C extends { scope: Scope }, V, R>(task: Task<C, V, R>): 
     for (const [k, v] of cache.entries()) if (deepEqual(k, key)) return v;
     return undefined;
   };
-  return defineTask((value: V) => {
+  return async (context: C, value: V): Promise<R> => {
     const cachedPromise = findInCache(value);
     if (cachedPromise) return cachedPromise;
-    const newPromise = task(getContext<C>(), value);
+    const newPromise = task(context, value);
     cache.set(value, newPromise);
     return newPromise;
-  });
+  };
 }
 
 /**
@@ -676,11 +679,11 @@ export function memoize<C extends { scope: Scope }, V, R>(task: Task<C, V, R>): 
  */
 export function once<C extends { scope: Scope }, V, R>(task: Task<C, V, R>): Task<C, V, R> {
   let promise: Promise<R> | null = null;
-  return defineTask((value: V) => {
+  return async (context: C, value: V): Promise<R> => {
     if (promise) return promise;
-    promise = task(getContext<C>(), value);
+    promise = task(context, value);
     return promise;
-  });
+  };
 }
 
 /**
@@ -700,14 +703,21 @@ export function withTimeout<C extends { scope: Scope }, V, R>(
   class TimeoutError extends Error {
     constructor() { super(`Task '${task.name || 'anonymous'}' timed out after ${durationMs}ms.`); this.name = 'TimeoutError'; }
   }
-  return defineTask((value: V) => {
-    const context = getContext<C>();
+  
+  const timeoutTask = async (context: C, value: V): Promise<R> => {
     const timeoutPromise = new Promise<never>((_, reject) => {
       const timerId = setTimeout(() => reject(new TimeoutError()), durationMs);
       context.scope.signal.addEventListener('abort', () => clearTimeout(timerId), { once: true });
     });
     return Promise.race([task(context, value), timeoutPromise]);
-  });
+  };
+  
+  // Copy the task ID if it exists for backtracking support
+  if (task.__task_id) {
+    timeoutTask.__task_id = task.__task_id;
+  }
+  
+  return timeoutTask as Task<C, V, R>;
 }
 
 export interface StateTools<S> {
@@ -736,8 +746,7 @@ export function withState<C extends { scope: Scope }, V, R, S>(
   initialState: (initialValue: V) => S,
   workflowFn: (tools: StateTools<S>) => Task<C, V, R>
 ): Task<C, V, { result: R; state: S }> {
-  return defineTask(async (initialValue: V) => {
-    const context = getContext<C>();
+  return async (context: C, initialValue: V): Promise<{ result: R; state: S }> => {
     let state: S = initialState(initialValue);
     const tools: StateTools<S> = {
       getState: () => state,
@@ -745,7 +754,7 @@ export function withState<C extends { scope: Scope }, V, R, S>(
     };
     const result = await workflowFn(tools)(context, initialValue);
     return { result, state };
-  });
+  };
 }
 
 /**
@@ -762,8 +771,7 @@ export function withSpan<C extends { scope: Scope; logger?: Logger }, V, R>(
   task: Task<C, V, R>,
   spanName?: string
 ): Task<C, V, R> {
-  return defineTask(async (value: V) => {
-    const context = getContext<C>();
+  return async (context: C, value: V): Promise<R> => {
     const logger = context.logger || noopLogger;
     const name = spanName || task.name || 'anonymous_task';
     logger.debug(`[Span Start] ${name}`);
@@ -776,7 +784,7 @@ export function withSpan<C extends { scope: Scope; logger?: Logger }, V, R>(
       logger.error(`[Span End] ${name} - Failure (${(performance.now() - startTime).toFixed(2)}ms)`, { error });
       throw error;
     }
-  });
+  };
 }
 
 
@@ -827,10 +835,12 @@ export function withThrottle<C extends { scope: Scope }, V, R>(
     isProcessing = false;
   };
 
-  return defineTask((value: V) => new Promise<R>((resolve, reject) => {
-    callQueue.push({ value, resolve, reject, context: getContext<C>() });
-    processQueue();
-  }));
+  return async (context: C, value: V): Promise<R> => {
+    return new Promise<R>((resolve, reject) => {
+      callQueue.push({ value, resolve, reject, context });
+      processQueue();
+    });
+  };
 }
 
 export interface PollOptions<R> {
@@ -861,14 +871,13 @@ export function withPoll<C extends { scope: Scope }, V, R>(
   task: Task<C, V, R>,
   options: PollOptions<R>
 ): Task<C, V, R> {
-  const pollingLoop = defineTask(async (value: V) => {
-    const context = getContext<C>();
+  const pollingLoop = async (context: C, value: V): Promise<R> => {
     while (true) {
       const result = await task(context, value);
       if (options.until(result)) return result;
       await sleep(options.intervalMs)(context, null);
     }
-  });
+  };
 
   return withTimeout(pollingLoop, options.timeoutMs);
 }
@@ -917,11 +926,13 @@ export function createBatchingTask<C extends { scope: Scope }, K, R>(
       })
       .catch(error => activeCalls.forEach(cb => cb.reject(error)));
   };
-  return defineTask((key: K) => new Promise<R>((resolve, reject) => {
-    const { scope } = getContext<C>();
-    pending.push({ key, resolve, reject, signal: scope.signal });
-    if (!timer) timer = setTimeout(dispatch, windowMs);
-  }));
+  return async (context: C, key: K): Promise<R> => {
+    return new Promise<R>((resolve, reject) => {
+      const { scope } = context;
+      pending.push({ key, resolve, reject, signal: scope.signal });
+      if (!timer) timer = setTimeout(dispatch, windowMs);
+    });
+  };
 }
 
 
@@ -950,9 +961,7 @@ export function withDebounce<C extends { scope: Scope }, V, R>(
   let pendingPromise: Promise<R> | null = null;
   let lastCall: { value: V; context: C; resolve: (v: R) => void; reject: (r: any) => void; } | null = null;
 
-  return defineTask((value: V) => {
-    const context = getContext<C>();
-
+  return async (context: C, value: V): Promise<R> => {
     // If a promise is already pending, return it.
     if (pendingPromise) {
       return pendingPromise;
@@ -983,5 +992,5 @@ export function withDebounce<C extends { scope: Scope }, V, R>(
     });
 
     return pendingPromise;
-  });
+  };
 }

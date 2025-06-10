@@ -50,7 +50,17 @@ This is the fundamental building block. It's just a function, making it easy to 
 Writing `context` as the first parameter every time is tedious. `defineTask` is a simple helper that makes the context implicit and accessible via a `getContext()` function.
 
 ```typescript
-import { defineTask, getContext } from 'effectively';
+import { createContext, type Scope } from 'effectively';
+
+// Define your context interface first
+interface AppContext {
+  scope: Scope;
+  greeting: string;
+}
+
+const { defineTask, getContext } = createContext<AppContext>({
+  greeting: 'Hello'
+});
 
 // Before: explicit context parameter
 async function greetExplicit(context: AppContext, name: string) {
@@ -100,10 +110,17 @@ const getUserDisplay = createWorkflow(
 Tasks need a context to execute. The `run` function, created by `createContext`, provides it.
 
 ```typescript
-import { createContext } from 'effectively';
+import { createContext, type Scope } from 'effectively';
+
+// Define your context interface (scope is required)
+interface AppContext {
+  scope: Scope;  // Required by the library
+  greeting: string;
+  api: ApiClient;
+}
 
 // Create your app's context with default dependencies
-const { run } = createContext({
+const { run } = createContext<AppContext>({
   greeting: 'Hello',
   api: myApiClient
 });
@@ -146,6 +163,14 @@ For expected failures that are part of your business logic (e.g., validation err
 
 ```typescript
 import { Result, ok, err } from 'neverthrow';
+
+// Note: All context types must include scope: Scope
+interface AppContext {
+  scope: Scope;
+  // ... your other context properties
+}
+
+const { defineTask } = createContext<AppContext>({ /* ... */ });
 
 const validateAge = defineTask(async (age: number): Promise<Result<number, ValidationError>> => {
   if (age < 0) return err(new ValidationError('Age cannot be negative'));
@@ -208,8 +233,9 @@ Add production-grade resilience to any task with simple wrappers.
 ```typescript
 // Automatic retries with exponential backoff
 const resilientFetch = withRetry(fetchData, {
-  maxAttempts: 3,
-  delay: { type: 'exponential', initial: 1000 }
+  attempts: 3,
+  delayMs: 1000,
+  backoff: 'exponential'
 });
 
 // Timeouts to prevent long-running operations
