@@ -1,15 +1,12 @@
 ![npm](https://img.shields.io/npm/v/effectively)
 ![license](https://img.shields.io/npm/l/effectively)
-<style>
-  h1,h2,h3,h4,h5,h6 {
-    padding-top: 1.5lh
-  }
-</style>
 # Effectively 🚂
 
 **Build resilient TypeScript applications without the complexity.**
 
 Effectively is a lightweight toolkit that brings structure and safety to asynchronous TypeScript code. It feels like a natural extension of `async/await`, not a replacement for it.
+
+<br />
 
 ## 🎯 Why Effectively?
 
@@ -22,6 +19,9 @@ Effectively is a lightweight toolkit that brings structure and safety to asynchr
 
 **The Solution:** Effectively provides battle-tested patterns for these problems without forcing you to learn a new programming paradigm. If you can write `async/await`, you can use Effectively.
 
+<br />
+
+
 ## 📦 Installation
 
 ```bash
@@ -32,7 +32,7 @@ npm install effectively neverthrow
 
 <br />
 
-## 🚀 Understanding the Core Intuition: A Getting Started Guide
+## 🚀 Building Intuition: A Getting Started Guide
 
 At its heart, Effectively is beautifully simple. Let's build your understanding from the ground up.
 
@@ -51,6 +51,7 @@ const message = await greetTask({ greeting: 'Hello' }, 'World');
 ```
 
 This is the fundamental building block. It's just a function, making it easy to understand and test in isolation.
+
 
 #### Step 2: `defineTask` Makes Context Implicit
 
@@ -72,6 +73,7 @@ const greet = defineTask(async (name: string) => {
 ```
 
 That's it! **`defineTask` doesn't do anything magical**—it just wraps your function to handle the context parameter for you, making your code cleaner.
+
 
 #### Step 3: Workflows Chain Tasks Together
 
@@ -102,6 +104,7 @@ const getUserDisplay = createWorkflow(
 // This creates a new, single Task that runs all three in sequence.
 ```
 
+
 #### Step 4: `run` Provides the Context
 
 Tasks need a context to execute. The `run` function, created by `createContext`, provides it.
@@ -124,6 +127,9 @@ const display = await run(getUserDisplay, 'user-123');
 
 This simple, layered approach—from plain async functions to composable workflows—is the core of Effectively.
 
+<br />
+
+
 ## 💡 Core Concepts
 
 Now that you have the intuition, let's formalize the key concepts:
@@ -142,6 +148,9 @@ A **Workflow** chains Tasks together. `createWorkflow` creates a new Task where 
 ### 3. Context: Clean Dependency Injection
 
 **Context** provides your dependencies (like API clients, loggers, or config) without prop drilling or global state. It's provided once by `run` and easily mocked for tests.
+
+<br />
+
 
 ## 🛡️ Error Handling: A Dual Strategy
 
@@ -194,7 +203,10 @@ This dual approach ensures:
 - **Runtime resilience** for unexpected failures
 - **Clear separation** between business logic and infrastructure concerns
 
-## 🚀 Production-Ready Features
+<br />
+
+
+## 🚀 Features
 
 ### Guaranteed Resource Cleanup
 
@@ -255,6 +267,9 @@ const total = await mapReduce(
   0
 );
 ```
+
+<br />
+
 
 ## 🔧 Common Patterns
 
@@ -373,6 +388,9 @@ describe('Payment Workflow', () => {
 });
 ```
 
+<br />
+
+
 ## 🤔 Comparisons & Where It Fits
 
 Effectively is a powerful tool, but it's important to understand when other approaches might be a better fit.
@@ -441,6 +459,9 @@ const retryableTask = defineTask(async (attempt: number) => {
 
 Effectively embraces the browser and Node.js's native concurrency primitives rather than reimplementing them. This means it uses `scheduler.postTask` when available for cooperative multitasking, and you can leverage `SharedArrayBuffer` and `Atomics` when using the Web Worker integration for true parallelism.
 
+<br />
+
+
 ## 📚 Guides & Deeper Dives
 
 ### Performance & Debugging
@@ -496,6 +517,9 @@ const withCache = <C extends { cache: Cache }, V, R>(
 };
 ```
 
+<br />
+
+
 ## 📋 Best Practices
 
 - **Keep Tasks Focused:** Each task should have a single responsibility. Compose them in workflows rather than creating monolithic tasks.
@@ -504,12 +528,18 @@ const withCache = <C extends { cache: Cache }, V, R>(
 - **Define Clear Context Interfaces:** Keep your `AppContext` clean and well-defined. Pass request-specific data through the workflow, not in the context.
 - **Always Use `bracket` for Resources:** Guarantee cleanup for files, database connections, or other resources that need explicit closing.
 
+<br />
+
+
 ## ⚠️ Common Pitfalls & Solutions
 
 - **`ContextNotFoundError`:** You called `getContext()` outside of a task's execution. Ensure it's called inside the async function passed to `defineTask`.
 - **Enhancer Not Working:** Enhancers (`withRetry`, `withTimeout`, etc.) return a *new* task. You must use the returned value. `const retried = withRetry(myTask);` not `withRetry(myTask);`.
 - **Backtracking Not Working:** The target task was not created with `defineTask`. The runtime needs the `__task_id` assigned by `defineTask` to find it.
 - **Workflow Stops Midway:** An unhandled error was likely thrown. Debug by running with `{ throw: false }` to inspect the returned `Result` object: `const result = await run(workflow, input, { throw: false });`.
+
+<br />
+
 
 ## 🧰 Complete API Reference
 
