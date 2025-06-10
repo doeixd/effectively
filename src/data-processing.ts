@@ -6,10 +6,10 @@
  * full power of the underlying scheduler for maximum performance.
  */
 
-import { defineTask, getContext, type Task, type Scope } from './run';
+import { defineTask, getContext, type Task, type BaseContext, type Scope } from './run';
 import { all, type ParallelOptions } from './scheduler';
 
-interface MapReduceOptions<C, T, R, U> extends ParallelOptions {
+interface MapReduceOptions<C extends BaseContext, T, R, U> extends ParallelOptions {
   map: Task<C, T, R>;
   reduce: (accumulator: U, current: R) => U;
   initial: U;

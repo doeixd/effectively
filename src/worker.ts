@@ -7,7 +7,7 @@
  * production-grade multi-threading.
  */
 
-import { defineTask, getContext, createContext, type Task, type Scope } from './run';
+import { defineTask, getContext, createContext, type Task, type BaseContext, type Scope } from './run';
 // import { Worker } from 'threads';
 
 import {
@@ -30,13 +30,13 @@ import {
  */
 export interface StreamHandle<T> {
   next: (value: T) => void;
-  throw: (error: any) => void;
+  throw: (error: unknown) => void;
   return: () => void;
 }
 
 interface WorkerHandlerOptions {
   /** A map of isomorphic references available to tasks in this worker. */
-  references?: Record<string, any>;
+  references?: Record<string, unknown>;
 }
 
 interface WorkerMessage {
@@ -58,7 +58,7 @@ interface WorkerMessage {
  * @param options Optional configuration for registering isomorphic references.
  */
 export function createWorkerHandler(
-  tasks: Record<string, Task<any, any, any>>,
+  tasks: Record<string, Task<BaseContext, unknown, unknown>>,
   options: WorkerHandlerOptions = {}
 ) {
   // 1. Initialize seroval's cross-reference scope for this worker.
@@ -101,7 +101,7 @@ export function createWorkerHandler(
     pollCancellation();
 
     try {
-      const deserialized = fromJSON(payload) as { value: any; context: any };
+      const deserialized = fromJSON(payload) as { value: unknown; context: Record<string, unknown> };
       const runOptions = {
         overrides: deserialized.context,
         parentSignal: controller.signal,
@@ -116,8 +116,8 @@ export function createWorkerHandler(
           run(task, deserialized.value, runOptions),
           {
             scopeId: 'worker',
-            onSerialize: (chunk: any) => self.postMessage(chunk),
-            onError: async (err: any) => {
+            onSerialize: (chunk: string) => self.postMessage(chunk),
+            onError: async (err: unknown) => {
               self.postMessage(await crossSerializeAsync(err, { scopeId: 'worker' }));
             },
           }
@@ -145,7 +145,7 @@ export function createWorkerHandler(
  * @param taskId The string ID of the task to execute on the worker.
  * @returns A `Task` that, when run, will execute its logic on the worker.
  */
-export function runOnWorker<C extends { scope: Scope }, V, R>(worker: Worker, taskId: string): Task<C, V, R> {
+export function runOnWorker<C extends BaseContext, V, R>(worker: Worker, taskId: string): Task<C, V, R> {
   return async (fullContext: C, value: V): Promise<R> => {
     return new Promise<R>(async (resolve, reject) => {
       const { scope, ...context } = fullContext;
@@ -178,7 +178,7 @@ export function runOnWorker<C extends { scope: Scope }, V, R>(worker: Worker, ta
           cleanup();
         }
       };
-      worker.onerror = (err: any) => { reject(err); cleanup(); };
+      worker.onerror = (err: ErrorEvent) => { reject(err.error || err); cleanup(); };
 
       const payload = await crossSerializeAsync({ value, context }, { scopeId: 'main' });
       worker.postMessage({ taskId, isStream: false, payload, cancellationBuffer });
@@ -194,7 +194,7 @@ export function runOnWorker<C extends { scope: Scope }, V, R>(worker: Worker, ta
  * @param taskId The ID of the streaming task on the worker.
  * @returns A `Task` that returns an `AsyncIterable` of the results.
  */
-export function runStreamOnWorker<C extends { scope: Scope }, V, R>(worker: Worker, taskId: string): Task<C, V, AsyncIterable<R>> {
+export function runStreamOnWorker<C extends BaseContext, V, R>(worker: Worker, taskId: string): Task<C, V, AsyncIterable<R>> {
   return async (fullContext: C, value: V): Promise<AsyncIterable<R>> => {
     const { scope, ...context } = fullContext;
     const cancellationBuffer = new SharedArrayBuffer(4);

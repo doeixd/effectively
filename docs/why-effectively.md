@@ -51,7 +51,7 @@ Effectively provides a clean, declarative way to solve this by separating the co
 Let's refactor the same function using the Effectively pattern.
 
 ```typescript
-import { defineTask, withRetry, pipe, getContext } from 'effectively';
+import { defineTask, withRetry, getContext } from 'effectively';
 import { Result, ok, err } from 'neverthrow';
 
 // 1. Define custom, meaningful error types.
@@ -75,17 +75,14 @@ const fetchUserTask = defineTask(
   }
 );
 
-// 3. Use Enhancers and `pipe` to declaratively add behavior.
+// 3. Use Enhancers and composition to declaratively add behavior.
 // The result is a new, more powerful Task (a "Workflow").
-export const resilientFetchUser = pipe(
-  fetchUserTask,
-  withRetry({
-    attempts: 3,
-    backoff: 'exponential',
-    // Only retry on network errors, not "User not found".
-    shouldRetry: (error) => error instanceof NetworkError,
-  })
-);
+export const resilientFetchUser = withRetry(fetchUserTask, {
+  attempts: 3,
+  backoff: 'exponential',
+  // Only retry on network errors, not "User not found".
+  shouldRetry: (error) => error instanceof NetworkError,
+});
 ```
 
 This version is superior in every way:

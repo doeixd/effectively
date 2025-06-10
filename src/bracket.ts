@@ -1,4 +1,4 @@
-import type { Task, Scope } from './run';
+import type { Task, BaseContext, Scope } from './run';
 import { defineTask, getContext } from './run';
 
 /**
@@ -9,7 +9,7 @@ import { defineTask, getContext } from './run';
  * @template V The input value type for the workflow
  * @template U The output value type from the use workflow
  */
-export interface BracketConfig<C extends { scope: Scope }, R, V, U> {
+export interface BracketConfig<C extends BaseContext, R, V, U> {
   /**
    * Task that acquires the resource.
    * This task is executed first and its result is made available to the use workflow.

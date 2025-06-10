@@ -255,7 +255,7 @@ Go beyond `Promise.all` with named results, partial failure handling, and effici
 ```typescript
 // Parallel execution with named results
 const results = await run(
-  pipe(
+  createWorkflow(
     fromValue(userData),
     forkJoin({
       profile: fetchProfile,
@@ -547,7 +547,7 @@ const withCache = <C extends { cache: Cache }, V, R>(
 | Function | Pattern | Description |
 |----------|---------|-------------|
 | `createWorkflow(...tasks)` | Standalone | Chains tasks into a sequential workflow. |
-| `pipe` | Standalone | Generic utility for function composition. |
+| `pipe(value, ...fns)` | Standalone | Generic utility for function composition. |
 | `map(fn)` | Pipeable | Transforms values in a workflow. |
 | `flatMap(fn)` | Pipeable | Transforms values into new Tasks. |
 | `tap(fn)` | Pipeable | Side effects without changing the value. |
@@ -599,6 +599,25 @@ const withCache = <C extends { cache: Cache }, V, R>(
 | `createWorkerHandler(tasks)` | Worker | Sets up worker to handle main thread requests. |
 | `runOnWorker(worker, taskId)` | Main | Executes task on worker (request-response). |
 | `runStreamOnWorker(worker, taskId)` | Main | Streams results from worker task. |
+
+### Context & Dependency Injection
+| Function | Description |
+|----------|-------------|
+| `mergeContexts(contextA, contextB)` | Type-safe context merging, with B taking precedence. |
+| `validateContext(schema, context)` | Runtime context validation using provided schema. |
+| `requireContextProperties(...keys)` | Throws if required context properties are missing. |
+| `createInjectionToken<T>(description)` | Creates type-safe dependency injection tokens. |
+| `inject(token)` | Injects a dependency by its token from current context. |
+| `injectOptional(token)` | Safely injects a dependency, returns undefined if not found. |
+| `withContextEnhancement(enhancement, task)` | Provides additional context to a child task. |
+
+### Advanced Context Tools
+| Function | Description |
+|----------|-------------|
+| `createContextTransformer(transformer)` | Creates reusable context transformation functions. |
+| `useContextProperty(key)` | Type-safe accessor for specific context properties. |
+| `withScope(providers, task)` | Temporarily provides additional services in scope. |
+| `createLazyDependency(factory)` | Creates dependencies that are only instantiated when accessed. |
 
 ## 🤝 Contributing
 

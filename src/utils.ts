@@ -12,13 +12,14 @@
 import { Result, ok, err } from 'neverthrow';
 import {
   type Task,
+  type BaseContext,
   type Scope,
   type Logger,
   noopLogger,
   defineTask,
   getContext,
   isBacktrackSignal,
-} from './run'; // Assuming core types are in './run'
+} from './run';
 
 // A lightweight deep-equal implementation for memoize key comparison
 const deepEqual = (a: any, b: any): boolean => {
@@ -168,18 +169,18 @@ export function flow(...fns: Function[]): Function {
  * const greeting = await run(workflow); // "Hello, John Doe!"
  * ```
  */
-export function createWorkflow<C, V, R1>(a: Task<C, V, R1>): Task<C, V, R1>;
-export function createWorkflow<C, V, R1, R2>(a: Task<C, V, R1>, b: Task<C, R1, R2> | ((val: R1) => R2)): Task<C, V, R2>;
-export function createWorkflow<C, V, R1, R2, R3>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3> | ((val: R2) => R3)): Task<C, V, R3>;
-export function createWorkflow<C, V, R1, R2, R3, R4>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>): Task<C, V, R4>;
-export function createWorkflow<C, V, R1, R2, R3, R4, R5>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>): Task<C, V, R5>;
-export function createWorkflow<C, V, R1, R2, R3, R4, R5, R6>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>): Task<C, V, R6>;
-export function createWorkflow<C, V, R1, R2, R3, R4, R5, R6, R7>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>): Task<C, V, R7>;
-export function createWorkflow<C, V, R1, R2, R3, R4, R5, R6, R7, R8>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>): Task<C, V, R8>;
-export function createWorkflow<C, V, R1, R2, R3, R4, R5, R6, R7, R8, R9>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>): Task<C, V, R9>;
-export function createWorkflow<C, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>, j: Task<C, R9, R10>): Task<C, V, R10>;
-export function createWorkflow<C, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>, j: Task<C, R9, R10>, k: Task<C, R10, R11>): Task<C, V, R11>;
-export function createWorkflow<C, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>, j: Task<C, R9, R10>, k: Task<C, R10, R11>, l: Task<C, R11, R12>): Task<C, V, R12>;
+export function createWorkflow<C extends BaseContext, V, R1>(a: Task<C, V, R1>): Task<C, V, R1>;
+export function createWorkflow<C extends BaseContext, V, R1, R2>(a: Task<C, V, R1>, b: Task<C, R1, R2> | ((val: R1) => R2)): Task<C, V, R2>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3> | ((val: R2) => R3)): Task<C, V, R3>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>): Task<C, V, R4>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>): Task<C, V, R5>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>): Task<C, V, R6>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>): Task<C, V, R7>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>): Task<C, V, R8>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8, R9>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>): Task<C, V, R9>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>, j: Task<C, R9, R10>): Task<C, V, R10>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>, j: Task<C, R9, R10>, k: Task<C, R10, R11>): Task<C, V, R11>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>, j: Task<C, R9, R10>, k: Task<C, R10, R11>, l: Task<C, R11, R12>): Task<C, V, R12>;
 export function createWorkflow(...steps: any[]): Task<any, any, any> {
   if (steps.length === 0) {
     return async (context: any, v: any) => v; // Identity task
@@ -240,8 +241,8 @@ export const chain = createWorkflow;
  * const userId = await run(workflow); // "user-123"
  * ```
  */
-export function fromValue<T>(value: T): Task<any, null, T> {
-  return async (context: any, _: null): Promise<T> => value;
+export function fromValue<T>(value: T): Task<BaseContext, null, T> {
+  return async (context: BaseContext, _: null): Promise<T> => value;
 }
 
 /**
@@ -254,8 +255,8 @@ export function fromValue<T>(value: T): Task<any, null, T> {
  * const user = await run(workflow);
  * ```
  */
-export function fromPromise<T>(promise: Promise<T>): Task<any, null, T> {
-  return async (context: any, _: null): Promise<T> => promise;
+export function fromPromise<T>(promise: Promise<T>): Task<BaseContext, null, T> {
+  return async (context: BaseContext, _: null): Promise<T> => promise;
 }
 
 /**
@@ -270,7 +271,7 @@ export function fromPromise<T>(promise: Promise<T>): Task<any, null, T> {
  * const user = await run(workflow);
  * ```
  */
-export function fromPromiseFn<C extends { scope: Scope }, T>(
+export function fromPromiseFn<C extends BaseContext, T>(
   fn: (context: C) => Promise<T>
 ): Task<C, null, T> {
   return async (context: C, _: null): Promise<T> => fn(context);
@@ -295,7 +296,7 @@ export function fromPromiseFn<C extends { scope: Scope }, T>(
  * const name = await run(workflow, 'user-123');
  * ```
  */
-export function map<C extends { scope: Scope }, V, R>(
+export function map<C extends BaseContext, V, R>(
   f: (value: V, context: C) => R | Promise<R>
 ): Task<C, V, R> {
   return async (context: C, value: V): Promise<R> => {
@@ -317,7 +318,7 @@ export function map<C extends { scope: Scope }, V, R>(
  * const posts = await run(workflow, 'user-123');
  * ```
  */
-export function flatMap<C extends { scope: Scope }, V, R>(
+export function flatMap<C extends BaseContext, V, R>(
   f: (value: V, context: C) => Task<C, V, R>
 ): Task<C, V, R> {
   return async (context: C, value: V): Promise<R> => {
@@ -338,7 +339,7 @@ export function flatMap<C extends { scope: Scope }, V, R>(
  * const name = await run(fetchUserName, 'user-123');
  * ```
  */
-export function mapTask<C extends { scope: Scope }, V, A, B>(
+export function mapTask<C extends BaseContext, V, A, B>(
   task: Task<C, V, A>,
   f: (value: A) => B | Promise<B>
 ): Task<C, V, B> {
@@ -358,7 +359,7 @@ export function mapTask<C extends { scope: Scope }, V, A, B>(
  * const posts = await run(fetchUserAndPosts, 'user-123');
  * ```
  */
-export function andThenTask<C extends { scope: Scope }, In, A, B>(
+export function andThenTask<C extends BaseContext, In, A, B>(
   task: Task<C, In, A>,
   f: (value: A) => Task<C, A, B>
 ): Task<C, In, B> {
@@ -381,8 +382,8 @@ export function andThenTask<C extends { scope: Scope }, In, A, B>(
  * const partialUser = await run(workflow, 'user-123'); // { id: '...', name: '...' }
  * ```
  */
-export function pick<T extends object, K extends keyof T>(...keys: K[]): Task<any, T, Pick<T, K>> {
-  return async (context: any, value: T): Promise<Pick<T, K>> => {
+export function pick<T extends object, K extends keyof T>(...keys: K[]): Task<BaseContext, T, Pick<T, K>> {
+  return async (context: BaseContext, value: T): Promise<Pick<T, K>> => {
     const newObj = {} as Pick<T, K>;
     for (const key of keys) if (Object.prototype.hasOwnProperty.call(value, key)) newObj[key] = value[key];
     return newObj;
@@ -407,7 +408,7 @@ export function pick<T extends object, K extends keyof T>(...keys: K[]): Task<an
  * );
  * ```
  */
-export function when<C extends { scope: Scope }, V>(
+export function when<C extends BaseContext, V>(
   predicate: (value: V, context: C) => boolean | Promise<boolean>,
   task: Task<C, V, V>
 ): Task<C, V, V> {
@@ -429,7 +430,7 @@ export function when<C extends { scope: Scope }, V>(
  * );
  * ```
  */
-export function unless<C extends { scope: Scope }, V>(
+export function unless<C extends BaseContext, V>(
   predicate: (value: V, context: C) => boolean | Promise<boolean>,
   task: Task<C, V, V>
 ): Task<C, V, V> {
@@ -447,7 +448,7 @@ export function unless<C extends { scope: Scope }, V>(
  * await run(workflow, 'initial_token');
  * ```
  */
-export function doWhile<C extends { scope: Scope }, V>(
+export function doWhile<C extends BaseContext, V>(
   task: Task<C, V, V>,
   predicate: (value: V, context: C) => boolean | Promise<boolean>
 ): Task<C, V, V> {
@@ -473,7 +474,7 @@ export function doWhile<C extends { scope: Scope }, V>(
  * );
  * ```
  */
-export function tap<C extends { scope: Scope }, V>(
+export function tap<C extends BaseContext, V>(
   f: (value: V, context: C) => void | Promise<void>
 ): Task<C, V, V> {
   return async (context: C, value: V): Promise<V> => {
@@ -494,8 +495,8 @@ export function tap<C extends { scope: Scope }, V>(
  * );
  * ```
  */
-export function sleep(ms: number): Task<any, any, void> {
-  return async (context: any, _: any): Promise<void> => {
+export function sleep(ms: number): Task<BaseContext, any, void> {
+  return async (context: BaseContext, _: any): Promise<void> => {
     if (context.scope.signal.aborted) throw new DOMException('Aborted', 'AbortError');
     return new Promise((resolve, reject) => {
       const timer = setTimeout(resolve, ms);
@@ -525,7 +526,7 @@ export function sleep(ms: number): Task<any, any, void> {
  * await run(loggedFetch, 'user-123');
  * ```
  */
-export function tapError<C extends { scope: Scope }, V, R>(
+export function tapError<C extends BaseContext, V, R>(
   task: Task<C, V, R>,
   f: (error: unknown, context: C) => void | Promise<void>
 ): Task<C, V, R> {
@@ -552,7 +553,7 @@ export function tapError<C extends { scope: Scope }, V, R>(
  * );
  * ```
  */
-export function attempt<C extends { scope: Scope }, V, R, E extends Error>(
+export function attempt<C extends BaseContext, V, R, E extends Error>(
   task: Task<C, V, R>
 ): Task<C, V, Result<R, E>> {
   return async (context: C, value: V): Promise<Result<R, E>> => {
@@ -582,12 +583,12 @@ export interface RetryOptions {
  * await run(resilientFetch);
  * ```
  */
-export function withRetry<C extends { scope: Scope; logger?: Logger }, V, R>(
+export function withRetry<C extends BaseContext & { logger?: Logger }, V, R>(
   task: Task<C, V, R>,
   options: RetryOptions = {}
 ): Task<C, V, R> {
   const { attempts = 3, delayMs = 100, backoff = 'exponential', shouldRetry = () => true } = options;
-  
+
   // Return a function that matches the Task signature
   const retryTask = async (context: C, value: V): Promise<R> => {
     const logger = context.logger || noopLogger;
@@ -609,12 +610,12 @@ export function withRetry<C extends { scope: Scope; logger?: Logger }, V, R>(
     }
     throw lastError;
   };
-  
+
   // Copy the task ID if it exists for backtracking support
   if (task.__task_id) {
     retryTask.__task_id = task.__task_id;
   }
-  
+
   return retryTask as Task<C, V, R>;
 }
 
@@ -632,7 +633,7 @@ export function withRetry<C extends { scope: Scope; logger?: Logger }, V, R>(
  * const namedFetch = withName(fetchTask, 'GetFromPrimaryAPI');
  * ```
  */
-export function withName<C extends { scope: Scope }, V, R>(task: Task<C, V, R>, name: string): Task<C, V, R> {
+export function withName<C extends BaseContext, V, R>(task: Task<C, V, R>, name: string): Task<C, V, R> {
   const namedTask: Task<C, V, R> = (ctx, val) => task(ctx, val);
   Object.defineProperty(namedTask, 'name', { value: name, configurable: true });
   if (task.__task_id) namedTask.__task_id = task.__task_id;
@@ -651,7 +652,7 @@ export function withName<C extends { scope: Scope }, V, R>(task: Task<C, V, R>, 
  * await run(memoizedFetch, 'config-a'); // Returns from cache
  * ```
  */
-export function memoize<C extends { scope: Scope }, V, R>(task: Task<C, V, R>): Task<C, V, R> {
+export function memoize<C extends BaseContext, V, R>(task: Task<C, V, R>): Task<C, V, R> {
   const cache = new Map<V, Promise<R>>();
   const findInCache = (key: V) => {
     for (const [k, v] of cache.entries()) if (deepEqual(k, key)) return v;
@@ -677,7 +678,7 @@ export function memoize<C extends { scope: Scope }, V, R>(task: Task<C, V, R>): 
  * await run(initDb); // Returns existing connection promise
  * ```
  */
-export function once<C extends { scope: Scope }, V, R>(task: Task<C, V, R>): Task<C, V, R> {
+export function once<C extends BaseContext, V, R>(task: Task<C, V, R>): Task<C, V, R> {
   let promise: Promise<R> | null = null;
   return async (context: C, value: V): Promise<R> => {
     if (promise) return promise;
@@ -696,14 +697,14 @@ export function once<C extends { scope: Scope }, V, R>(task: Task<C, V, R>): Tas
  * await run(fastTask); // Fails if slowApiCall takes > 1s
  * ```
  */
-export function withTimeout<C extends { scope: Scope }, V, R>(
+export function withTimeout<C extends BaseContext, V, R>(
   task: Task<C, V, R>,
   durationMs: number
 ): Task<C, V, R> {
   class TimeoutError extends Error {
     constructor() { super(`Task '${task.name || 'anonymous'}' timed out after ${durationMs}ms.`); this.name = 'TimeoutError'; }
   }
-  
+
   const timeoutTask = async (context: C, value: V): Promise<R> => {
     const timeoutPromise = new Promise<never>((_, reject) => {
       const timerId = setTimeout(() => reject(new TimeoutError()), durationMs);
@@ -711,12 +712,12 @@ export function withTimeout<C extends { scope: Scope }, V, R>(
     });
     return Promise.race([task(context, value), timeoutPromise]);
   };
-  
+
   // Copy the task ID if it exists for backtracking support
   if (task.__task_id) {
     timeoutTask.__task_id = task.__task_id;
   }
-  
+
   return timeoutTask as Task<C, V, R>;
 }
 
@@ -742,7 +743,7 @@ export interface StateTools<S> {
  * const { result, state } = await run(workflow); // state is { count: 1 }
  * ```
  */
-export function withState<C extends { scope: Scope }, V, R, S>(
+export function withState<C extends BaseContext, V, R, S>(
   initialState: (initialValue: V) => S,
   workflowFn: (tools: StateTools<S>) => Task<C, V, R>
 ): Task<C, V, { result: R; state: S }> {
@@ -767,7 +768,7 @@ export function withState<C extends { scope: Scope }, V, R, S>(
  * await run(observedFetch, 'user-123', { logger: console });
  * ```
  */
-export function withSpan<C extends { scope: Scope; logger?: Logger }, V, R>(
+export function withSpan<C extends BaseContext & { logger?: Logger }, V, R>(
   task: Task<C, V, R>,
   spanName?: string
 ): Task<C, V, R> {
@@ -808,7 +809,7 @@ export interface ThrottleOptions {
  * // This task can now be called rapidly, but will only execute 5 times per second.
  * ```
  */
-export function withThrottle<C extends { scope: Scope }, V, R>(
+export function withThrottle<C extends BaseContext, V, R>(
   task: Task<C, V, R>,
   options: ThrottleOptions
 ): Task<C, V, R> {
@@ -867,7 +868,7 @@ export class PollTimeoutError extends Error {
  * await run(waitForJob, 'job-id');
  * ```
  */
-export function withPoll<C extends { scope: Scope }, V, R>(
+export function withPoll<C extends BaseContext, V, R>(
   task: Task<C, V, R>,
   options: PollOptions<R>
 ): Task<C, V, R> {
@@ -901,7 +902,7 @@ export interface BatchingOptions {
  * await Promise.all([run(fetchUserBatched, '1'), run(fetchUserBatched, '2')]);
  * ```
  */
-export function createBatchingTask<C extends { scope: Scope }, K, R>(
+export function createBatchingTask<C extends BaseContext, K, R>(
   batchFn: (keys: K[]) => Promise<R[]>,
   options: BatchingOptions = {}
 ): Task<C, K, R> {
@@ -953,7 +954,7 @@ export function createBatchingTask<C extends { scope: Scope }, K, R>(
  * run(debouncedSearch, 'query');
  * ```
  */
-export function withDebounce<C extends { scope: Scope }, V, R>(
+export function withDebounce<C extends BaseContext, V, R>(
   task: Task<C, V, R>,
   durationMs: number
 ): Task<C, V, R> {

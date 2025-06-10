@@ -160,7 +160,7 @@ const chargeAndInvoiceWorkflow = defineTask(async () => { /* might throw Payment
 
 // The top-level workflow has a comprehensive safety net.
 const safeOrderWorkflow = withErrorBoundary(
-  pipe(createOrderWorkflow, chargeAndInvoiceWorkflow), // pipe is used to chain tasks
+  createWorkflow(createOrderWorkflow, chargeAndInvoiceWorkflow), // createWorkflow is used to chain tasks
   [
     // The handlers are ordered by specificity.
     handleQueryError,       // Most specific.

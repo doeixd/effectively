@@ -13,7 +13,7 @@
  *    the special `HANDLERS_KEY` symbol.
  */
 
-import { getContext, type Scope } from './run'; // Assuming core types are in './run'
+import { getContext, type BaseContext, type Scope } from './run';
 
 // =================================================================
 // Section 1: Core Symbol and Type Definitions
@@ -31,22 +31,20 @@ export const HANDLERS_KEY = Symbol.for('effectively.handlers');
  *
  * @template T The function signature of the effect (e.g., `(msg: string) => void`).
  */
-export type Effect<T extends (...args: any[]) => any> =
+export type Effect<T extends (...args: readonly unknown[]) => unknown> =
   (...args: Parameters<T>) => Promise<ReturnType<T>>;
 
 /**
  * A mapping of effect names to their concrete handler implementations.
  * This object is provided under the `HANDLERS_KEY` symbol in the context.
  */
-export type Handlers = Record<string, (...args: any[]) => any>;
+export type Handlers = Record<string, (...args: unknown[]) => unknown>;
 
 /**
  * The shape a context must have to support the effects pattern. It must satisfy
- * the base `{ scope: Scope }` requirement of the system and include the optional
- * handlers property.
+ * the base context requirement and include the optional handlers property.
  */
-export interface EffectsContext {
-  scope: Scope;
+export interface EffectsContext extends BaseContext {
   [HANDLERS_KEY]?: Handlers;
 }
 
@@ -126,7 +124,7 @@ export class EffectHandlerNotFoundError extends Error {
  * });
  * ```
  */
-export function defineEffect<T extends (...args: any[]) => any>(
+export function defineEffect<T extends (...args: readonly unknown[]) => unknown>(
   effectName: string
 ): Effect<T> {
   const effectFn = async (...args: Parameters<T>): Promise<ReturnType<T>> => {
@@ -140,7 +138,7 @@ export function defineEffect<T extends (...args: any[]) => any>(
     }
 
     // The handler can be sync or async, so we always await it to normalize.
-    return await handler(...args);
+    return await handler(...args) as ReturnType<T>;
   };
 
   // Assign a name for better debugging and introspection.
