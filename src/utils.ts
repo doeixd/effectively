@@ -41,8 +41,111 @@ const deepEqual = (a: any, b: any): boolean => {
 };
 
 // =================================================================
-// Section 1: Core Composition (`pipe` and Starters)
+// Section 1: Core Composition (`createWorkflow` and Starters)
 // =================================================================
+
+/**
+ * Pipes a value through a sequence of functions, from left to right.
+ *
+ * It takes an initial value and applies each function to the result of the
+ * previous one. This is a common pattern in functional programming for creating
+ * a data processing pipeline.
+ *
+ * @param value The initial value to pass into the pipeline.
+ * @param fns A sequence of functions to apply in order. Each function must
+ *   take the output of the previous function as its input.
+ * @returns The final result after all functions have been applied.
+ *
+ * @example
+ * ```typescript
+ * const result = pipe(
+ *   "  hello world  ",
+ *   (s) => s.trim(),
+ *   (s) => s.toUpperCase(),
+ *   (s) => s.split(' ')
+ * ); // result is ["HELLO", "WORLD"]
+ *
+ * const initialScore = 50;
+ * const newScore = pipe(
+ *   initialScore,
+ *   (score) => score + 10,
+ *   (score) => score * 2
+ * ); // newScore is 120
+ * ```
+ */
+export function pipe<A>(value: A): A;
+export function pipe<A, B>(value: A, f1: (a: A) => B): B;
+export function pipe<A, B, C>(value: A, f1: (a: A) => B, f2: (b: B) => C): C;
+export function pipe<A, B, C, D>(value: A, f1: (a: A) => B, f2: (b: B) => C, f3: (c: C) => D): D;
+export function pipe<A, B, C, D, E>(value: A, f1: (a: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E): E;
+export function pipe<A, B, C, D, E, F>(value: A, f1: (a: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F): F;
+export function pipe<A, B, C, D, E, F, G>(value: A, f1: (a: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F, f6: (f: F) => G): G;
+export function pipe<A, B, C, D, E, F, G, H>(value: A, f1: (a: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F, f6: (f: F) => G, f7: (g: G) => H): H;
+export function pipe<A, B, C, D, E, F, G, H, I>(value: A, f1: (a: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F, f6: (f: F) => G, f7: (g: G) => H, f8: (h: H) => I): I;
+export function pipe<A, B, C, D, E, F, G, H, I, J>(value: A, f1: (a: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F, f6: (f: F) => G, f7: (g: G) => H, f8: (h: H) => I, f9: (i: I) => J): J;
+export function pipe(value: any, ...fns: Function[]): any {
+  let currentValue = value;
+  for (const fn of fns) {
+    currentValue = fn(currentValue);
+  }
+  return currentValue;
+}
+
+/**
+ * Composes a sequence of functions from left to right, creating a new function.
+ *
+ * It's like `pipe`, but it doesn't take an initial value. Instead, it returns a
+ * new function that, when called, will run the composed logic. This is useful
+ * for creating reusable, complex functions from smaller, single-purpose ones.
+ * The first function can take any number of arguments; the subsequent functions
+ * must be unary (take a single argument).
+ *
+ * @param fns A sequence of functions to compose.
+ * @returns A new function that takes the input of the first function and
+ *          returns the output of the last function.
+ *
+ * @example
+ * ```typescript
+ * const processString = flow(
+ *   (s: string) => s.trim(),
+ *   (s) => s.toUpperCase(),
+ *   (s) => s.replace(" ", "_")
+ * );
+ *
+ * const result = processString("  hello world  "); // "HELLO_WORLD"
+ * ```
+ */
+// Overloads are essential for TypeScript's type inference to work correctly.
+export function flow<A extends any[], B>(f1: (...args: A) => B): (...args: A) => B;
+export function flow<A extends any[], B, C>(f1: (...args: A) => B, f2: (b: B) => C): (...args: A) => C;
+export function flow<A extends any[], B, C, D>(f1: (...args: A) => B, f2: (b: B) => C, f3: (c: C) => D): (...args: A) => D;
+export function flow<A extends any[], B, C, D, E>(f1: (...args: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E): (...args: A) => E;
+export function flow<A extends any[], B, C, D, E, F>(f1: (...args: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F): (...args: A) => F;
+export function flow<A extends any[], B, C, D, E, F, G>(f1: (...args: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F, f6: (f: F) => G): (...args: A) => G;
+export function flow<A extends any[], B, C, D, E, F, G, H>(f1: (...args: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F, f6: (f: F) => G, f7: (g: G) => H): (...args: A) => H;
+export function flow<A extends any[], B, C, D, E, F, G, H, I>(f1: (...args: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F, f6: (f: F) => G, f7: (g: G) => H, f8: (h: H) => I): (...args: A) => I;
+export function flow<A extends any[], B, C, D, E, F, G, H, I, J>(f1: (...args: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F, f6: (f: F) => G, f7: (g: G) => H, f8: (h: H) => I, f9: (i: I) => J): (...args: A) => J;
+export function flow(...fns: Function[]): Function {
+  const { length } = fns;
+  if (length === 0) {
+    return <T>(arg: T): T => arg;
+  }
+
+  if (length === 1) {
+    return fns[0];
+  }
+
+  return (...args: any[]): any => {
+    let currentValue = fns[0](...args);
+
+    for (let i = 1; i < length; i++) {
+      currentValue = fns[i](currentValue);
+    }
+
+    return currentValue;
+  };
+}
+
 
 /**
  * Chains multiple tasks together into a single, sequential workflow.
@@ -55,7 +158,7 @@ const deepEqual = (a: any, b: any): boolean => {
  *
  * @example
  * ```typescript
- * const workflow = pipe(
+ * const workflow = createWorkflow(
  *   fromValue('user-123'),
  *   fetchUser,
  *   map(user => user.name),
@@ -65,21 +168,20 @@ const deepEqual = (a: any, b: any): boolean => {
  * const greeting = await run(workflow); // "Hello, John Doe!"
  * ```
  */
-export function pipe<C, V, R1>(a: Task<C, V, R1>): Task<C, V, R1>;
-export function pipe<C, V, R1, R2>(a: Task<C, V, R1>, b: Task<C, R1, R2> | ((val: R1) => R2)): Task<C, V, R2>;
-export function pipe<C, V, R1, R2, R3>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3> | ((val: R2) => R3)): Task<C, V, R3>;
-export function pipe<C, V, R1, R2, R3, R4>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>): Task<C, V, R4>;
-export function pipe<C, V, R1, R2, R3, R4, R5>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>): Task<C, V, R5>;
-export function pipe<C, V, R1, R2, R3, R4, R5, R6>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>): Task<C, V, R6>;
-export function pipe<C, V, R1, R2, R3, R4, R5, R6, R7>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>): Task<C, V, R7>;
-export function pipe<C, V, R1, R2, R3, R4, R5, R6, R7, R8>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>): Task<C, V, R8>;
-export function pipe<C, V, R1, R2, R3, R4, R5, R6, R7, R8, R9>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>): Task<C, V, R9>;
-export function pipe<C, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>, j: Task<C, R9, R10>): Task<C, V, R10>;
-export function pipe<C, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>, j: Task<C, R9, R10>, k: Task<C, R10, R11>): Task<C, V, R11>;
-export function pipe<C, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>, j: Task<C, R9, R10>, k: Task<C, R10, R11>, l: Task<C, R11, R12>): Task<C, V, R12>;
-export function pipe(...steps: any[]): Task<any, any, any> {
+export function createWorkflow<C, V, R1>(a: Task<C, V, R1>): Task<C, V, R1>;
+export function createWorkflow<C, V, R1, R2>(a: Task<C, V, R1>, b: Task<C, R1, R2> | ((val: R1) => R2)): Task<C, V, R2>;
+export function createWorkflow<C, V, R1, R2, R3>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3> | ((val: R2) => R3)): Task<C, V, R3>;
+export function createWorkflow<C, V, R1, R2, R3, R4>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>): Task<C, V, R4>;
+export function createWorkflow<C, V, R1, R2, R3, R4, R5>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>): Task<C, V, R5>;
+export function createWorkflow<C, V, R1, R2, R3, R4, R5, R6>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>): Task<C, V, R6>;
+export function createWorkflow<C, V, R1, R2, R3, R4, R5, R6, R7>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>): Task<C, V, R7>;
+export function createWorkflow<C, V, R1, R2, R3, R4, R5, R6, R7, R8>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>): Task<C, V, R8>;
+export function createWorkflow<C, V, R1, R2, R3, R4, R5, R6, R7, R8, R9>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>): Task<C, V, R9>;
+export function createWorkflow<C, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>, j: Task<C, R9, R10>): Task<C, V, R10>;
+export function createWorkflow<C, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>, j: Task<C, R9, R10>, k: Task<C, R10, R11>): Task<C, V, R11>;
+export function createWorkflow<C, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>, j: Task<C, R9, R10>, k: Task<C, R10, R11>, l: Task<C, R11, R12>): Task<C, V, R12>;
+export function createWorkflow(...steps: any[]): Task<any, any, any> {
   if (steps.length === 0) {
-    // FIX: Must match defineTask's expected signature: (value) => Promise<Result>
     return defineTask(async (v) => v); // Identity task
   }
 
@@ -102,11 +204,37 @@ export function pipe(...steps: any[]): Task<any, any, any> {
 }
 
 /**
+ * An alias for {@link createWorkflow}.
+ *
+ * Chains multiple tasks together into a single, sequential workflow.
+ * The output of each task is passed as the input to the next. This is the
+ * primary composition utility for the library. Plain functions can be used
+ * as steps and will be automatically wrapped in a `Task`.
+ *
+ * @param tasks A sequence of tasks and functions to execute.
+ * @returns A new `Task` representing the entire pipeline.
+ *
+ * @example
+ * ```typescript
+ * const processUser = chain(
+ *   fromValue('user-123'),
+ *   fetchUser,
+ *   map(user => user.name),
+ *   (name) => `Hello, ${name}!`
+ * );
+ *
+ * const greeting = await run(processUser); // "Hello, John Doe!"
+ * ```
+ * @see {@link createWorkflow}
+ */
+export const chain = createWorkflow;
+
+/**
  * Starts a workflow with a static, known value.
  * @param value The static value to begin the workflow with.
  * @example
  * ```typescript
- * const workflow = pipe(
+ * const workflow = createWorkflow(
  *   fromValue({ id: 'user-123' }),
  *   map(data => data.id),
  * );
@@ -123,7 +251,7 @@ export function fromValue<T>(value: T): Task<any, null, T> {
  * @example
  * ```typescript
  * const userIdPromise = Promise.resolve('user-123');
- * const workflow = pipe(fromPromise(userIdPromise), fetchUser);
+ * const workflow = createWorkflow(fromPromise(userIdPromise), fetchUser);
  * const user = await run(workflow);
  * ```
  */
@@ -136,7 +264,7 @@ export function fromPromise<T>(promise: Promise<T>): Task<any, null, T> {
  * @param fn An async function that receives the context and returns a promise.
  * @example
  * ```typescript
- * const workflow = pipe(
+ * const workflow = createWorkflow(
  *   fromPromiseFn(ctx => ctx.auth.getUserId()),
  *   fetchUser
  * );
@@ -154,14 +282,14 @@ export function fromPromiseFn<C extends { scope: Scope }, T>(
 // Section 2: Pipeable Operators and Direct Composition
 // =================================================================
 
-// --- Pipeable Operators (for use with `pipe`) ---
+// --- Pipeable Operators (for use with `createWorkflow`) ---
 
 /**
  * **Pipeable Operator:** Transforms the value in a workflow using a mapping function.
  * @param f A synchronous or async function that transforms the value.
  * @example
  * ```typescript
- * const workflow = pipe(
+ * const workflow = createWorkflow(
  *   fetchUser, // returns a User object
  *   map(user => user.name) // returns a string
  * );
@@ -181,7 +309,7 @@ export function map<C extends { scope: Scope }, V, R>(
  * @param f A function that takes a value and returns a new `Task`.
  * @example
  * ```typescript
- * const workflow = pipe(
+ * const workflow = createWorkflow(
  *   fetchUser,
  *   flatMap(user => fetchPostsForUser(user.id))
  * );
@@ -248,7 +376,7 @@ export function andThenTask<C extends { scope: Scope }, In, A, B>(
  * @param keys The keys to pick from the object.
  * @example
  * ```typescript
- * const workflow = pipe(
+ * const workflow = createWorkflow(
  *   fetchUser,
  *   pick('id', 'name')
  * );
@@ -275,7 +403,7 @@ export function pick<T extends object, K extends keyof T>(...keys: K[]): Task<an
  * @example
  * ```typescript
  * const sendEmailTask = defineTask(user => email.sendWelcome(user));
- * const workflow = pipe(
+ * const workflow = createWorkflow(
  *   createUser,
  *   when(user => user.isVerified, sendEmailTask)
  * );
@@ -298,7 +426,7 @@ export function when<C extends { scope: Scope }, V>(
  * @example
  * ```typescript
  * const showUpgradePrompt = defineTask(user => ui.showUpgrade(user));
- * const workflow = pipe(
+ * const workflow = createWorkflow(
  *   fetchUser,
  *   unless(user => user.hasProPlan, showUpgradePrompt)
  * );
@@ -342,7 +470,7 @@ export function doWhile<C extends { scope: Scope }, V>(
  * @param f A function to execute as a side effect.
  * @example
  * ```typescript
- * const workflow = pipe(
+ * const workflow = createWorkflow(
  *   fetchUser,
  *   tap(user => console.log(`Processing user: ${user.id}`)),
  *   processUser
@@ -363,7 +491,7 @@ export function tap<C extends { scope: Scope }, V>(
  * @param ms The number of milliseconds to sleep.
  * @example
  * ```typescript
- * const workflow = pipe(
+ * const workflow = createWorkflow(
  *   startOperation,
  *   sleep(2000), // wait 2 seconds
  *   finishOperation
@@ -423,7 +551,7 @@ export function tapError<C extends { scope: Scope }, V, R>(
  * @example
  * ```typescript
  * const safeFetch = attempt(fetchUser);
- * const workflow = pipe(
+ * const workflow = createWorkflow(
  *   fromValue('user-123'),
  *   safeFetch,
  *   map(result => result.isOk() ? `Found user` : `Error: ${result.error.message}`)
@@ -486,69 +614,6 @@ export function withRetry<C extends { scope: Scope; logger?: Logger }, V, R>(
     throw lastError;
   });
 }
-
-export interface CircuitBreakerOptions {
-  id: string;
-  failureThreshold?: number;
-  openStateTimeoutMs?: number;
-  isFailure?: (error: unknown) => boolean;
-}
-
-export class CircuitOpenError extends Error {
-  constructor(public readonly id: string) { super(`Circuit Breaker "${id}" is open.`); this.name = 'CircuitOpenError'; }
-}
-
-/**
- * Wraps a task with a Circuit Breaker to prevent cascading failures.
- * @param task The fallible `Task` to protect.
- * @param options Configuration for the circuit breaker's behavior.
- * @example
- * ```typescript
- * const protectedApi = withCircuitBreaker(apiCall, { id: 'my-api' });
- * try {
- *   await run(protectedApi);
- * } catch(e) {
- *   if (e instanceof CircuitOpenError) console.error("Service unavailable.");
- * }
- * ```
- */
-export function withCircuitBreaker<C extends { scope: Scope; logger?: Logger }, V, R>(
-  task: Task<C, V, R>,
-  options: CircuitBreakerOptions
-): Task<C, V, R> {
-  const { id, failureThreshold = 5, openStateTimeoutMs = 30000, isFailure = (err) => !isBacktrackSignal(err) } = options;
-  const state = { status: 'CLOSED' as 'CLOSED' | 'OPEN' | 'HALF-OPEN', failures: 0, lastFailureTimestamp: 0 };
-  return defineTask(async (value: V) => {
-    const context = getContext<C>();
-    const logger = context.logger || noopLogger;
-    if (state.status === 'OPEN' && Date.now() - state.lastFailureTimestamp > openStateTimeoutMs) {
-      state.status = 'HALF-OPEN';
-      logger.warn(`[Circuit Breaker: ${id}] State changed to HALF-OPEN.`);
-    }
-    if (state.status === 'OPEN') throw new CircuitOpenError(id);
-    try {
-      const result = await task(context, value);
-      if (state.status === 'HALF-OPEN') logger.info(`[Circuit Breaker: ${id}] Trial succeeded. State changed to CLOSED.`);
-      state.status = 'CLOSED';
-      state.failures = 0;
-      return result;
-    } catch (error) {
-      if (!isFailure(error)) throw error;
-      state.failures++;
-      state.lastFailureTimestamp = Date.now();
-      logger.warn(`[Circuit Breaker: ${id}] Recorded failure #${state.failures}.`, { error });
-      if (state.status === 'HALF-OPEN') {
-        state.status = 'OPEN';
-        logger.error(`[Circuit Breaker: ${id}] Trial failed. State changed back to OPEN.`);
-      } else if (state.failures >= failureThreshold) {
-        state.status = 'OPEN';
-        logger.error(`[Circuit Breaker: ${id}] Failure threshold reached. State changed to OPEN.`);
-      }
-      throw error;
-    }
-  });
-}
-
 
 // =================================================================
 // Section 5: Task Enhancers & Resource Management
@@ -659,7 +724,7 @@ export interface StateTools<S> {
  * ```typescript
  * const workflow = withState(
  *   () => ({ count: 0 }),
- *   ({ setState, getState }) => pipe(
+ *   ({ setState, getState }) => createWorkflow(
  *     someTask,
  *     tap(() => setState(s => ({ count: s.count + 1 })))
  *   )
@@ -857,4 +922,66 @@ export function createBatchingTask<C extends { scope: Scope }, K, R>(
     pending.push({ key, resolve, reject, signal: scope.signal });
     if (!timer) timer = setTimeout(dispatch, windowMs);
   }));
+}
+
+
+/**
+ * Creates a debounced version of a task. The task will only be executed
+ * after a specified period of inactivity. All calls made during the debounce
+ * window will receive the same promise, which resolves with the result of
+ * the single eventual execution.
+ *
+ * @param task The `Task` to debounce.
+ * @param durationMs The debounce duration in milliseconds.
+ * @returns A new, debounced `Task`.
+ *
+ * @example
+ * ```typescript
+ * const debouncedSearch = withDebounce(searchApi, 300);
+ * // Can be called rapidly, but the API call only happens 300ms after the last call.
+ * run(debouncedSearch, 'query');
+ * ```
+ */
+export function withDebounce<C extends { scope: Scope }, V, R>(
+  task: Task<C, V, R>,
+  durationMs: number
+): Task<C, V, R> {
+  let timer: NodeJS.Timeout | null = null;
+  let pendingPromise: Promise<R> | null = null;
+  let lastCall: { value: V; context: C; resolve: (v: R) => void; reject: (r: any) => void; } | null = null;
+
+  return defineTask((value: V) => {
+    const context = getContext<C>();
+
+    // If a promise is already pending, return it.
+    if (pendingPromise) {
+      return pendingPromise;
+    }
+
+    // Clear any existing timer.
+    if (timer) {
+      clearTimeout(timer);
+    }
+
+    // Create a new promise for this invocation cycle.
+    pendingPromise = new Promise((resolve, reject) => {
+      // Store the details of the latest call.
+      lastCall = { value, context, resolve, reject };
+
+      timer = setTimeout(() => {
+        if (lastCall) {
+          const { value, context, resolve, reject } = lastCall;
+          // Reset state before execution.
+          pendingPromise = null;
+          timer = null;
+          lastCall = null;
+
+          // Execute the task and resolve/reject the promise.
+          task(context, value).then(resolve).catch(reject);
+        }
+      }, durationMs);
+    });
+
+    return pendingPromise;
+  });
 }

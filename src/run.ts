@@ -52,7 +52,7 @@ export const noopLogger: Logger = {
  *
  * A Task is an async function that receives a context and an input value,
  * and returns a Promise of an output value. Tasks are composable and can
- * be chained together using a `pipe` function from the `utils` module.
+ * be chained together using a `createWorkflow` function from the `utils` module.
  *
  * @template C The shape of the application's context.
  * @template V The input value type for the task.
@@ -67,7 +67,7 @@ export type Task<C, V, R> = ((context: C, value: V) => Promise<R>) & {
   __task_id?: symbol;
 
   /**
-   * Internal property used by the `pipe` utility to store the composed steps.
+   * Internal property used by the `createWorkflow` utility to store the composed steps.
    * @internal
    */
   __steps?: ReadonlyArray<Task<C, any, any>>;
