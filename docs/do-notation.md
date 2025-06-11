@@ -93,6 +93,82 @@ const workflow = myDoTask(function* (userId: string) {
 
 ## Advanced Features
 
+### Generator Composition with `yield*`
+
+One of the most powerful features of do notation is the ability to compose generators using `yield*`. This enables you to break down complex workflows into reusable sub-generators:
+
+```typescript
+// Reusable generator for fetching core user data
+function* fetchUserCore(userId: string) {
+  const user = yield getUser(userId);
+  const profile = yield getProfile(user.id);
+  return { user, profile };
+}
+
+// Reusable generator for fetching user preferences
+function* fetchUserPreferences(userId: string) {
+  const settings = yield getSettings(userId);
+  const permissions = yield getPermissions(userId);
+  return { settings, permissions };
+}
+
+// Compose them into a larger workflow
+const fetchCompleteUserData = doTask(function* (userId: string) {
+  const coreData = yield* fetchUserCore(userId);       // Delegate to sub-generator
+  const preferences = yield* fetchUserPreferences(userId); // Another delegation
+  const analytics = yield getAnalytics(userId);        // Direct yield
+  
+  return {
+    ...coreData,
+    ...preferences,
+    analytics
+  };
+});
+```
+
+#### Benefits of Generator Composition
+
+1. **Reusability**: Sub-generators can be used across multiple workflows
+2. **Testability**: Each sub-generator can be tested independently
+3. **Modularity**: Complex workflows can be broken into logical chunks
+4. **Type Safety**: TypeScript properly infers types through composition
+
+#### Composition Patterns
+
+**Retry Pattern with yield***
+```typescript
+function* withRetryPattern<T>(operation: () => MonadicValue<any, T>, maxAttempts = 3) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return yield operation();
+    } catch (error) {
+      if (attempt === maxAttempts) throw error;
+      // Could add exponential backoff here
+      yield pure(undefined); // Small delay placeholder
+    }
+  }
+}
+
+const resilientFetch = doTask(function* (url: string) {
+  return yield* withRetryPattern(() => fetchData(url));
+});
+```
+
+**Authentication Wrapper**
+```typescript
+function* withAuth<T>(operation: () => MonadicValue<any, T>) {
+  const token = yield getCurrentToken();
+  if (!token || isExpired(token)) {
+    yield refreshToken();
+  }
+  return yield operation();
+}
+
+const secureApiCall = doTask(function* (endpoint: string) {
+  return yield* withAuth(() => apiCall(endpoint));
+});
+```
+
 ### Error Handling
 
 Errors in yielded monadic values are automatically propagated and can be caught:

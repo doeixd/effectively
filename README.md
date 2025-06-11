@@ -236,7 +236,7 @@ A **Workflow** chains Tasks together. `createWorkflow` creates a new Task where 
 
 ## 🛡️ Error Handling: A Dual Strategy
 
-Effectively promotes two complementary approaches to error handling:
+Effectively promotes two complementary approaches to error handling. For a comprehensive guide on error handling strategies, see the [Error Handling Guide](docs/error-handling.md).
 
 ### 1. Domain Errors: Use `Result<T, E>`
 
@@ -299,7 +299,7 @@ This dual approach ensures:
 
 ### Guaranteed Resource Cleanup
 
-Never leak resources again with the `bracket` pattern, which ensures a `release` function is always called, even if the `use` function throws an error.
+Never leak resources again with the `bracket` pattern, which ensures a `release` function is always called, even if the `use` function throws an error. For detailed resource management patterns, see the [Bracket Resource Management Guide](docs/bracket-resource-management.md).
 
 ```typescript
 const processFile = bracket({
@@ -333,7 +333,7 @@ const protectedCall = withCircuitBreaker(externalApi, {
 
 ### Structured Concurrency
 
-Go beyond `Promise.all` with named results, partial failure handling, and efficient data processing.
+Go beyond `Promise.all` with named results, partial failure handling, and efficient data processing. For advanced concurrency patterns and native scheduler integration, see the [Parallel Execution Guide](docs/parallel.md).
 
 ```typescript
 // Parallel execution with named results
@@ -514,7 +514,7 @@ describe('Payment Workflow', () => {
 
 ## 🤔 Comparisons & Where It Fits
 
-Effectively is a powerful tool, but it's important to understand when other approaches might be a better fit.
+Effectively is a powerful tool, but it's important to understand when other approaches might be a better fit. For a detailed exploration of the motivation behind Effectively and how it compares to other patterns, see [Why Effectively?](docs/why-effectively.md).
 
 ### Plain `async/await` & Native Promises
 
@@ -639,7 +639,27 @@ const userWorkflow = doTask(function* (userId: string) {
 });
 ```
 
-This provides a clean alternative to deeply nested `.then()` chains or complex workflow compositions, especially when you need to reference values from multiple previous steps.
+#### Generator Composition with `yield*`
+
+You can compose and reuse generator functions using `yield*` for powerful modular patterns:
+
+```typescript
+// Reusable sub-generators
+function* fetchUserCore(userId: string) {
+  const user = yield getUser(userId);
+  const profile = yield getProfile(user.id);
+  return { user, profile };
+}
+
+// Compose them into larger workflows
+const completeUserData = doTask(function* (userId: string) {
+  const coreData = yield* fetchUserCore(userId);  // Delegate to sub-generator
+  const settings = yield getSettings(userId);     // Direct yield
+  return { ...coreData, settings };
+});
+```
+
+This provides a clean alternative to deeply nested `.then()` chains or complex workflow compositions, with support for both direct value unwrapping (`yield`) and generator composition (`yield*`).
 
 <br />
 
@@ -651,7 +671,7 @@ For more detailed information on monadic composition using generators, see the [
 
 ### Performance & Debugging
 
-Pass a logger to the `run` function to get detailed insight into your workflow's execution, including task timing and success/failure states. For large datasets, use `stream()` or `mapReduce()` with a `concurrency` limit to process data efficiently without overwhelming the system.
+Pass a logger to the `run` function to get detailed insight into your workflow's execution, including task timing and success/failure states. For large datasets, use `stream()` or `mapReduce()` with a `concurrency` limit to process data efficiently without overwhelming the system. For advanced concurrency control and native scheduler integration, see the [Parallel Execution Guide](docs/parallel.md).
 
 ### Setting Up Web Workers
 
@@ -836,6 +856,8 @@ const withCache = <C extends { cache: Cache }, V, R>(
 | `recordSpanException(context, error)` | Records exceptions in current span. |
 | `createTelemetryContext(providers)` | Creates context with tracer/meter/logger providers. |
 | `@traced(spanName?)` | Decorator for automatic method tracing. |
+
+For detailed telemetry setup and configuration, see the [OpenTelemetry Integration Guide](docs/telemetry.md).
 
 <br />
 

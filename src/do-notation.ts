@@ -13,11 +13,19 @@ import type { Result } from 'neverthrow';
 /**
  * A monadic value that can be yielded in a do block.
  * This represents any value that can be "unwrapped" in monadic composition.
+ * 
+ * Supports:
+ * - Tasks: Functions that take (context, value) and return Promise<T>
+ * - Promises: Standard JavaScript promises
+ * - Results: neverthrow Result<T, E> types
+ * - Generators: For yield* delegation to other do blocks
+ * - Plain values: Direct values that are returned as-is
  */
 export type MonadicValue<C extends BaseContext, T> = 
   | Task<C, any, T>
   | Promise<T>
   | Result<T, any>
+  | Generator<MonadicValue<C, any>, T, any>
   | T;
 
 /**
@@ -27,6 +35,7 @@ export type Unwrap<T> =
   T extends Task<any, any, infer R> ? R :
   T extends Promise<infer R> ? R :
   T extends Result<infer R, any> ? R :
+  T extends Generator<any, infer R, any> ? R :
   T;
 
 /**
@@ -44,8 +53,13 @@ export type DoFunction<C extends BaseContext, V, R> = (value: V) => DoGenerator<
  * Executes a generator-based do block, unwrapping each yielded monadic value.
  * This provides Haskell-like do notation for JavaScript/TypeScript.
  * 
+ * Supports:
+ * - yield for unwrapping Tasks, Promises, Results, and plain values
+ * - yield* for delegating to other generator functions (composition)
+ * 
  * @example
  * ```typescript
+ * // Basic usage with yield
  * const workflow = doTask(function* (userId: string) {
  *   const user = yield getUser(userId);        // Task<Context, string, User>
  *   const profile = yield getProfile(user.id); // Task<Context, string, Profile>
@@ -56,6 +70,19 @@ export type DoFunction<C extends BaseContext, V, R> = (value: V) => DoGenerator<
  *     profile,
  *     settings
  *   };
+ * });
+ * 
+ * // Composition with yield*
+ * function* fetchUserCore(userId: string) {
+ *   const user = yield getUser(userId);
+ *   const profile = yield getProfile(user.id);
+ *   return { user, profile };
+ * }
+ * 
+ * const fullWorkflow = doTask(function* (userId: string) {
+ *   const coreData = yield* fetchUserCore(userId); // Delegate to sub-generator
+ *   const settings = yield getSettings(userId);
+ *   return { ...coreData, settings };
  * });
  * ```
  * 
@@ -89,13 +116,51 @@ export function doTask<C extends BaseContext, V, R>(
 }
 
 /**
+ * Executes a generator in the monadic context, handling all yielded values.
+ * This enables yield* delegation to other do blocks.
+ * 
+ * @param context The execution context
+ * @param generator The generator to execute
+ * @returns Promise resolving to the generator's return value
+ */
+async function executeGenerator<C extends BaseContext>(
+  context: C,
+  generator: Generator<MonadicValue<C, any>, any, any>
+): Promise<any> {
+  let result = generator.next();
+  
+  while (!result.done) {
+    try {
+      const unwrappedValue = await unwrapMonadicValue(context, result.value);
+      result = generator.next(unwrappedValue);
+    } catch (error) {
+      result = generator.throw(error);
+    }
+  }
+  
+  return result.value;
+}
+
+/**
  * Unwraps a monadic value based on its type.
- * Handles Tasks, Promises, Results, and plain values.
+ * Handles Tasks, Promises, Results, Generators (for yield*), and plain values.
+ * 
+ * @param context The execution context
+ * @param value The monadic value to unwrap
+ * @returns Promise resolving to the unwrapped value
  */
 async function unwrapMonadicValue<C extends BaseContext>(
   context: C, 
   value: MonadicValue<C, any>
 ): Promise<any> {
+  // Handle Generator objects (for yield*)
+  if (value && typeof value === 'object' && 
+      Symbol.iterator in value && 
+      typeof (value as any).next === 'function' &&
+      typeof (value as any).throw === 'function') {
+    return executeGenerator(context, value as Generator<MonadicValue<C, any>, any, any>);
+  }
+  
   // Handle Task - check if it has __task_id property
   if (typeof value === 'function' && ('__task_id' in value || value.length === 2)) {
     // Task functions take (context, input) - we pass undefined as input for parameterless tasks
