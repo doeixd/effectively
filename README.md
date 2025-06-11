@@ -1,10 +1,12 @@
+![npm](https://img.shields.io/npm/v/effectively)
+![license](https://img.shields.io/npm/l/effectively)
 # Effectively 🚂
 
 **Build resilient TypeScript applications without the complexity.**
 
-![npm](https://img.shields.io/npm/v/effectively?style=for-the-badge) ![license](https://img.shields.io/npm/l/effectively?style=for-the-badge) ![types](https://img.shields.io/npm/types/effectively?style=for-the-badge)
-
 Effectively is a lightweight toolkit that brings structure and safety to asynchronous TypeScript code. It feels like a natural extension of `async/await`, not a replacement for it.
+
+<br />
 
 ## 🎯 Why Effectively?
 
@@ -17,6 +19,9 @@ Effectively is a lightweight toolkit that brings structure and safety to asynchr
 
 **The Solution:** Effectively provides battle-tested patterns for these problems without forcing you to learn a new programming paradigm. If you can write `async/await`, you can use Effectively.
 
+<br />
+
+
 ## 📦 Installation
 
 ```bash
@@ -24,6 +29,8 @@ npm install effectively neverthrow
 ```
 
 *Note: `neverthrow` is a peer dependency for typed error handling.*
+
+<br />
 
 ## 🚀 Building Intuition: A Getting Started Guide
 
@@ -44,6 +51,7 @@ const message = await greetTask({ greeting: 'Hello' }, 'World');
 ```
 
 This is the fundamental building block. It's just a function, making it easy to understand and test in isolation.
+
 
 #### Step 2: `defineTask` Makes Context Implicit
 
@@ -76,6 +84,7 @@ const greet = defineTask(async (name: string) => {
 
 That's it! **`defineTask` doesn't do anything magical**—it just wraps your function to handle the context parameter for you, making your code cleaner.
 
+
 #### Step 3: Workflows Chain Tasks Together
 
 Once you have tasks, you can chain them together using `createWorkflow`. The output of one task becomes the input to the next.
@@ -104,6 +113,7 @@ const getUserDisplay = createWorkflow(
 );
 // This creates a new, single Task that runs all three in sequence.
 ```
+
 
 #### Step 4: `run` Provides the Context
 
@@ -174,6 +184,9 @@ Algebraic effect handlers let you write code that's abstract over side effects, 
 This simple, layered approach—from plain async functions to composable workflows with effect handlers—is the core of Effectively.
 
 <br />
+
+<br />
+
 
 ## 💡 Core Concepts
 
@@ -668,7 +681,7 @@ const withCache = <C extends { cache: Cache }, V, R>(
 
 <br />
 
-## 🧰 Complete API Reference
+## 🧰 API Reference
 
 ### Core Engine
 | Function | Description |
