@@ -844,11 +844,18 @@ Use this guide to choose the appropriate context function:
 |----------|---------|-------------|
 | `createWorkflow(...tasks)` | Standalone | Chains tasks into a sequential workflow. |
 | `pipe(value, ...fns)` | Standalone | Generic utility for function composition. |
+| `flow(...fns)` | Standalone | Creates a function from a composition of functions. |
 | `map(fn)` | Pipeable | Transforms values in a workflow. |
 | `flatMap(fn)` | Pipeable | Transforms values into new Tasks. |
+| `mapTask(task, fn)` | Standalone | Maps over a task's result with a function. |
 | `tap(fn)` | Pipeable | Side effects without changing the value. |
 | `fromValue(value)` | Standalone | Starts a workflow with a static value. |
 | `fromPromise(promise)` | Standalone | Starts a workflow from a Promise. |
+| `fromPromiseFn(fn)` | Standalone | Creates a task from a promise-returning function. |
+| `chain(...tasks)` | Standalone | Alias for `createWorkflow` - chains tasks into a sequential workflow. |
+| `andThenTask(task, fn)` | Standalone | Direct composition - transforms a task's output into a new task. |
+| `pick(...keys)` | Pipeable | Creates a new object containing only the specified keys. |
+| `sleep(ms)` | Standalone | Creates a task that waits for the specified milliseconds. |
 
 ### Do-Notation & Monadic Composition
 | Function | Description |
@@ -869,6 +876,8 @@ Use this guide to choose the appropriate context function:
 | `createErrorHandler(...tuples)` | Creates handler tuples for `withErrorBoundary`. |
 | `createErrorType(options)` | Factory for custom error classes with inheritance. |
 | `tryCatch(fn)` | Converts throwing functions to `Result`-returning ones. |
+| `tapError(fn)` | Handles errors without changing the workflow result. |
+| `attempt(task)` | Wraps a task to return a `Result` instead of throwing. |
 
 ### Resource Management
 | Function | Description |
@@ -885,6 +894,10 @@ Use this guide to choose the appropriate context function:
 | `withTimeout(task, ms)` | Time limits for task execution. |
 | `withCircuitBreaker(task, options)` | Prevents cascading failures with circuit breaker pattern. |
 | `withDebounce(task, ms)` | Ensures task only runs after period of inactivity. |
+| `withThrottle(task, options)` | Rate-limits task execution to prevent overwhelming resources. |
+| `withName(task, name)` | Adds a name to a task for debugging and observability. |
+| `memoize(task)` | Caches task results based on input value equality. |
+| `once(task)` | Ensures a task runs only once, returning cached result on subsequent calls. |
 
 ### Concurrency & Parallelism
 | Function | Pattern | Description |
@@ -901,6 +914,9 @@ Use this guide to choose the appropriate context function:
 | `BacktrackSignal(target, value)` | Signal to jump back to a previous task in workflow. |
 | `isBacktrackSignal(error)` | Type guard for backtrack signals. |
 | `WorkflowError` | Structured error with task context information. |
+| `when(predicate, task)` | Conditionally executes a task based on a predicate. |
+| `unless(predicate, task)` | Executes a task only if the predicate is false. |
+| `doWhile(condition, task)` | Repeatedly executes a task while condition is true. |
 
 ### Multi-Threading (Web Workers)
 | Function | Side | Description |
@@ -927,6 +943,14 @@ Use this guide to choose the appropriate context function:
 | `useContextProperty(key)` | Type-safe accessor for specific context properties. |
 | `withScope(providers, task)` | Temporarily provides additional services in scope. |
 | `createLazyDependency(factory)` | Creates dependencies that are only instantiated when accessed. |
+
+### Advanced Utilities
+| Function | Description |
+|----------|-------------|
+| `withState(task, initialState)` | Provides stateful operations within a task context. |
+| `withPoll(task, options)` | Polls a task until a condition is met or timeout occurs. |
+| `createBatchingTask(batchFn, options)` | Creates a task that automatically batches multiple calls. |
+| `PollTimeoutError` | Error thrown when polling operations exceed their timeout. |
 
 ### OpenTelemetry Integration
 | Function | Description |
