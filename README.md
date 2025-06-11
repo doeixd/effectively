@@ -51,7 +51,7 @@ npm install effectively neverthrow
 
 ## 🚀 Building Intuition: A Getting Started Guide
 
-At its heart, Effectively is beautifully simple. Let's build your understanding from the ground up.
+At its heart, Effectively is intuitively simple. Let's build your understanding from the ground up.
 
 #### Step 1: A Task is Just an Async Function
 
