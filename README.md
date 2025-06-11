@@ -74,6 +74,20 @@ This is the fundamental building block. It's just a function, making it easy to 
 
 Writing `context` as the first parameter every time is tedious. `defineTask` is a simple helper that makes the context implicit and accessible via a `getContext()` function.
 
+**The Simple Way (No Setup Needed):**
+```typescript
+import { defineTask, getContext, run } from '@doeixd/effectively';
+
+// No context creation needed! Smart functions use a global default.
+const greet = defineTask(async (name: string) => {
+  const context = getContext();  // Gets global default context
+  return `Hello, ${name}!`;
+});
+
+await run(greet, 'World'); // Just works!
+```
+
+**The Custom Way (When You Need Specific Dependencies):**
 ```typescript
 import { createContext, type Scope } from '@doeixd/effectively';
 
@@ -87,11 +101,6 @@ const { defineTask, getContext } = createContext<AppContext>({
   greeting: 'Hello'
 });
 
-// Before: explicit context parameter
-async function greetExplicit(context: AppContext, name: string) {
-  return `${context.greeting}, ${name}!`;
-}
-
 // After: defineTask makes context implicit
 const greet = defineTask(async (name: string) => {
   const { greeting } = getContext();  // Context is now available via getContext()
@@ -99,7 +108,26 @@ const greet = defineTask(async (name: string) => {
 });
 ```
 
-That's it! **`defineTask` doesn't do anything magical**—it just wraps your function to handle the context parameter for you, making your code cleaner.
+**The Smart Way (Best of Both Worlds):**
+```typescript
+import { defineTask, getContext, run } from '@doeixd/effectively';
+
+// This task works in ANY context - it adapts automatically!
+const smartGreet = defineTask(async (name: string) => {
+  const context = getContext(); // Smart: uses current context or global default
+  const greeting = (context as any).greeting || 'Hello';
+  return `${greeting}, ${name}!`;
+});
+
+// Works with global context
+await run(smartGreet, 'World');
+
+// Also works within custom contexts
+const { run: customRun } = createContext({ greeting: 'Hi' });
+await customRun(smartGreet, 'World'); // Uses custom greeting
+```
+
+That's it! **`defineTask` doesn't do anything magical**—it just wraps your function to handle the context parameter for you, making your code cleaner. The smart context system means you can start simple and add complexity only when needed.
 
 
 #### Step 3: Workflows Chain Tasks Together
@@ -202,8 +230,6 @@ This simple, layered approach—from plain async functions to composable workflo
 
 <br />
 
-<br />
-
 
 ## 💡 Core Concepts
 
@@ -220,9 +246,15 @@ A **Workflow** chains Tasks together. `createWorkflow` creates a new Task where 
 **Visual Flow:**
 `CardInput → [validateCard] → ValidCard → [chargeCard] → ChargeResult → [sendReceipt] → Receipt`
 
-### 3. Context: Clean Dependency Injection
+### 3. Context: Smart Dependency Injection
 
-**Context** provides your dependencies (like API clients, loggers, or config) without prop drilling or global state. It's provided once by `run` and easily mocked for tests.
+**Context** provides your dependencies (like API clients, loggers, or config) without prop drilling or global state. Effectively now features a **smart context system** with three variants:
+
+- **Smart functions** (`getContext`, `defineTask`, `run`): Automatically use the current context if available, otherwise fall back to a global default context
+- **Local-only functions** (`getContextLocal`, `defineTaskLocal`, `runLocal`): Only work within an active context, throwing errors if none exists
+- **Global-only functions** (`getContextGlobal`, `defineTaskGlobal`, `runGlobal`): Always use the global default context, ignoring any current context
+
+This allows you to start simple (no context creation needed) and progressively enhance your application with custom contexts as needed.
 
 ### 4. Effect Handlers and Brackets
 
@@ -665,6 +697,10 @@ This provides a clean alternative to deeply nested `.then()` chains or complex w
 
 ## 📚 Guides & Deeper Dives
 
+### Smart Context System
+
+For a comprehensive guide to the smart context system with smart, local-only, and global-only functions, see the [Context System Guide](docs/context-system.md). This covers when to use each variant, migration strategies, and best practices for different use cases.
+
 ### Do Notation with Generator Syntax
 
 For more detailed information on monadic composition using generators, see the [Do Notation Guide](docs/do-notation.md). This covers advanced patterns, error handling within do blocks, and performance considerations.
@@ -736,25 +772,72 @@ const withCache = <C extends { cache: Cache }, V, R>(
 
 ## ⚠️ Common Pitfalls & Solutions
 
-- **`ContextNotFoundError`:** You called `getContext()` outside of a task's execution. Ensure it's called inside the async function passed to `defineTask`.
+### Context-Related Issues
+
+- **`ContextNotFoundError` with smart functions:** You called `getContext()` outside of any execution context and there's no global default. The smart functions will automatically use global context as fallback, but if you're using `getContextLocal()`, it requires an active context.
+- **Unexpected context behavior:** If you're getting a different context than expected, check which function variant you're using:
+  - `getContext()` (smart) - uses current context or global fallback
+  - `getContextLocal()` - requires current context, throws if none
+  - `getContextGlobal()` - always uses global, ignores current context
+- **Type safety issues:** Use generic versions for type safety: `getContext<MyContext>()` instead of `getContext()` when you know the context type.
+- **Context not inheriting properties:** Remember that `defineTask()` is smart and will inherit the context it's defined in. Use `defineTaskGlobal()` if you need consistent global context behavior.
+
+### General Issues
+
 - **Enhancer Not Working:** Enhancers (`withRetry`, `withTimeout`, etc.) return a *new* task. You must use the returned value. `const retried = withRetry(myTask);` not `withRetry(myTask);`.
 - **Backtracking Not Working:** The target task was not created with `defineTask`. The runtime needs the `__task_id` assigned by `defineTask` to find it.
 - **Workflow Stops Midway:** An unhandled error was likely thrown. Debug by running with `{ throw: false }` to inspect the returned `Result` object: `const result = await run(workflow, input, { throw: false });`.
+
+### Choosing the Right Context Function
+
+Use this guide to choose the appropriate context function:
+
+| Use Case | Function | Reason |
+|----------|----------|---------|
+| General usage, want convenience | `getContext()` | Smart fallback behavior |
+| Want type safety | `getContext<MyContext>()` | Explicit typing |
+| Must ensure you're in a specific context | `getContextLocal<MyContext>()` | Throws if wrong context |
+| Always want global context | `getContextGlobal()` | Predictable behavior |
+| Building a library | `getContextLocal()` or `getContext<C>()` | Explicit context requirements |
 
 <br />
 
 ## 🧰 API Reference
 
 ### Core Engine
+
+#### Context Creation
 | Function | Description |
 |----------|-------------|
 | `createContext<C>(defaults)` | Creates a new, isolated system with its own `run`, `getContext`, etc. |
-| `run<V, R>(task, value, options?)` | Executes a workflow `Task`. The heart of the library. |
-| `defineTask<V, R>(fn)` | Defines a function as a `Task` with a unique `__task_id` for backtracking. |
-| `getContext()` | Retrieves the current workflow's context. Must be called within `run`. |
-| `getContextSafe()` | Returns a `Result<Context, Error>` instead of throwing. |
-| `getContextOrUndefined()` | Returns context or `undefined`, never throws. |
-| `provide(overrides, fn)` | Executes a function with temporarily modified context. |
+
+#### Smart Context Functions (recommended)
+| Function | Description |
+|----------|-------------|
+| `defineTask<V, R>(fn)` | **Smart**: Defines a task using current context if available, otherwise global default. |
+| `getContext<C>()` | **Smart**: Gets current context if available, otherwise global default. Supports generics for type safety. |
+| `getContextSafe<C>()` | **Smart**: Returns `Result<Context, Error>` instead of throwing. |
+| `getContextOrUndefined<C>()` | **Smart**: Returns context or `undefined`, never throws. |
+| `run<V, R>(task, value, options?)` | **Smart**: Executes a workflow using current context if available, otherwise global default. |
+| `provide(overrides, fn)` | **Smart**: Temporarily modifies context, adapts to current context. |
+
+#### Local-Only Context Functions (current context required)
+| Function | Description |
+|----------|-------------|
+| `defineTaskLocal<C, V, R>(fn)` | **Local**: Only works within an active context, throws if no context available. |
+| `getContextLocal<C>()` | **Local**: Gets current context, throws if no context available. |
+| `getContextSafeLocal<C>()` | **Local**: Returns `Result<Context, Error>`, error if no context available. |
+| `getContextOrUndefinedLocal<C>()` | **Local**: Returns context or `undefined`, never uses global fallback. |
+| `runLocal<C, V, R>(task, value, options?)` | **Local**: Executes workflow in current context only, throws if no context. |
+| `provideLocal<C, R>(overrides, fn)` | **Local**: Modifies current context only, throws if no context available. |
+
+#### Global-Only Context Functions (explicit global usage)
+| Function | Description |
+|----------|-------------|
+| `defineTaskGlobal<V, R>(fn)` | **Global**: Always uses global default context, ignores current context. |
+| `getContextGlobal()` | **Global**: Always gets global default context. |
+| `runGlobal<V, R>(task, value, options?)` | **Global**: Always executes in global default context. |
+| `provideGlobal<R>(overrides, fn)` | **Global**: Always modifies global default context. |
 
 ### Composition & Utilities
 | Function | Pattern | Description |

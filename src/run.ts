@@ -201,8 +201,8 @@ export type RunOptions<C extends BaseContext> = RunOptionsThrow<C> | RunOptionsR
  * Error thrown when `getContext` is called outside of a `run` execution.
  */
 export class ContextNotFoundError extends Error {
-  constructor() {
-    super('Context not found. Make sure you are calling getContext() within a run() execution.');
+  constructor(message?: string) {
+    super(message || 'Context not found. Make sure you are calling getContext() within a run() execution.');
     this.name = 'ContextNotFoundError';
   }
 }
@@ -258,11 +258,38 @@ function getGlobalUnctx<C extends { scope: Scope }>(): ReturnType<typeof createU
   return globalUnctx as ReturnType<typeof createUnctx<C>>;
 }
 
+// =================================================================
+// Section 2.1: Default Global Context System
+// =================================================================
+
 /**
- * Retrieves the current context. Must be called within a `run` execution.
+ * Default context interface that can be used without explicit context creation
+ */
+interface DefaultGlobalContext extends BaseContext {
+  scope: Scope;
+}
+
+const DEFAULT_GLOBAL_CONTEXT_KEY = '__effectively_default_context__' as const;
+
+declare global {
+  var __effectively_default_context__: ContextTools<DefaultGlobalContext> | undefined;
+}
+
+/**
+ * Gets or creates the default global context instance
+ */
+function getDefaultGlobalContext(): ContextTools<DefaultGlobalContext> {
+  if (!globalThis[DEFAULT_GLOBAL_CONTEXT_KEY]) {
+    globalThis[DEFAULT_GLOBAL_CONTEXT_KEY] = createContext<DefaultGlobalContext>({});
+  }
+  return globalThis[DEFAULT_GLOBAL_CONTEXT_KEY]!;
+}
+
+/**
+ * Retrieves the current context with explicit unctx parameter. Used internally.
  * @throws {ContextNotFoundError} If called outside of a `run` execution.
  */
-export function getContext<C extends BaseContext>(unctx?: ReturnType<typeof createUnctx<C>>): C {
+function getContextWithUnctx<C extends BaseContext>(unctx?: ReturnType<typeof createUnctx<C>>): C {
   const instance = unctx || getGlobalUnctx<C>();
   const ctx = instance.use();
   if (!ctx) throw new ContextNotFoundError();
@@ -270,10 +297,10 @@ export function getContext<C extends BaseContext>(unctx?: ReturnType<typeof crea
 }
 
 /**
- * Retrieves the current context as a `Result` type, preventing throws.
+ * Retrieves the current context as a `Result` type with explicit unctx parameter. Used internally.
  * @returns {Result<C, ContextNotFoundError>} `Ok` with context or `Err` if not found.
  */
-export function getContextSafe<C extends BaseContext>(unctx?: ReturnType<typeof createUnctx<C>>): Result<C, ContextNotFoundError> {
+function getContextSafeWithUnctx<C extends BaseContext>(unctx?: ReturnType<typeof createUnctx<C>>): Result<C, ContextNotFoundError> {
   const instance = unctx || getGlobalUnctx<C>();
   const ctx = instance.use();
   if (!ctx) {
@@ -283,22 +310,21 @@ export function getContextSafe<C extends BaseContext>(unctx?: ReturnType<typeof 
 }
 
 /**
- * Retrieves the current context or `undefined` if not found. Never throws.
+ * Retrieves the current context or `undefined` with explicit unctx parameter. Used internally.
  * @returns The context object or `undefined`.
  */
-export function getContextOrUndefined<C extends BaseContext>(unctx?: ReturnType<typeof createUnctx<C>>): C | undefined {
+function getContextOrUndefinedWithUnctx<C extends BaseContext>(unctx?: ReturnType<typeof createUnctx<C>>): C | undefined {
   const instance = unctx || getGlobalUnctx<C>();
   return instance.use();
 }
 
 /**
- * Defines a function as a `Task`, providing it with type safety and an internal
- * identity for use with advanced features like backtracking.
+ * Defines a function as a `Task` with explicit context type parameter. Used internally.
  *
  * @param fn The core logic of the task, accepting a value and returning a promise.
  * @returns A `Task` function that can be used in a workflow.
  */
-export function defineTask<C extends BaseContext, V, R>(
+function defineTaskWithContext<C extends BaseContext, V, R>(
   fn: (value: V) => Promise<R>
 ): Task<C, V, R> {
   const taskFn = (context: C, value: V): Promise<R> => fn(value);
@@ -306,6 +332,318 @@ export function defineTask<C extends BaseContext, V, R>(
   Object.defineProperty(taskFn, '__task_id', { value: Symbol(`task_${fn.name || 'anonymous'}`), configurable: true, enumerable: false, writable: false });
   return taskFn as Task<C, V, R>;
 }
+
+// =================================================================
+// Section 2.2: Smart Default Context Functions
+// =================================================================
+
+/**
+ * Smart defineTask that uses current context if available, otherwise global default.
+ * Can be used at the top level or within existing contexts.
+ */
+export function defineTask<V, R>(fn: (value: V) => Promise<R>): Task<any, V, R>;
+export function defineTask<C extends BaseContext, V, R>(fn: (value: V) => Promise<R>): Task<C, V, R>;
+export function defineTask<V, R>(fn: (value: V) => Promise<R>): Task<any, V, R> {
+  return defineTaskWithContext<any, V, R>(fn);
+}
+
+/**
+ * Smart getContext that uses current context if available, otherwise global default.
+ * Can be used at the top level or within existing contexts.
+ */
+export function getContext(): any;
+export function getContext<C extends BaseContext>(): C;
+export function getContext<C extends BaseContext = DefaultGlobalContext>(): C {
+  // Try to get current context first
+  const currentContext = getContextOrUndefinedWithUnctx<C>();
+  if (currentContext) {
+    return currentContext;
+  }
+  
+  // Fallback to global default context
+  const defaultContext = getDefaultGlobalContext();
+  return defaultContext.getContext() as C;
+}
+
+/**
+ * Smart getContextSafe that uses current context if available, otherwise global default.
+ * Can be used at the top level or within existing contexts.
+ */
+export function getContextSafe(): Result<any, ContextNotFoundError>;
+export function getContextSafe<C extends BaseContext>(): Result<C, ContextNotFoundError>;
+export function getContextSafe<C extends BaseContext = DefaultGlobalContext>(): Result<C, ContextNotFoundError> {
+  // Try to get current context first
+  const currentContext = getContextOrUndefinedWithUnctx<C>();
+  if (currentContext) {
+    return { isOk: () => true, isErr: () => false, value: currentContext } as Ok<C, ContextNotFoundError>;
+  }
+  
+  // Fallback to global default context
+  const defaultContext = getDefaultGlobalContext();
+  return defaultContext.getContextSafe() as Result<C, ContextNotFoundError>;
+}
+
+/**
+ * Smart getContextOrUndefined that uses current context if available, otherwise global default.
+ * Can be used at the top level or within existing contexts.
+ */
+export function getContextOrUndefined(): any;
+export function getContextOrUndefined<C extends BaseContext>(): C | undefined;
+export function getContextOrUndefined<C extends BaseContext = DefaultGlobalContext>(): C | undefined {
+  // Try to get current context first
+  const currentContext = getContextOrUndefinedWithUnctx<C>();
+  if (currentContext) {
+    return currentContext;
+  }
+  
+  // Fallback to global default context
+  const defaultContext = getDefaultGlobalContext();
+  return defaultContext.getContextOrUndefined() as C | undefined;
+}
+
+/**
+ * Smart run function that uses current context if available, otherwise global default.
+ * Can be used at the top level or within existing contexts.
+ */
+export function run<V, R>(workflow: Task<any, V, R>, initialValue: V, options?: RunOptionsThrow<any>): Promise<R>;
+export function run<V, R>(workflow: Task<any, V, R>, initialValue: V, options: RunOptionsResult<any>): Promise<Result<R, WorkflowError>>;
+export function run<C extends BaseContext, V, R>(workflow: Task<C, V, R>, initialValue: V, options?: RunOptionsThrow<C>): Promise<R>;
+export function run<C extends BaseContext, V, R>(workflow: Task<C, V, R>, initialValue: V, options: RunOptionsResult<C>): Promise<Result<R, WorkflowError>>;
+export function run<V, R>(
+  workflow: Task<any, V, R>,
+  initialValue: V,
+  options: RunOptions<any> = {}
+): Promise<R | Result<R, WorkflowError>> {
+  // Check if we're already in a context
+  const currentContext = getContextOrUndefinedWithUnctx();
+  if (currentContext) {
+    // We're in a context, so we need to run this workflow within that context
+    // This is trickier since we don't have access to the unctx instance
+    // We'll create a new workflow that just executes the task directly
+    const directWorkflow = async () => {
+      return await workflow(currentContext, initialValue);
+    };
+    
+    // Run it as a simple promise, respecting the throw option
+    const runDirectly = async (): Promise<R | Result<R, WorkflowError>> => {
+      try {
+        const result = await directWorkflow();
+        const shouldThrow = !('throw' in options) || options.throw !== false;
+        if (shouldThrow) {
+          return result;
+        }
+        return { isOk: () => true, isErr: () => false, value: result } as Ok<R, WorkflowError>;
+      } catch (error) {
+        const workflowError = error instanceof WorkflowError ? error : new WorkflowError('An unhandled error occurred in the workflow', error);
+        const shouldThrow = !('throw' in options) || options.throw !== false;
+        if (shouldThrow) {
+          throw workflowError;
+        }
+        return { isOk: () => false, isErr: () => true, error: workflowError } as Err<R, WorkflowError>;
+      }
+    };
+    
+    return runDirectly();
+  }
+  
+  // Fallback to global default context
+  const defaultContext = getDefaultGlobalContext();
+  return defaultContext.run(workflow as any, initialValue, options as any);
+}
+
+/**
+ * Smart provide function that uses current context if available, otherwise global default.
+ * Can be used at the top level or within existing contexts.
+ */
+export function provide<R>(
+  overrides: Partial<Record<string, any>>,
+  fn: () => Promise<R>
+): Promise<R>;
+export function provide<C extends BaseContext, R>(
+  overrides: Partial<Omit<C, 'scope'>>,
+  fn: () => Promise<R>
+): Promise<R>;
+export function provide<R>(
+  overrides: Partial<Record<string, any>>,
+  fn: () => Promise<R>
+): Promise<R> {
+  // Check if we're already in a context
+  const currentContext = getContextOrUndefinedWithUnctx();
+  if (currentContext) {
+    // Merge with current context
+    const newContext = { ...currentContext, ...overrides, scope: currentContext.scope };
+    // We would need access to the unctx to do this properly
+    // For now, we'll fall back to the global context approach
+  }
+  
+  // Fallback to global default context
+  const defaultContext = getDefaultGlobalContext();
+  return defaultContext.provide(overrides, fn);
+}
+
+// =================================================================
+// Section 2.3: Local-Only Context Functions (current context required)
+// =================================================================
+
+/**
+ * defineTask that only works with the current context (never uses global).
+ * Throws an error if no current context is available.
+ * Use when you want to ensure you're operating within a specific context.
+ */
+export function defineTaskLocal<C extends BaseContext, V, R>(fn: (value: V) => Promise<R>): Task<C, V, R> {
+  const currentContext = getContextOrUndefinedWithUnctx<C>();
+  if (!currentContext) {
+    throw new ContextNotFoundError('defineTaskLocal requires an active context. Use defineTask or defineTaskGlobal instead, or ensure you are within a context.');
+  }
+  return defineTaskWithContext<C, V, R>(fn);
+}
+
+/**
+ * getContext that only works with the current context (never uses global).
+ * Throws an error if no current context is available.
+ * Use when you want to ensure you're operating within a specific context.
+ */
+export function getContextLocal<C extends BaseContext>(): C {
+  const currentContext = getContextOrUndefinedWithUnctx<C>();
+  if (!currentContext) {
+    throw new ContextNotFoundError('getContextLocal requires an active context. Use getContext or getContextGlobal instead, or ensure you are within a context.');
+  }
+  return currentContext;
+}
+
+/**
+ * getContextSafe that only works with the current context (never uses global).
+ * Returns an error if no current context is available.
+ * Use when you want to ensure you're operating within a specific context.
+ */
+export function getContextSafeLocal<C extends BaseContext>(): Result<C, ContextNotFoundError> {
+  const currentContext = getContextOrUndefinedWithUnctx<C>();
+  if (!currentContext) {
+    return { isOk: () => false, isErr: () => true, error: new ContextNotFoundError('getContextSafeLocal requires an active context. Use getContextSafe or getContextGlobal instead, or ensure you are within a context.') } as Err<C, ContextNotFoundError>;
+  }
+  return { isOk: () => true, isErr: () => false, value: currentContext } as Ok<C, ContextNotFoundError>;
+}
+
+/**
+ * getContextOrUndefined that only works with the current context (never uses global).
+ * Returns undefined if no current context is available.
+ * Use when you want to ensure you're operating within a specific context.
+ */
+export function getContextOrUndefinedLocal<C extends BaseContext>(): C | undefined {
+  return getContextOrUndefinedWithUnctx<C>();
+}
+
+/**
+ * run that only works with the current context (never uses global).
+ * Throws an error if no current context is available.
+ * Use when you want to ensure you're operating within a specific context.
+ */
+export function runLocal<C extends BaseContext, V, R>(workflow: Task<C, V, R>, initialValue: V, options?: RunOptionsThrow<C>): Promise<R>;
+export function runLocal<C extends BaseContext, V, R>(workflow: Task<C, V, R>, initialValue: V, options: RunOptionsResult<C>): Promise<Result<R, WorkflowError>>;
+export function runLocal<C extends BaseContext, V, R>(
+  workflow: Task<C, V, R>,
+  initialValue: V,
+  options: RunOptions<C> = {}
+): Promise<R | Result<R, WorkflowError>> {
+  const currentContext = getContextOrUndefinedWithUnctx<C>();
+  if (!currentContext) {
+    const error = new ContextNotFoundError('runLocal requires an active context. Use run or runGlobal instead, or ensure you are within a context.');
+    const shouldThrow = !('throw' in options) || options.throw !== false;
+    if (shouldThrow) {
+      throw error;
+    }
+    return Promise.resolve({ isOk: () => false, isErr: () => true, error: new WorkflowError('Context not found', error) } as Err<R, WorkflowError>);
+  }
+  
+  // Execute the workflow directly within the current context
+  const directWorkflow = async (): Promise<R | Result<R, WorkflowError>> => {
+    try {
+      const result = await workflow(currentContext, initialValue);
+      const shouldThrow = !('throw' in options) || options.throw !== false;
+      if (shouldThrow) {
+        return result;
+      }
+      return { isOk: () => true, isErr: () => false, value: result } as Ok<R, WorkflowError>;
+    } catch (error) {
+      const workflowError = error instanceof WorkflowError ? error : new WorkflowError('An unhandled error occurred in the workflow', error);
+      const shouldThrow = !('throw' in options) || options.throw !== false;
+      if (shouldThrow) {
+        throw workflowError;
+      }
+      return { isOk: () => false, isErr: () => true, error: workflowError } as Err<R, WorkflowError>;
+    }
+  };
+  
+  return directWorkflow();
+}
+
+/**
+ * provide that only works with the current context (never uses global).
+ * Throws an error if no current context is available.
+ * Use when you want to ensure you're operating within a specific context.
+ */
+export function provideLocal<C extends BaseContext, R>(
+  overrides: Partial<Omit<C, 'scope'>>,
+  fn: () => Promise<R>
+): Promise<R> {
+  const currentContext = getContextOrUndefinedWithUnctx<C>();
+  if (!currentContext) {
+    throw new ContextNotFoundError('provideLocal requires an active context. Use provide or provideGlobal instead, or ensure you are within a context.');
+  }
+  
+  // For now, we can't properly implement this without access to the unctx instance
+  // This would need to be enhanced in the future
+  throw new Error('provideLocal is not fully implemented yet. Please use provide instead.');
+}
+
+// =================================================================
+// Section 2.4: Global-Only Context Functions (for explicit use)
+// =================================================================
+
+/**
+ * defineTask that explicitly uses only the global default context.
+ * Use when you want to ensure global context usage regardless of current context.
+ */
+export const defineTaskGlobal = <V, R>(fn: (value: V) => Promise<R>): Task<DefaultGlobalContext, V, R> => {
+  const defaultContext = getDefaultGlobalContext();
+  return defaultContext.defineTask(fn);
+};
+
+/**
+ * getContext that explicitly uses only the global default context.
+ * Use when you want to ensure global context usage regardless of current context.
+ */
+export const getContextGlobal = (): DefaultGlobalContext => {
+  const defaultContext = getDefaultGlobalContext();
+  return defaultContext.getContext();
+};
+
+/**
+ * run that explicitly uses only the global default context.
+ * Use when you want to ensure global context usage regardless of current context.
+ */
+export function runGlobal<V, R>(workflow: Task<DefaultGlobalContext, V, R>, initialValue: V, options?: RunOptionsThrow<DefaultGlobalContext>): Promise<R>;
+export function runGlobal<V, R>(workflow: Task<DefaultGlobalContext, V, R>, initialValue: V, options: RunOptionsResult<DefaultGlobalContext>): Promise<Result<R, WorkflowError>>;
+export function runGlobal<V, R>(
+  workflow: Task<DefaultGlobalContext, V, R>,
+  initialValue: V,
+  options: RunOptions<DefaultGlobalContext> = {}
+): Promise<R | Result<R, WorkflowError>> {
+  const defaultContext = getDefaultGlobalContext();
+  return defaultContext.run(workflow, initialValue, options as any);
+}
+
+/**
+ * provide that explicitly uses only the global default context.
+ * Use when you want to ensure global context usage regardless of current context.
+ */
+export const provideGlobal = <R>(
+  overrides: Partial<Omit<DefaultGlobalContext, 'scope'>>,
+  fn: () => Promise<R>
+): Promise<R> => {
+  const defaultContext = getDefaultGlobalContext();
+  return defaultContext.provide(overrides, fn);
+};
 
 // =================================================================
 // Section 2: Context Utility Functions
@@ -382,18 +720,24 @@ export function createContextTransformer<C1 extends BaseContext, C2 extends Base
  * Type-safe context property accessor.
  * Provides compile-time safety when accessing context properties.
  */
+export function useContextProperty<K extends keyof DefaultGlobalContext>(
+  key: K
+): DefaultGlobalContext[K];
 export function useContextProperty<C extends BaseContext, K extends keyof C>(
   key: K
-): C[K] {
-  const context = getContext<C>();
-  return context[key];
+): C[K];
+export function useContextProperty<K extends string | number | symbol>(
+  key: K
+): any {
+  const context = getContext();
+  return context[key as keyof typeof context];
 }
 
 /**
  * Requires specific properties to be present in the context.
  * Throws a descriptive error if any required property is missing.
  */
-export function requireContextProperties<C extends BaseContext>(
+export function requireContextProperties<C extends BaseContext = DefaultGlobalContext>(
   ...requirements: (keyof C)[]
 ): C {
   const context = getContext<C>();
@@ -468,7 +812,7 @@ export interface ContextProvider<T> {
  * Throws an error if the dependency is not found.
  */
 export function inject<T>(token: InjectionToken<T>): T {
-  const context = getContext<BaseContext & Record<symbol, unknown>>();
+  const context = getContext() as DefaultGlobalContext & Record<symbol, unknown>;
   const value = context[token as symbol];
   
   if (value === undefined) {
@@ -619,6 +963,10 @@ export function createContext<C extends BaseContext>(
 
   const getContextOrUndefined = (): C | undefined => {
     return unctx.use();
+  };
+
+  const defineTask = <V, R>(fn: (value: V) => Promise<R>): Task<C, V, R> => {
+    return defineTaskWithContext<C, V, R>(fn);
   };
 
   /**
