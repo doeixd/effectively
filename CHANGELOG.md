@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.0.11
+
+[compare changes](https://github.com/doeixd/effectivly/compare/v0.0.10...v0.0.11)
+
+### 🤖 CI
+
+- Changed packaging ([9f402e1](https://github.com/doeixd/effectivly/commit/9f402e1))
+
+### ❤️ Contributors
+
+- Patrick Glenn <doeixd@gmail.com>
+
 ## v0.0.10
 
 [compare changes](https://github.com/doeixd/effectivly/compare/v0.0.9...v0.0.10)
