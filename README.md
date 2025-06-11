@@ -1,5 +1,5 @@
-![npm](https://img.shields.io/npm/v/effectively)
-![license](https://img.shields.io/npm/l/effectively)
+![npm](https://img.shields.io/npm/v/@doeixd/effectively)
+![license](https://img.shields.io/npm/l/@doeixd/effectively)
 # Effectively 🚂
 
 **Build resilient TypeScript applications without the complexity.**
