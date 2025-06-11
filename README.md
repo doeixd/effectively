@@ -258,7 +258,7 @@ This allows you to start simple (no context creation needed) and progressively e
 
 ### 4. Effect Handlers and Brackets
 
-**Effect Handlers** enable algebraic effects through the context system, allowing you to write code that's abstract over side effects. **Brackets** provide guaranteed resource cleanup using the acquire-use-release pattern, ensuring resources are properly disposed of even when errors occur.
+**Effect Handlers** enable algebraic effects through the context system, allowing you to write code that's abstract over side effects. **[Brackets](docs/bracket-resource-management.md)** provide guaranteed resource cleanup using the acquire-use-release pattern, ensuring resources are properly disposed of even when errors occur. [See more](docs/bracket-resource-management.md)
 
 ### 5. Scope and Cancellation
 
