@@ -1,6 +1,10 @@
 # Changelog
 
 
+## v0.0.7
+
+[compare changes](https://github.com/doeixd/effectivly/compare/v0.0.6...v0.0.7)
+
 ## v0.0.6
 
 [compare changes](https://github.com/doeixd/effectivly/compare/v0.0.1...v0.0.6)
