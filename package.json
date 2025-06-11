@@ -1,6 +1,6 @@
 {
   "name": "effectively",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "repository": "doeixd/effectivly",
   "author": "Patrick Glenn",
   "description": "A bare-bones effect library",
@@ -60,6 +60,5 @@
     "seroval": "^1.3.2",
     "threads": "^1.7.0",
     "unctx": "^2.4.1"
-  },
-  "packageManager": "pnpm@9.15.1"
+  }
 }
