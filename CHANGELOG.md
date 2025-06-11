@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.0.6
+
+[compare changes](https://github.com/doeixd/effectivly/compare/v0.0.1...v0.0.6)
+
+### 🏡 Chore
+
+- **release:** V0.0.1 ([591727f](https://github.com/doeixd/effectivly/commit/591727f))
+
+### ❤️ Contributors
+
+- Patrick Glenn <doeixd@gmail.com>
+
 ## v0.0.1
 
 [compare changes](https://github.com/doeixd/effectivly/compare/v0.0.1...v0.0.1)
