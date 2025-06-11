@@ -9,7 +9,11 @@
     "effect",
     "effects",
     "effective",
-    "effectivly"
+    "effectivly",
+    "algebraic-effects",
+    "effect-system",
+    "side-effects",
+    "tinyeffects"
   ],
   "sideEffects": false,
   "type": "module",

@@ -144,7 +144,7 @@ const fetchAllUserData = parallelTask(
 );
 
 // Use in a workflow
-const workflow = pipe(
+const workflow = createWorkflow(
   validateUserId,
   fetchAllUserData,
   processUserData
@@ -346,7 +346,7 @@ The module provides automatic feature detection and fallbacks:
 ### Data Aggregation Dashboard
 
 ```typescript
-const loadDashboard = pipe(
+const loadDashboard = createWorkflow(
   // First, load user preferences
   loadUserPreferences,
 

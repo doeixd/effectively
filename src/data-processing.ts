@@ -6,10 +6,10 @@
  * full power of the underlying scheduler for maximum performance.
  */
 
-import { defineTask, getContext, type Task, type Scope } from './run';
+import { defineTask, getContext, type Task, type BaseContext, type Scope } from './run';
 import { all, type ParallelOptions } from './scheduler';
 
-interface MapReduceOptions<C, T, R, U> extends ParallelOptions {
+interface MapReduceOptions<C extends BaseContext, T, R, U> extends ParallelOptions {
   map: Task<C, T, R>;
   reduce: (accumulator: U, current: R) => U;
   initial: U;
@@ -47,18 +47,16 @@ export function mapReduce<C extends { scope: Scope }, T, R, U>(
 ): Task<C, null, U> {
   const { map: mapTask, reduce: reduceFn, initial, ...parallelOptions } = options;
 
-  return defineTask(async () => {
-    const context = getContext<C>();
-
+  return async (context: C, _: null): Promise<U> => {
     // 1. Map Phase: Create an executable task for each item in the data array.
-    const mapTasks = data.map(item => defineTask(() => mapTask(context, item)));
+    const mapTasks = data.map(item => async () => mapTask(context, item));
 
     // Execute all mapping tasks in parallel.
-    const mappedResults = await all(mapTasks, null, parallelOptions);
+    const mappedResults = await all(mapTasks, null, parallelOptions, context);
 
     // 2. Reduce Phase: Sequentially apply the reducer to the results.
     return mappedResults.reduce(reduceFn, initial);
-  });
+  };
 }
 
 /**
@@ -82,19 +80,17 @@ export function filter<C extends { scope: Scope }, V>(
   predicateTask: Task<C, V, boolean>,
   options?: ParallelOptions
 ): Task<C, V[], V[]> {
-  return defineTask(async (data: V[]) => {
-    const context = getContext<C>();
-
+  return async (context: C, data: V[]): Promise<V[]> => {
     const predicateTasks = data.map(item =>
-      defineTask(() => predicateTask(context, item))
+      async () => predicateTask(context, item)
     );
 
     // Run all predicates in parallel to get a corresponding array of booleans.
-    const results = await all(predicateTasks, null, options);
+    const results = await all(predicateTasks, null, options, context);
 
     // Filter the original data array based on the boolean results.
     return data.filter((_, index) => results[index]);
-  });
+  };
 }
 
 /**
@@ -113,16 +109,14 @@ export function groupBy<C extends { scope: Scope }, V, K extends string | number
 ): Task<C, V[], Map<K, V[]>> {
   // Normalize the input to always be a Task for consistent handling.
   const task = typeof keyingTask === 'function' && !(keyingTask as any).__task_id
-    ? defineTask(async (item: V) => (keyingTask as ((item: V) => K))(item))
+    ? async (context: C, item: V) => (keyingTask as ((item: V) => K))(item)
     : (keyingTask as Task<C, V, K>);
 
-  return defineTask(async (data: V[]) => {
-    const context = getContext<C>();
-
-    const keyTasks = data.map(item => defineTask(() => task(context, item)));
+  return async (context: C, data: V[]): Promise<Map<K, V[]>> => {
+    const keyTasks = data.map(item => async () => task(context, item));
 
     // Generate all keys in parallel.
-    const keys = await all(keyTasks, null, options);
+    const keys = await all(keyTasks, null, options, context);
 
     // Group items by their corresponding key.
     const groups = new Map<K, V[]>();
@@ -136,5 +130,5 @@ export function groupBy<C extends { scope: Scope }, V, K extends string | number
     }
 
     return groups;
-  });
+  };
 }

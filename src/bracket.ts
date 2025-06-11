@@ -1,4 +1,4 @@
-import type { Task, Scope } from './run';
+import type { Task, BaseContext, Scope } from './run';
 import { defineTask, getContext } from './run';
 
 /**
@@ -9,7 +9,7 @@ import { defineTask, getContext } from './run';
  * @template V The input value type for the workflow
  * @template U The output value type from the use workflow
  */
-export interface BracketConfig<C extends { scope: Scope }, R, V, U> {
+export interface BracketConfig<C extends BaseContext, R, V, U> {
   /**
    * Task that acquires the resource.
    * This task is executed first and its result is made available to the use workflow.
@@ -79,18 +79,8 @@ export function bracket<C extends { scope: Scope }, R, V, U>(
       const enhancedContext = config.merge(context, resource);
       
       // Execute the use workflow with enhanced context
-      // We need to manually set up the context for the inner workflow
-      const { run } = await import('./context');
-      
-      // Run the use workflow in a sub-context
-      return await run(
-        config.use,
-        value,
-        {
-          overrides: enhancedContext as any,
-          parentSignal: context.scope.signal
-        }
-      );
+      // Run the use function directly with the enhanced context
+      return await config.use(enhancedContext, value);
     } catch (err) {
       error = err;
       throw err;
@@ -266,15 +256,7 @@ export function bracketMany<C extends { scope: Scope }, V, U>(
       }
       
       // Execute the use workflow with all resources
-      const { run } = await import('./context');
-      return await run(
-        use,
-        value,
-        {
-          overrides: currentContext,
-          parentSignal: context.scope.signal
-        }
-      );
+      return await use(currentContext, value);
     } catch (err) {
       error = err;
       throw err;
@@ -325,13 +307,13 @@ export function bracketMany<C extends { scope: Scope }, V, U>(
  * // using file = makeDisposable(...);
  * ```
  */
-export function makeDisposable<T>(
+export function makeDisposable<T extends object>(
   value: T,
   dispose: (value: T) => void
 ): T & Disposable {
   return Object.assign(value, {
     [DisposeSymbol]: () => dispose(value)
-  });
+  }) as T & Disposable;
 }
 
 /**
@@ -342,13 +324,13 @@ export function makeDisposable<T>(
  * @param dispose The async cleanup function
  * @returns An async disposable wrapper
  */
-export function makeAsyncDisposable<T>(
+export function makeAsyncDisposable<T extends object>(
   value: T,
   dispose: (value: T) => Promise<void>
 ): T & AsyncDisposable {
   return Object.assign(value, {
     [AsyncDisposeSymbol]: () => dispose(value)
-  });
+  }) as T & AsyncDisposable;
 }
 
 /**

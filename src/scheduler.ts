@@ -118,9 +118,10 @@ export const scheduler = getScheduler();
 export async function allSettled<C extends { scope: Scope }, V, R>(
   tasks: ReadonlyArray<Task<C, V, R>>,
   value: V,
-  options: ParallelOptions = {}
+  options: ParallelOptions = {},
+  providedContext?: C
 ): Promise<ParallelResult<R>[]> {
-  const context = getContext<C>();
+  const context = providedContext || getContext<C>();
   const finalOptions = {
     concurrency: options.concurrency ?? Infinity,
     priority: options.priority ?? 'user-visible',
@@ -215,8 +216,8 @@ async function executeBatched<C extends { scope: Scope }, V, R>(tasks: ReadonlyA
  *
  * @returns A promise that resolves to an array of all result values.
  */
-export async function all<C extends { scope: Scope }, V, R>(tasks: ReadonlyArray<Task<C, V, R>>, value: V, options?: ParallelOptions): Promise<R[]> {
-  const results = await allSettled(tasks, value, { ...options, preserveOrder: true });
+export async function all<C extends { scope: Scope }, V, R>(tasks: ReadonlyArray<Task<C, V, R>>, value: V, options?: ParallelOptions, providedContext?: C): Promise<R[]> {
+  const results = await allSettled(tasks, value, { ...options, preserveOrder: true }, providedContext);
   const values: R[] = new Array(results.length);
   for (const result of results) {
     if (result.status === 'rejected') throw result.reason;

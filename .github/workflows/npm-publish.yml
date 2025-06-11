@@ -1,0 +1,102 @@
+name: Publish Package and Create Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # This is important for getting all tags
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Find built files
+        id: find_files
+        run: |
+          CJS_FILE=$(find dist -name "*.cjs.js" -or -name "index.js" -or -name "index.jsx" | grep "/cjs/" | head -n 1)
+          ESM_FILE=$(find dist -name "*.esm.js" -or -name "index.js" -or -name "index.jsx" | grep "/esm/" | head -n 1)
+          TYPES_FILE=$(find dist -name "index.d.ts" | head -n 1)
+          
+          echo "CJS file: $CJS_FILE"
+          echo "ESM file: $ESM_FILE"
+          echo "Types file: $TYPES_FILE"
+          
+          echo "cjs_file=$CJS_FILE" >> $GITHUB_OUTPUT
+          echo "esm_file=$ESM_FILE" >> $GITHUB_OUTPUT
+          echo "types_file=$TYPES_FILE" >> $GITHUB_OUTPUT
+
+      - name: Publish to npm
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Get Changelog Entry
+        id: get_changelog
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          CHANGELOG_ENTRY=$(awk "/^## \[$VERSION\]/ {flag=1;next} /^## \[/ {flag=0} flag" CHANGELOG.md)
+          CHANGELOG_ENTRY="${CHANGELOG_ENTRY//'%'/'%25'}"
+          CHANGELOG_ENTRY="${CHANGELOG_ENTRY//$'\n'/'%0A'}"
+          CHANGELOG_ENTRY="${CHANGELOG_ENTRY//$'\r'/'%0D'}"
+          echo "changelog=$CHANGELOG_ENTRY" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          body: |
+            ${{ steps.get_changelog.outputs.changelog }}
+          draft: false
+          prerelease: false
+
+      - name: Upload CJS Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ steps.find_files.outputs.cjs_file }}
+          asset_name: index.cjs.js
+          asset_content_type: application/javascript
+
+      - name: Upload ESM Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ steps.find_files.outputs.esm_file }}
+          asset_name: index.esm.js
+          asset_content_type: application/javascript
+
+      - name: Upload Types Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ steps.find_files.outputs.types_file }}
+          asset_name: index.d.ts
+          asset_content_type: application/typescript

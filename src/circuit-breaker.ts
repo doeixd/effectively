@@ -126,8 +126,7 @@ export function withCircuitBreaker<C extends { scope: Scope; logger?: Logger }, 
     lastFailureTimestamp: 0,
   };
 
-  return defineTask(async (value: V) => {
-    const context = getContext<C>();
+  return async (context: C, value: V): Promise<R> => {
     const logger = context.logger || noopLogger;
 
     // --- State Machine Logic ---
@@ -184,5 +183,5 @@ export function withCircuitBreaker<C extends { scope: Scope; logger?: Logger }, 
       // Re-throw the original error so it can be handled upstream.
       throw error;
     }
-  });
+  };
 }

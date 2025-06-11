@@ -36,3 +36,9 @@ export * from './data-processing';
 
 // Web Worker and multi-threading integration
 export * from './worker';
+
+// Monadic do notation using generator syntax
+export * from './do-notation';
+
+// OpenTelemetry integration and observability utilities
+export * from './telemetry';
