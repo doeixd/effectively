@@ -53,43 +53,16 @@ jobs:
           echo "changelog=$CHANGELOG_ENTRY" >> $GITHUB_OUTPUT
 
       - name: Create Release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        id: create_release
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
+          name: Release ${{ github.ref }}
           body: |
             ${{ steps.get_changelog.outputs.changelog }}
           draft: false
           prerelease: false
-
-      - name: Upload Release Assets
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./dist/index.cjs
-          asset_name: index.cjs
-          asset_content_type: application/javascript
-
-      - name: Upload ESM Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./dist/index.mjs
-          asset_name: index.mjs
-          asset_content_type: application/javascript
-
-      - name: Upload Types Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./dist/index.d.ts
-          asset_name: index.d.ts
-          asset_content_type: application/typescript
+          files: |
+            ./dist/index.cjs
+            ./dist/index.mjs
+            ./dist/index.d.ts
