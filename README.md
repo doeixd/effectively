@@ -620,9 +620,34 @@ This makes the control flow easy to reason about - effects happen when they exec
 
 Effectively embraces the browser and Node.js's native concurrency primitives rather than reimplementing them. This means it uses `scheduler.postTask` when available for cooperative multitasking, and you can leverage `SharedArrayBuffer` and `Atomics` when using the Web Worker integration for true parallelism.
 
+### Do-Notation for Monadic Composition
+
+Effectively supports Haskell-style do-notation using generator functions for elegant monadic composition. The `doTask` function allows you to chain operations using `yield` syntax:
+
+```typescript
+const userWorkflow = doTask(function* (userId: string) {
+  const user = yield fetchUser(userId);
+  const profile = yield fetchProfile(user.id);
+  const permissions = yield fetchPermissions(user.role);
+  
+  // Use pure() to lift plain values into the monadic context
+  return yield pure({
+    user,
+    profile,
+    permissions
+  });
+});
+```
+
+This provides a clean alternative to deeply nested `.then()` chains or complex workflow compositions, especially when you need to reference values from multiple previous steps.
+
 <br />
 
 ## 📚 Guides & Deeper Dives
+
+### Do Notation with Generator Syntax
+
+For more detailed information on monadic composition using generators, see the [Do Notation Guide](docs/do-notation.md). This covers advanced patterns, error handling within do blocks, and performance considerations.
 
 ### Performance & Debugging
 
@@ -721,6 +746,18 @@ const withCache = <C extends { cache: Cache }, V, R>(
 | `tap(fn)` | Pipeable | Side effects without changing the value. |
 | `fromValue(value)` | Standalone | Starts a workflow with a static value. |
 | `fromPromise(promise)` | Standalone | Starts a workflow from a Promise. |
+
+### Do-Notation & Monadic Composition
+| Function | Description |
+|----------|-------------|
+| `doTask(generatorFn)` | Enables Haskell-style do-notation using generators for monadic composition. |
+| `pure(value)` | Lifts plain values into the monadic context, useful in do-blocks. |
+| `createDoNotation<C>()` | Creates context-specific do notation functions with better type inference. |
+| `call(task, input)` | Helper to call a task with specific input parameters in do notation. |
+| `doWhen(condition, onTrue, onFalse)` | Conditional monadic execution based on a boolean condition. |
+| `doUnless(condition, action)` | Maybe-like conditional execution - only runs if condition is false. |
+| `sequence(monadicValues[])` | Executes multiple monadic values in sequence and collects results. |
+| `forEach(items, action)` | Loops over an array, executing a monadic function for each element. |
 
 ### Error Handling
 | Function | Description |
