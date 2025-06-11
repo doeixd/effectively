@@ -21,6 +21,25 @@ Effectively is a lightweight toolkit that brings structure and safety to asynchr
 
 <br />
 
+## 📑 Table of Contents
+
+- [📦 Installation](#-installation)
+- [🚀 Building Intuition: A Getting Started Guide](#-building-intuition-a-getting-started-guide)
+- [💡 Core Concepts](#-core-concepts)
+- [🛡️ Error Handling: A Dual Strategy](#️-error-handling-a-dual-strategy)
+- [🚀 Features](#-features)
+- [🔧 Common Patterns](#-common-patterns)
+- [🧪 Testing Your Workflows](#-testing-your-workflows)
+- [🤔 Comparisons & Where It Fits](#-comparisons--where-it-fits)
+- [🧠 Advanced Concepts](#-advanced-concepts)
+- [📚 Guides & Deeper Dives](#-guides--deeper-dives)
+- [📋 Best Practices](#-best-practices)
+- [⚠️ Common Pitfalls & Solutions](#️-common-pitfalls--solutions)
+- [🧰 API Reference](#-api-reference)
+- [🤝 Contributing](#-contributing)
+- [📄 License](#-license)
+
+<br />
 
 ## 📦 Installation
 
