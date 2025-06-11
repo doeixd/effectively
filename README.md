@@ -965,7 +965,6 @@ Use this guide to choose the appropriate context function:
 |----------|---------|-------------|
 | `forkJoin({ a: taskA, b: taskB })` | Pipeable | Parallel execution with named results. |
 | `allTuple([task1, task2])` | Standalone | Returns typed tuple of parallel results. |
-| `ift(predicate, onTrue, onFalse)` | Pipeable | Conditional branching in workflows. |
 | `mapReduce(items, mapper, reducer, initial)` | Standalone | Parallel map, sequential reduce. |
 | `stream(tasks, value, options)` | Standalone | Memory-efficient streaming execution. |
 
@@ -978,6 +977,7 @@ Use this guide to choose the appropriate context function:
 | `when(predicate, task)` | Conditionally executes a task based on a predicate. |
 | `unless(predicate, task)` | Executes a task only if the predicate is false. |
 | `doWhile(condition, task)` | Repeatedly executes a task while condition is true. |
+| `ift(predicate, onTrue, onFalse)` | Pipeable | Conditional branching in workflows. |
 
 ### Multi-Threading (Web Workers)
 | Function | Side | Description |
