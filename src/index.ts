@@ -8,8 +8,15 @@
 // Core execution engine and type definitions
 export * from './run';
 
+// Core types
+export * from './types';
+
 // Main composition and utility operators (pipe, map, tap, withRetry, etc.)
 export * from './utils';
+export * from './pipeable';
+
+// Context management
+export * from './context';
 
 // Error handling (Result type, withErrorBoundary, createErrorType)
 export * from './errors';

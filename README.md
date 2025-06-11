@@ -42,7 +42,7 @@ Effectively is a lightweight toolkit that brings structure and safety to asynchr
 ## 📦 Installation
 
 ```bash
-npm install effectively neverthrow
+npm install @doeixd/effectively neverthrow
 ```
 
 *Note: `neverthrow` is a peer dependency for typed error handling.*
@@ -75,7 +75,7 @@ This is the fundamental building block. It's just a function, making it easy to 
 Writing `context` as the first parameter every time is tedious. `defineTask` is a simple helper that makes the context implicit and accessible via a `getContext()` function.
 
 ```typescript
-import { createContext, type Scope } from 'effectively';
+import { createContext, type Scope } from '@doeixd/effectively';
 
 // Define your context interface first
 interface AppContext {
@@ -137,7 +137,7 @@ const getUserDisplay = createWorkflow(
 Tasks need a context to execute. The `run` function, created by `createContext`, provides it.
 
 ```typescript
-import { createContext, type Scope } from 'effectively';
+import { createContext, type Scope } from '@doeixd/effectively';
 
 // Define your context interface (scope is required)
 interface AppContext {
@@ -634,7 +634,7 @@ Offload CPU-intensive work to a separate thread without the usual boilerplate.
 
 **1. Worker File (`worker.ts`)**
 ```typescript
-import { createWorkerHandler, defineTask } from 'effectively/worker';
+import { createWorkerHandler, defineTask } from '@doeixd/effectively/worker';
 
 const heavyCalculation = defineTask(async (data: number[]) => {
   // ... intensive processing
@@ -646,7 +646,7 @@ createWorkerHandler({ heavyCalculation });
 
 **2. Main Thread (`main.ts`)**
 ```typescript
-import { runOnWorker } from 'effectively';
+import { runOnWorker } from '@doeixd/effectively';
 
 const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
 const calculateOnWorker = runOnWorker(worker, 'heavyCalculation');
