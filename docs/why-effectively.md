@@ -4,7 +4,7 @@ Programming is challenging. Building robust, scalable, and maintainable applicat
 
 The core philosophy of Effectively is simple: **complex asynchronous behaviors should be built by composing simple, focused functions.**
 
-This guide will take you on a journey from tangled, imperative code to clean, declarative, and resilient workflows.
+This guide will take you on a journey from tangled, imperative code to clean, declarative, and resilient workflows. 
 
 #### The Problem: The Inherent Tangle of Asynchronous Logic
 

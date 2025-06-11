@@ -17,7 +17,7 @@ Effectively is a lightweight toolkit that brings structure and safety to asynchr
 - Resource leaks from unclosed connections
 - No standard patterns for retries, timeouts, or circuit breakers
 
-**The Solution:** Effectively provides battle-tested patterns for these problems without forcing you to learn a new programming paradigm. If you can write `async/await`, you can use Effectively.
+**The Solution:** Effectively provides battle-tested patterns for these problems without forcing you to learn a new programming paradigm. If you can write `async/await`, you can use Effectively. [See more](docs/why-effectively.md)
 
 <br />
 
