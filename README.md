@@ -36,8 +36,6 @@ Effectively is a lightweight toolkit that brings structure and safety to asynchr
 - [📋 Best Practices](#-best-practices)
 - [⚠️ Common Pitfalls & Solutions](#️-common-pitfalls--solutions)
 - [🧰 API Reference](#-api-reference)
-- [🤝 Contributing](#-contributing)
-- [📄 License](#-license)
 
 <br />
 
