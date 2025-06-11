@@ -45,7 +45,7 @@ Effectively is a lightweight toolkit that brings structure and safety to asynchr
 npm install @doeixd/effectively neverthrow
 ```
 
-*Note: `neverthrow` is a peer dependency for typed error handling.*
+*Note: We highly recommend using `neverthrow` for typed error handling, it integrates well with effectively.*
 
 <br />
 
