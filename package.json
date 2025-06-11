@@ -1,6 +1,6 @@
 {
   "name": "effectively",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "repository": "doeixd/effectivly",
   "author": "Patrick Glenn",
   "description": "A bare-bones effect library",
@@ -37,7 +37,7 @@
     "lint:fix": "automd && eslint . --fix && prettier -w .",
     "prepack": "pnpm build",
     "play": "jiti playground",
-    "release": "pnpm test && changelogen --release && npm publish && git push --follow-tags",
+    "release": "changelogen --release && git push --follow-tags",
     "test": "vitest",
     "test:types": "tsc --noEmit --skipLibCheck"
   },
