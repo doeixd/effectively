@@ -146,3 +146,112 @@ export function defineEffect<T extends (...args: readonly unknown[]) => unknown>
 
   return effectFn as Effect<T>;
 }
+
+// =================================================================
+// Section 3: Effect Registry Helpers
+// =================================================================
+
+/**
+ * A helper function to define multiple effects at once from a type-safe configuration.
+ * This is useful when you have many effects to define and want to avoid repetitive calls.
+ *
+ * @template T A record type mapping effect names to their function signatures.
+ * @param effectsConfig A configuration object where keys are effect names and values are their signatures.
+ * @returns An object containing all the defined effects, with the same keys as the input.
+ *
+ * @example
+ * ```typescript
+ * import { defineEffects } from 'effectively/effects';
+ *
+ * // Define multiple effects in one go
+ * export const effects = defineEffects({
+ *   log: (message: string) => void,
+ *   getUniqueId: () => string,
+ *   readFile: (path: string) => string,
+ *   writeFile: (path: string, content: string) => void,
+ * });
+ *
+ * // Use them in tasks
+ * const myTask = defineTask(async (input: string) => {
+ *   const id = await effects.getUniqueId();
+ *   await effects.log(`Processing ${input} with ID: ${id}`);
+ *   const content = await effects.readFile('config.json');
+ *   // ... etc
+ * });
+ *
+ * // Provide handlers for all effects
+ * await run(myTask, 'test', {
+ *   overrides: {
+ *     [HANDLERS_KEY]: {
+ *       log: console.log,
+ *       getUniqueId: () => crypto.randomUUID(),
+ *       readFile: (path) => fs.readFileSync(path, 'utf8'),
+ *       writeFile: (path, content) => fs.writeFileSync(path, content),
+ *     }
+ *   }
+ * });
+ * ```
+ */
+export function defineEffects<T extends Record<string, (...args: readonly unknown[]) => unknown>>(
+  _effectsConfig: T
+): { [K in keyof T]: Effect<T[K]> } {
+  const effects = {} as { [K in keyof T]: Effect<T[K]> };
+  
+  for (const effectName in _effectsConfig) {
+    effects[effectName] = defineEffect<T[typeof effectName]>(effectName);
+  }
+  
+  return effects;
+}
+
+/**
+ * Creates a handlers object that can be used with the HANDLERS_KEY.
+ * This provides type safety when creating handler implementations.
+ *
+ * @template T A record type mapping effect names to their function signatures.
+ * @param handlers An object mapping effect names to their concrete implementations.
+ * @returns A handlers object ready to be used with HANDLERS_KEY.
+ *
+ * @example
+ * ```typescript
+ * import { createHandlers, HANDLERS_KEY } from 'effectively/effects';
+ *
+ * // Type-safe handler creation
+ * const appHandlers = createHandlers({
+ *   log: (message: string) => console.log(message),
+ *   getUniqueId: () => crypto.randomUUID(),
+ *   readFile: (path: string) => fs.readFileSync(path, 'utf8'),
+ * });
+ *
+ * // Use with run
+ * await run(myTask, input, {
+ *   overrides: {
+ *     [HANDLERS_KEY]: appHandlers
+ *   }
+ * });
+ * ```
+ */
+export function createHandlers<T extends Record<string, (...args: readonly unknown[]) => unknown>>(
+  handlers: { [K in keyof T]: T[K] }
+): Handlers {
+  return handlers as Handlers;
+}
+
+/**
+ * Creates run options with handlers, eliminating the need to manually use HANDLERS_KEY.
+ * This is the simplest way to provide handlers to a run call.
+ *
+ * @param handlers A handlers object mapping effect names to implementations
+ * @returns Run options object with handlers properly configured
+ *
+ * @example
+ * ```typescript
+ * await run(myTask, input, withHandlers({
+ *   log: (msg) => console.log(msg),
+ *   readFile: (path) => fs.readFileSync(path, 'utf8')
+ * }));
+ * ```
+ */
+export function withHandlers(handlers: Handlers): { overrides: Record<string | symbol, unknown> } {
+  return { overrides: { [HANDLERS_KEY]: handlers } };
+}

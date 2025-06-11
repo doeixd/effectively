@@ -226,6 +226,63 @@ await run(greetUser, undefined, { overrides: testEffects });  // Test version
 
 Algebraic effect handlers let you write code that's abstract over side effects, making it highly testable and composable. The context system naturally provides this capability without additional complexity.
 
+For convenience, Effectively also provides a **dedicated effects system** that adds type safety and better error handling:
+
+```typescript
+import { defineEffect, withHandlers } from '@doeixd/effectively/handlers';
+
+// Define effects - the "what" without the "how"
+const log = defineEffect<(message: string) => void>('log');
+const input = defineEffect<(prompt: string) => string>('input');
+
+// A task that uses effects abstractly
+const greetUser = defineTask(async () => {
+  const name = await input("What's your name?");
+  const greeting = `Hello, ${name}!`;
+  await log(greeting);
+  return greeting;
+});
+
+// Provide different implementations for different contexts
+const webHandlers = {
+  input: (prompt: string) => window.prompt(prompt) || '',
+  log: (msg: string) => console.log(msg)
+};
+
+const testHandlers = {
+  input: (prompt: string) => 'Test User',
+  log: (msg: string) => {} // Silent in tests
+};
+
+// Use with different effect implementations
+await run(greetUser, undefined, withHandlers(webHandlers)); // Web version
+await run(greetUser, undefined, withHandlers(testHandlers)); // Test version
+```
+
+The dedicated effects system provides type safety, better debugging, and clear separation between effect declaration and implementation. For multiple effects, use the `defineEffects` helper:
+
+```typescript
+import { defineEffects, createHandlers, withHandlers } from '@doeixd/effectively/handlers';
+
+// Define multiple effects at once
+const effects = defineEffects({
+  log: (message: string) => void,
+  getUniqueId: () => string,
+  readFile: (path: string) => string,
+});
+
+// Create type-safe handlers
+const handlers = createHandlers({
+  log: console.log,
+  getUniqueId: () => crypto.randomUUID(),
+  readFile: (path) => fs.readFileSync(path, 'utf8'),
+});
+
+await run(myTask, input, withHandlers(handlers));
+```
+
+Algebraic effect handlers let you write code that's abstract over side effects, making it highly testable and composable.
+
 This simple, layered approach—from plain async functions to composable workflows with effect handlers—is the core of Effectively.
 
 <br />
@@ -701,6 +758,10 @@ This provides a clean alternative to deeply nested `.then()` chains or complex w
 
 For a comprehensive guide to the smart context system with smart, local-only, and global-only functions, see the [Context System Guide](docs/context-system.md). This covers when to use each variant, migration strategies, and best practices for different use cases.
 
+### Effect Handlers
+
+For detailed information on building testable, modular code with algebraic effect handlers, see the [Effect Handlers Guide](docs/effect-handlers.md). This covers effect definition, handler creation, testing patterns, and advanced composition techniques.
+
 ### Do Notation with Generator Syntax
 
 For more detailed information on monadic composition using generators, see the [Do Notation Guide](docs/do-notation.md). This covers advanced patterns, error handling within do blocks, and performance considerations.
@@ -951,6 +1012,22 @@ Use this guide to choose the appropriate context function:
 | `withPoll(task, options)` | Polls a task until a condition is met or timeout occurs. |
 | `createBatchingTask(batchFn, options)` | Creates a task that automatically batches multiple calls. |
 | `PollTimeoutError` | Error thrown when polling operations exceed their timeout. |
+
+### Effect Handlers
+| Function | Description |
+|----------|-------------|
+| `defineEffect<T>(effectName)` | Defines a typed effect placeholder that looks up handlers at runtime. |
+| `defineEffects(effectsConfig)` | Helper to define multiple effects at once from a type-safe configuration. |
+| `createHandlers(handlers)` | Creates a type-safe handlers object for use with effect handlers. |
+| `withHandlers(handlers)` | Creates run options with handlers, eliminating the need to manually use HANDLERS_KEY. |
+| `HANDLERS_KEY` | Symbol used as the key for effect handlers in the context. |
+| `EffectHandlerNotFoundError` | Error thrown when an effect is called but no handler is provided. |
+
+**Types:**
+- `Effect<T>` - A callable effect function created by defineEffect
+- `Handlers` - A mapping of effect names to their concrete implementations
+- `EffectsContext` - Context interface that supports the effects pattern
+- `HandlerOptions` - Configuration options for createHandler (logErrors, errorPrefix, validateArgs, timeoutMs)
 
 ### OpenTelemetry Integration
 | Function | Description |
