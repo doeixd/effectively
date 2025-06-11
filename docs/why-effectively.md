@@ -1,4 +1,4 @@
-### 🤔 Why Effectively? A Pragmatic Approach to Modern Asynchronous TypeScript
+# 🤔 Why Effectively? A Pragmatic Approach to Modern Asynchronous TypeScript
 
 Programming is challenging. Building robust, scalable, and maintainable applications requires more than just writing code that works—it requires a clear and principled approach to managing complexity. Effectively presents a new way of thinking about how we structure and compose asynchronous code in TypeScript, one that is both powerful and deeply pragmatic.
 
@@ -63,13 +63,13 @@ class NetworkError extends Error { /* ... */ }
 const fetchUserTask = defineTask(
   async (userId: string): Promise<Result<User, UserNotFoundError | NetworkError>> => {
     // It gets the scope and api client from the context automatically.
-    const { scope, api } = getContext();
+    const { scope, api } = getContext(); // Dependencies are available via context
     try {
       const response = await api.fetchUser(userId, { signal: scope.signal }); // Cancellation is built-in.
       if (response.status === 404) return err(new UserNotFoundError());
       if (!response.ok) return err(new NetworkError(`Request failed: ${response.status}`));
       return ok(await response.json());
-    } catch (e) {
+    } catch (e: any) {
       return err(new NetworkError(e.message));
     }
   }
@@ -85,11 +85,11 @@ export const resilientFetchUser = withRetry(fetchUserTask, {
 });
 ```
 
-This version is superior in every way:
-*   **It’s Clean and Readable**: `fetchUserTask` does one thing. The `resilientFetchUser` workflow clearly states its behavior: "fetch a user, then retry it under these conditions."
-*   **It’s Composable and Reusable**: The `withRetry` enhancer can be applied to any task in your application.
-*   **It’s Testable**: You can test `fetchUserTask` in isolation by providing a mock `api` service in the `Context`.
-*   **It’s Type-Safe**: By using `neverthrow`'s `Result` type, the signature of `fetchUserTask` tells the compiler *exactly* what can go wrong. There are no hidden exceptions.
+This version offers significant advantages:
+*   **Clean and Readable**: `fetchUserTask` has a single responsibility. The `resilientFetchUser` workflow clearly states its enhanced behavior.
+*   **Composable and Reusable**: The `withRetry` enhancer (and others like `withTimeout`, `withCircuitBreaker`, or `bracket` for resource management) can be applied to any Task.
+*   **Testable**: `fetchUserTask` can be tested in isolation by providing a mock `api` service in the `Context` during `run`.
+*   **Type-Safe**: Using `neverthrow`'s `Result` type (a recommended peer dependency) makes the signature of `fetchUserTask` explicit about potential failure outcomes, enabling compiler checks.
 
 This compositional approach is the heart of Effectively. It encourages you to build small, single-responsibility `Task`s and then wrap them with declarative **Enhancers** to create robust, complex workflows.
 
@@ -104,16 +104,19 @@ Task<Input, Output> + Enhancer  =>  New, more powerful Task
 
 The TypeScript ecosystem offers several ways to manage asynchronous complexity. Effectively makes a specific, pragmatic choice that sets it apart.
 
-*   **Compared to Raw `async/await`**: Effectively doesn't replace them; it gives them the structure, safety, and composability they lack. It adds the "guardrails" and declarative power needed for building large-scale applications.
+*   **Compared to Raw `async/await`**: Effectively doesn't replace them; it gives them the structure, safety, and composability they often lack in larger applications. It adds "guardrails" and declarative power.
 
-*   **Compared to Full Effect Systems (e.g., `Effect-TS`)**: `Effect-TS` is a brilliant and powerful library that provides its own custom runtime based on "Fibers." It replaces `Promise` with its own `Effect` data type, offering unparalleled control over execution, concurrency, and interruption. This "replacement" approach is incredibly powerful but comes with a steeper learning curve and a conceptual shift away from the browser's native primitives.
+*   **Compared to Full Effect Systems (e.g., `Effect-TS`)**: Libraries like `Effect-TS` are powerful, often replacing `Promise` with their own `Effect` data type and custom runtime (e.g., "Fibers") for fine-grained control. This offers immense power but typically involves a steeper learning curve and a more significant conceptual shift.
 
 **Effectively chooses a different path: enhancement over replacement.**
 
-It is a bet on the long-term power and evolution of the web platform itself. We believe that a library should work *with* the grain of the JavaScript environment, not against it. This philosophy has two key implications:
+It is a bet on the long-term power and evolution of the web platform itself. We believe a library should work *with* the grain of the JavaScript environment, not against it. This philosophy has key implications:
 
-1.  **No Custom Runtime:** Effectively does **not** have its own runtime. It uses the standard JavaScript event loop and `Promise` infrastructure that you already know. This means there's less magic, a smaller bundle size, and your code behaves in a way that is familiar and easy to debug with standard browser tools.
+1.  **No Custom Runtime:** Effectively uses the standard JavaScript event loop and `Promise` infrastructure. This means less "magic," a potentially smaller bundle, and code that behaves familiarly, debuggable with standard browser tools.
+2.  **Leveraging the Platform's Scheduler:** For parallel operations, Effectively aims to use the browser's native **`scheduler.postTask` API** when available (with fallbacks). This allows the browser itself—which has a global view of page activity—to intelligently prioritize tasks (`user-blocking`, `user-visible`, `background`), potentially leading to better overall application performance without custom configuration.
+3.  **Modularity and Tree-Shaking:** While the feature set is comprehensive to address real-world needs, the library is designed to be modular. You only include (and bundle) the parts you use.
+4.  **Context and DI:** The context system (`getContext`, `createContext`) provides a way to manage dependencies. While it uses an implicit retrieval mechanism (`getContext`), this is designed for convenience in complex workflows and ease of testing through overrides. Core task logic can still be written as pure functions that are then wrapped by `defineTask`.
+5.  **Optional Advanced Features:** Patterns like `do-notation` (using generators) are available for those who find them beneficial for specific types of sequential monadic composition, but they are not required to use the library's core strengths.
 
-2.  **Leveraging the Platform's Scheduler:** We don't ship a complex, custom task scheduler because the platform is giving us one. For parallel operations, Effectively will automatically use the browser's native **`scheduler.postTask` API** when available. This allows the browser itself—which has a global view of everything happening on the page—to intelligently prioritize your tasks (`user-blocking`, `user-visible`, `background`). This leads to better overall application performance and responsiveness without any custom configuration.
+By embracing `Promise`, `async/await`, and emerging browser APIs, Effectively aims to provide a gentle learning curve and seamless interoperability with the broader Promise-based ecosystem. It seeks to offer a powerful and pragmatic choice for teams looking to bring more structure and resilience to their TypeScript applications.
 
-By embracing `Promise`, `async/await`, and emerging browser APIs, Effectively ensures your application can leverage native, C++-level optimizations directly. It offers a gentler learning curve and seamless interoperability with the entire ecosystem of Promise-based libraries, making it a powerful and pragmatic choice for any team.

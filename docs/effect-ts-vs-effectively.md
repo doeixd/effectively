@@ -2,7 +2,6 @@
 
 **TL;DR:** Effect.ts is a comprehensive functional programming ecosystem that replaces JavaScript's async foundations, while Effectively enhances existing `async/await` patterns with composable workflows and algebraic effects for teams who want better patterns without a paradigm shift.
 
----
 
 ## Philosophy & Approach
 
@@ -41,8 +40,6 @@ const processValue = defineTask(async (value: number) => {
 await run(processValue, 42) // Returns 84
 ```
 
----
-
 ## Learning Curve & Adoption
 
 | Aspect | Effect.ts | Effectively |
@@ -65,7 +62,6 @@ await run(processValue, 42) // Returns 84
 - Understanding of dependency injection patterns
 - Task composition concepts (similar to function composition)
 
----
 
 ## Error Handling Comparison
 
@@ -126,7 +122,6 @@ const protectedFetch = withErrorBoundary(
 )
 ```
 
----
 
 ## Concurrency & Parallelism
 
@@ -174,7 +169,6 @@ const processLargeDataset = await mapReduce(
 )
 ```
 
----
 
 ## Resource Management
 
@@ -216,7 +210,6 @@ const complexOperation = bracketMany([
 ], ([db, lock]) => performOperation(db, lock))
 ```
 
----
 
 ## Testing & Mocking
 
@@ -283,7 +276,6 @@ expect(mockApi.getUser).toHaveBeenCalledWith("123")
 expect(result.name).toBe("Test User")
 ```
 
----
 
 ## Integration with Existing Code
 
@@ -329,8 +321,6 @@ const result = await Promise.all([
 ])
 ```
 
----
-
 ## Performance Characteristics
 
 ### Effect.ts: Optimized Runtime
@@ -344,8 +334,6 @@ const result = await Promise.all([
 - Minimal overhead over standard patterns
 - Leverages browser/Node.js optimizations
 - Memory-safe long-running workflows with automatic cleanup
-
----
 
 ## Ecosystem & Dependencies
 
@@ -375,7 +363,6 @@ const result = await Promise.all([
 
 **Focused on:** Workflow composition, resource management, error handling, and context management.
 
----
 
 ## When to Choose Each
 
@@ -395,7 +382,6 @@ const result = await Promise.all([
 - Working with existing Promise-based libraries
 - You want production patterns with minimal learning curve
 
----
 
 ## Migration Examples
 
@@ -457,7 +443,6 @@ const getUserData = Effect.gen(function* () {
 })
 ```
 
----
 
 ## Conclusion
 
