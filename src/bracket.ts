@@ -334,6 +334,20 @@ export function makeAsyncDisposable<T extends object>(
 }
 
 /**
+ * Alias for the bracket function using the term "resource".
+ * Implements the acquire-use-release pattern for resource management.
+ * 
+ * @alias bracket
+ * @template C The context type
+ * @template R The resource type
+ * @template V The input value type
+ * @template U The output value type
+ * @param config The resource configuration
+ * @returns A task that manages the resource lifecycle
+ */
+export const resource = bracket;
+
+/**
  * Example implementation of a disposable database connection.
  * This demonstrates how to implement the Disposable interface.
  */

@@ -791,6 +791,7 @@ const withCache = <C extends { cache: Cache }, V, R>(
 | Function | Description |
 |----------|-------------|
 | `bracket({ acquire, use, release })` | Guarantees resource cleanup with acquire-use-release pattern. |
+| `resource({ acquire, use, release })` | Alias for `bracket` - same guaranteed resource cleanup functionality. |
 | `bracketDisposable({ acquire, use })` | For resources with `Symbol.dispose` or `Symbol.asyncDispose`. |
 | `bracketMany(configs, use)` | Manages multiple resources, releases in reverse order. |
 
