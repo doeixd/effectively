@@ -532,7 +532,7 @@ Effectively is a powerful tool, but it's important to understand when other appr
 - You need the power of a fiber-based runtime with true delimited continuations.
 - You want compile-time guarantees for *all* effects.
 
-| Aspect             | **Effectively**                                  | **Effect-TS**                                | **Tinyeffect**                               |
+| Aspect             | **Effectively**                                  | **[Effect-TS](https://effect.website)**                                | **[Tinyeffect](https://github.com/Snowflyt/tinyeffect)**                               |
 | ------------------ | ------------------------------------------------ | -------------------------------------------- | -------------------------------------------- |
 | **Philosophy**     | Enhance `async/await`                            | Replace the async foundation                 | Algebraic effects with generators            |
 | **Learning Curve** | Low (builds on existing knowledge)               | High (new programming model)                 | Medium (generator-based effects)             |
@@ -549,7 +549,7 @@ Effectively is a powerful tool, but it's important to understand when other appr
 
 **Why:** Tinyeffect provides true algebraic effects for TypeScript, allowing you to model all side effects uniformly. Effects are typed and must be handled explicitly, preventing unhandled cases at compile time.
 
-### RxJS
+### [RxJS](https://rxjs.dev/)
 
 **Use When:**
 - Your application is primarily reactive and event-driven.
