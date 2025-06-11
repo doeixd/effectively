@@ -25,7 +25,7 @@ npm install effectively neverthrow
 
 *Note: `neverthrow` is a peer dependency for typed error handling.*
 
-## 🚀 Understanding the Core Intuition: A Getting Started Guide
+## 🚀 Building Intuition: A Getting Started Guide
 
 At its heart, Effectively is beautifully simple. Let's build your understanding from the ground up.
 
@@ -132,7 +132,48 @@ const message = await run(greet, 'World');
 const display = await run(getUserDisplay, 'user-123');
 ```
 
-This simple, layered approach—from plain async functions to composable workflows—is the core of Effectively.
+#### Step 5: Effect Handlers
+
+Here's where Effectively gets powerful: you can build **algebraic effect handlers** on top of the context system. These allow you to define abstract effects (like "get user input" or "log a message") and provide different implementations in different contexts.
+
+```typescript
+// Define an effect interface
+interface Effects {
+  input: (prompt: string) => Promise<string>;
+  log: (message: string) => Promise<void>;
+}
+
+// A task that uses effects abstractly
+const greetUser = defineTask(async () => {
+  const { input, log } = getContext<AppContext & Effects>();
+  
+  const name = await input("What's your name?");
+  const greeting = `Hello, ${name}!`;
+  await log(greeting);
+  return greeting;
+});
+
+// Provide different implementations for different contexts
+const webEffects: Effects = {
+  input: (prompt) => Promise.resolve(window.prompt(prompt) || ''),
+  log: (msg) => { console.log(msg); return Promise.resolve(); }
+};
+
+const testEffects: Effects = {
+  input: (prompt) => Promise.resolve('Test User'),
+  log: (msg) => Promise.resolve() // Silent in tests
+};
+
+// Use with different effect implementations
+await run(greetUser, undefined, { overrides: webEffects });    // Web version
+await run(greetUser, undefined, { overrides: testEffects });  // Test version
+```
+
+Algebraic effect handlers let you write code that's abstract over side effects, making it highly testable and composable. The context system naturally provides this capability without additional complexity.
+
+This simple, layered approach—from plain async functions to composable workflows with effect handlers—is the core of Effectively.
+
+<br />
 
 ## 💡 Core Concepts
 
@@ -152,6 +193,16 @@ A **Workflow** chains Tasks together. `createWorkflow` creates a new Task where 
 ### 3. Context: Clean Dependency Injection
 
 **Context** provides your dependencies (like API clients, loggers, or config) without prop drilling or global state. It's provided once by `run` and easily mocked for tests.
+
+### 4. Effect Handlers and Brackets
+
+**Effect Handlers** enable algebraic effects through the context system, allowing you to write code that's abstract over side effects. **Brackets** provide guaranteed resource cleanup using the acquire-use-release pattern, ensuring resources are properly disposed of even when errors occur.
+
+### 5. Scope and Cancellation
+
+**Scope** manages the lifecycle of operations and enables cancellation. When a scope is cancelled, all tasks running within that scope receive cancellation signals, allowing for graceful shutdown and resource cleanup. This prevents resource leaks and allows for responsive user interfaces.
+
+<br />
 
 ## 🛡️ Error Handling: A Dual Strategy
 
@@ -212,7 +263,9 @@ This dual approach ensures:
 - **Runtime resilience** for unexpected failures
 - **Clear separation** between business logic and infrastructure concerns
 
-## 🚀 Production-Ready Features
+<br />
+
+## 🚀 Features
 
 ### Guaranteed Resource Cleanup
 
@@ -274,6 +327,39 @@ const total = await mapReduce(
   0
 );
 ```
+
+### Memory-Safe Long-Running Workflows
+
+Effectively prevents memory accumulation in long-running workflows through stateless execution and automatic cleanup.
+
+```typescript
+// Process millions of items without memory leaks
+const processLargeDataset = mapReduce(
+  millionItems,
+  processItem,           // Parallel processing
+  (acc, result) => acc + result.value,  // Sequential aggregation
+  0,
+  { concurrency: 10 }    // Bounded concurrency prevents memory spikes
+);
+
+// Batch processing with automatic context cleanup
+const processBatch = defineTask(async (items: Item[]) => {
+  const batchSize = 1000;
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    await processItems(batch);
+    // Each batch's context is cleaned up automatically
+  }
+});
+```
+
+**Key Memory Management Features:**
+- **Stateless Execution:** Contexts are created fresh for each workflow and disposed automatically
+- **Scope-Based Cleanup:** AbortControllers and event listeners are cleaned up in finally blocks
+- **No Accumulation:** Tasks don't retain state between executions, preventing memory leaks
+- **Resource Bracketing:** Guaranteed cleanup of connections, files, and other resources
+
+<br />
 
 ## 🔧 Common Patterns
 
@@ -350,6 +436,8 @@ const processBatch = defineTask(async (items: Item[]) => {
 });
 ```
 
+<br />
+
 ## 🧪 Testing Your Workflows
 
 Effectively makes testing a breeze by allowing you to inject mock dependencies at runtime.
@@ -392,6 +480,8 @@ describe('Payment Workflow', () => {
 });
 ```
 
+<br />
+
 ## 🤔 Comparisons & Where It Fits
 
 Effectively is a powerful tool, but it's important to understand when other approaches might be a better fit.
@@ -412,12 +502,22 @@ Effectively is a powerful tool, but it's important to understand when other appr
 - You need the power of a fiber-based runtime with true delimited continuations.
 - You want compile-time guarantees for *all* effects.
 
-| Aspect             | **Effectively**                                  | **Effect-TS**                                |
-| ------------------ | ------------------------------------------------ | -------------------------------------------- |
-| **Philosophy**     | Enhance `async/await`                            | Replace the async foundation                 |
-| **Learning Curve** | Low (builds on existing knowledge)               | High (new programming model)                 |
-| **Integration**    | Seamless with existing Promise-based code        | Requires wrapping code in the `Effect` runtime |
-| **Best For**       | Teams wanting better patterns with low overhead  | Teams wanting maximum purity and type safety |
+| Aspect             | **Effectively**                                  | **Effect-TS**                                | **Tinyeffect**                               |
+| ------------------ | ------------------------------------------------ | -------------------------------------------- | -------------------------------------------- |
+| **Philosophy**     | Enhance `async/await`                            | Replace the async foundation                 | Algebraic effects with generators            |
+| **Learning Curve** | Low (builds on existing knowledge)               | High (new programming model)                 | Medium (generator-based effects)             |
+| **Integration**    | Seamless with existing Promise-based code        | Requires wrapping code in the `Effect` runtime | Requires generator functions with `yield*`   |
+| **Best For**       | Teams wanting better patterns with low overhead  | Teams wanting maximum purity and type safety | Teams wanting unified effect handling        |
+
+### Tinyeffect
+
+**Use When:**
+- You want to handle all side effects (errors, async, dependencies) in a unified way.
+- You need type-safe effect handling with explicit effect signatures.
+- You're comfortable with generator functions and `yield*` syntax.
+- You want algebraic effects without the complexity of a full FP ecosystem.
+
+**Why:** Tinyeffect provides true algebraic effects for TypeScript, allowing you to model all side effects uniformly. Effects are typed and must be handled explicitly, preventing unhandled cases at compile time.
 
 ### RxJS
 
@@ -436,9 +536,11 @@ Effectively is a powerful tool, but it's important to understand when other appr
 
 **Why:** Async has overhead. Don't introduce the complexity of `async/await` or Effectively if your function is synchronous.
 
+<br />
+
 ## 🧠 Advanced Concepts
 
-### Non-Linear Control Flow: Backtracking
+### Non-Linear Control Flow: Backtracking and Effects
 
 Effectively provides powerful non-linear control flow through **backtracking**. Throwing a `BacktrackSignal` allows a workflow to jump back to a previously executed task. This is ideal for retries, polling, and state machines.
 
@@ -454,11 +556,41 @@ const retryableTask = defineTask(async (attempt: number) => {
   return result;
 });
 ```
+
 **Important:** Tasks must be created with `defineTask` to enable backtracking, as this assigns a unique ID used by the runtime.
+
+#### No Trampolining, No Rollback
+
+Unlike some effect systems, Effectively **does not use trampolining** and **does not provide automatic rollback** of side effects. This design choice has important implications:
+
+- **Performance**: Direct function calls without trampolines mean better performance and stack traces
+- **Side Effects**: When backtracking occurs, any side effects that have already happened remain in place
+- **Responsibility**: You are responsible for designing idempotent operations or manually cleaning up state when retrying
+
+```typescript
+const taskWithSideEffects = defineTask(async (attempt: number) => {
+  // This side effect will happen every time we backtrack
+  await logAttempt(attempt);
+  await incrementCounter(); // This won't be rolled back!
+  
+  const result = await riskyOperation();
+  if (result.needsRetry && attempt < 3) {
+    // The log and counter increment above have already happened
+    // and won't be undone when we backtrack
+    throw new BacktrackSignal(taskWithSideEffects, attempt + 1);
+  }
+  
+  return result;
+});
+```
+
+This makes the control flow easy to reason about - effects happen when they execute, period. For operations that need atomicity, use patterns like the bracket pattern or explicit transaction management.
 
 ### Concurrency: Leveraging the Platform
 
 Effectively embraces the browser and Node.js's native concurrency primitives rather than reimplementing them. This means it uses `scheduler.postTask` when available for cooperative multitasking, and you can leverage `SharedArrayBuffer` and `Atomics` when using the Web Worker integration for true parallelism.
+
+<br />
 
 ## 📚 Guides & Deeper Dives
 
@@ -515,6 +647,8 @@ const withCache = <C extends { cache: Cache }, V, R>(
 };
 ```
 
+<br />
+
 ## 📋 Best Practices
 
 - **Keep Tasks Focused:** Each task should have a single responsibility. Compose them in workflows rather than creating monolithic tasks.
@@ -523,12 +657,16 @@ const withCache = <C extends { cache: Cache }, V, R>(
 - **Define Clear Context Interfaces:** Keep your `AppContext` clean and well-defined. Pass request-specific data through the workflow, not in the context.
 - **Always Use `bracket` for Resources:** Guarantee cleanup for files, database connections, or other resources that need explicit closing.
 
+<br />
+
 ## ⚠️ Common Pitfalls & Solutions
 
 - **`ContextNotFoundError`:** You called `getContext()` outside of a task's execution. Ensure it's called inside the async function passed to `defineTask`.
 - **Enhancer Not Working:** Enhancers (`withRetry`, `withTimeout`, etc.) return a *new* task. You must use the returned value. `const retried = withRetry(myTask);` not `withRetry(myTask);`.
 - **Backtracking Not Working:** The target task was not created with `defineTask`. The runtime needs the `__task_id` assigned by `defineTask` to find it.
 - **Workflow Stops Midway:** An unhandled error was likely thrown. Debug by running with `{ throw: false }` to inspect the returned `Result` object: `const result = await run(workflow, input, { throw: false });`.
+
+<br />
 
 ## 🧰 Complete API Reference
 
@@ -619,9 +757,26 @@ const withCache = <C extends { cache: Cache }, V, R>(
 | `withScope(providers, task)` | Temporarily provides additional services in scope. |
 | `createLazyDependency(factory)` | Creates dependencies that are only instantiated when accessed. |
 
+### OpenTelemetry Integration
+| Function | Description |
+|----------|-------------|
+| `withSpan(task, options)` | Wraps task with OpenTelemetry span or fallback logging. |
+| `recordMetric(context, type, options, value)` | Records counter, histogram, or gauge metrics. |
+| `withObservability(task, options)` | Complete observability with tracing, timing, and counting. |
+| `withTiming(task, metricName)` | Measures and records task execution time. |
+| `withCounter(task, counterName)` | Counts successful and failed task executions. |
+| `addSpanAttributes(context, attributes)` | Adds structured data to current span. |
+| `recordSpanException(context, error)` | Records exceptions in current span. |
+| `createTelemetryContext(providers)` | Creates context with tracer/meter/logger providers. |
+| `@traced(spanName?)` | Decorator for automatic method tracing. |
+
+<br />
+
 ## 🤝 Contributing
 
 We welcome contributions! Check our [Contributing Guide](CONTRIBUTING.md) for details.
+
+<br />
 
 ## 📄 License
 

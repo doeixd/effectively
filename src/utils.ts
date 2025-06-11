@@ -758,35 +758,7 @@ export function withState<C extends BaseContext, V, R, S>(
   };
 }
 
-/**
- * Wraps a task with an observability "span", logging its start, end, and duration.
- * @param task The `Task` to wrap with a span.
- * @param spanName An optional, explicit name for the span.
- * @example
- * ```typescript
- * const observedFetch = withSpan(fetchUser, 'FetchFromUpstreamAPI');
- * await run(observedFetch, 'user-123', { logger: console });
- * ```
- */
-export function withSpan<C extends BaseContext & { logger?: Logger }, V, R>(
-  task: Task<C, V, R>,
-  spanName?: string
-): Task<C, V, R> {
-  return async (context: C, value: V): Promise<R> => {
-    const logger = context.logger || noopLogger;
-    const name = spanName || task.name || 'anonymous_task';
-    logger.debug(`[Span Start] ${name}`);
-    const startTime = performance.now();
-    try {
-      const result = await task(context, value);
-      logger.info(`[Span End] ${name} - Success (${(performance.now() - startTime).toFixed(2)}ms)`);
-      return result;
-    } catch (error) {
-      logger.error(`[Span End] ${name} - Failure (${(performance.now() - startTime).toFixed(2)}ms)`, { error });
-      throw error;
-    }
-  };
-}
+
 
 
 // =================================================================
