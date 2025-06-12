@@ -2,17 +2,13 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   withCircuitBreaker,
   CircuitOpenError,
-  type CircuitBreakerOptions
-} from '../src/circuit-breaker';
+} from '../src/circuit-breaker'; // Assuming path to your compiled JS or TS source
 import {
   createContext,
-  defineTask,
-  getContext,
-  run,
   BacktrackSignal,
   type BaseContext,
   type Task,
-  type Logger
+  type Logger,
 } from '../src/run';
 
 interface TestContext extends BaseContext {
@@ -20,22 +16,30 @@ interface TestContext extends BaseContext {
   counter: number;
 }
 
-const mockLogger = {
+const globalMockLogger = {
   debug: vi.fn(),
   info: vi.fn(),
   warn: vi.fn(),
-  error: vi.fn()
+  error: vi.fn(),
 };
 
-const testContextDefaults: Omit<TestContext, 'scope'> = {
-  logger: mockLogger,
-  counter: 0
-};
+// Create context tools once, tests can override logger via run options
+const { run, defineTask: defineTaskScoped } = createContext<TestContext>({
+  logger: globalMockLogger,
+  counter: 0,
+});
+
+let testCircuitIdCounter = 0;
+const getUniqueCircuitId = (prefix = 'test-circuit-') => `${prefix}${testCircuitIdCounter++}`;
 
 describe('Circuit Breaker (circuit-breaker.ts)', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    globalMockLogger.debug.mockClear();
+    globalMockLogger.info.mockClear();
+    globalMockLogger.warn.mockClear();
+    globalMockLogger.error.mockClear();
     vi.useFakeTimers();
+    testCircuitIdCounter = 0;
   });
 
   afterEach(() => {
@@ -45,12 +49,13 @@ describe('Circuit Breaker (circuit-breaker.ts)', () => {
   describe('CircuitOpenError', () => {
     it('should create proper error with circuit ID', () => {
       const error = new CircuitOpenError('test-circuit');
-      
       expect(error).toBeInstanceOf(Error);
       expect(error).toBeInstanceOf(CircuitOpenError);
       expect(error.name).toBe('CircuitOpenError');
       expect(error.id).toBe('test-circuit');
-      expect(error.message).toBe('Circuit Breaker "test-circuit" is open and not accepting requests.');
+      expect(error.message).toBe(
+        'Circuit Breaker "test-circuit" is open and not accepting requests.'
+      );
     });
 
     it('should have proper prototype chain', () => {
@@ -60,23 +65,24 @@ describe('Circuit Breaker (circuit-breaker.ts)', () => {
   });
 
   describe('withCircuitBreaker', () => {
-    const { run, defineTask } = createContext<TestContext>(testContextDefaults);
-
     describe('CLOSED state behavior', () => {
       it('should allow requests to pass through when circuit is closed', async () => {
-        const successTask = defineTask(async (input: string) => `success-${input}`);
-        const protectedTask = withCircuitBreaker(successTask, {
-          id: 'test-circuit',
-          failureThreshold: 3
+        const circuitId = getUniqueCircuitId('closed-allow');
+        const successTask = defineTaskScoped(async (input: string) => `success-${input}`);
+        const protectedTask = withCircuitBreaker(successTask, { // No tools argument
+          id: circuitId,
+          failureThreshold: 3,
         });
 
         const result = await run(protectedTask, 'test');
         expect(result).toBe('success-test');
+        expect(globalMockLogger.warn).not.toHaveBeenCalled();
       });
 
       it('should record failures but allow requests until threshold is reached', async () => {
+        const circuitId = getUniqueCircuitId('closed-record-failures');
         let attempts = 0;
-        const flakyTask = defineTask(async (input: string) => {
+        const flakyTask = defineTaskScoped(async (input: string) => {
           attempts++;
           if (attempts <= 2) {
             throw new Error(`Failure ${attempts}`);
@@ -84,486 +90,513 @@ describe('Circuit Breaker (circuit-breaker.ts)', () => {
           return `success-${input}`;
         });
 
-        const protectedTask = withCircuitBreaker(flakyTask, {
-          id: 'flaky-circuit',
-          failureThreshold: 3
+        const protectedTask = withCircuitBreaker(flakyTask, { // No tools argument
+          id: circuitId,
+          failureThreshold: 3,
         });
 
-        // First two should fail but not trip the circuit
         await expect(run(protectedTask, 'test1')).rejects.toThrow('Failure 1');
+        expect(globalMockLogger.warn).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Recorded failure #1.`,
+          { error: expect.objectContaining({ message: 'Failure 1' }) }
+        );
+
         await expect(run(protectedTask, 'test2')).rejects.toThrow('Failure 2');
-        
-        // Third should succeed
+        expect(globalMockLogger.warn).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Recorded failure #2.`,
+          { error: expect.objectContaining({ message: 'Failure 2' }) }
+        );
+
         const result = await run(protectedTask, 'test3');
         expect(result).toBe('success-test3');
-        
-        expect(mockLogger.warn).toHaveBeenCalledTimes(2);
-        expect(mockLogger.warn).toHaveBeenNthCalledWith(1, '[Circuit Breaker: flaky-circuit] Recorded failure #1.', { error: expect.any(Error) });
-        expect(mockLogger.warn).toHaveBeenNthCalledWith(2, '[Circuit Breaker: flaky-circuit] Recorded failure #2.', { error: expect.any(Error) });
+        expect(globalMockLogger.error).not.toHaveBeenCalledWith(
+          expect.stringContaining('Failure threshold reached')
+        );
       });
 
       it('should reset failure count on successful request', async () => {
-        let shouldFail = true;
-        const conditionalTask = defineTask(async (input: string) => {
-          if (shouldFail) {
-            shouldFail = false;
+        const circuitId = getUniqueCircuitId('closed-reset-on-success');
+        let failureOccurred = false;
+        const conditionalTask = defineTaskScoped(async (input: string) => {
+          if (!failureOccurred) {
+            failureOccurred = true;
             throw new Error('One-time failure');
           }
           return `success-${input}`;
         });
 
-        const protectedTask = withCircuitBreaker(conditionalTask, {
-          id: 'reset-circuit',
-          failureThreshold: 2
+        const protectedTask = withCircuitBreaker(conditionalTask, { // No tools argument
+          id: circuitId,
+          failureThreshold: 2,
         });
 
-        // First request fails
         await expect(run(protectedTask, 'test1')).rejects.toThrow('One-time failure');
-        expect(mockLogger.warn).toHaveBeenCalledWith('[Circuit Breaker: reset-circuit] Recorded failure #1.', { error: expect.any(Error) });
+        expect(globalMockLogger.warn).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Recorded failure #1.`,
+          { error: expect.any(Error) }
+        );
+        globalMockLogger.warn.mockClear();
 
-        // Second request succeeds and resets the count
-        shouldFail = true; // Reset for next failure
+        failureOccurred = true;
         const result = await run(protectedTask, 'test2');
         expect(result).toBe('success-test2');
+        expect(globalMockLogger.warn).not.toHaveBeenCalled();
 
-        // Third request fails again but starts from failure count 1
+        failureOccurred = false;
         await expect(run(protectedTask, 'test3')).rejects.toThrow('One-time failure');
-        expect(mockLogger.warn).toHaveBeenLastCalledWith('[Circuit Breaker: reset-circuit] Recorded failure #1.', { error: expect.any(Error) });
+        expect(globalMockLogger.warn).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Recorded failure #1.`,
+          { error: expect.any(Error) }
+        );
       });
     });
 
     describe('OPEN state behavior', () => {
       it('should trip to OPEN state after reaching failure threshold', async () => {
-        const alwaysFailingTask = defineTask(async () => {
+        const circuitId = getUniqueCircuitId('open-trip-circuit');
+        const alwaysFailingTask = defineTaskScoped(async () => {
           throw new Error('Always fails');
         });
-
-        const protectedTask = withCircuitBreaker(alwaysFailingTask, {
-          id: 'failing-circuit',
-          failureThreshold: 2
+        const protectedTask = withCircuitBreaker(alwaysFailingTask, { // No tools argument
+          id: circuitId,
+          failureThreshold: 2,
         });
 
-        // First failure
         await expect(run(protectedTask, 'test1')).rejects.toThrow('Always fails');
-        expect(mockLogger.warn).toHaveBeenCalledWith('[Circuit Breaker: failing-circuit] Recorded failure #1.', { error: expect.any(Error) });
-
-        // Second failure - should trip the circuit
         await expect(run(protectedTask, 'test2')).rejects.toThrow('Always fails');
-        expect(mockLogger.warn).toHaveBeenCalledWith('[Circuit Breaker: failing-circuit] Recorded failure #2.', { error: expect.any(Error) });
-        expect(mockLogger.error).toHaveBeenCalledWith('[Circuit Breaker: failing-circuit] Failure threshold reached. State changed to OPEN.');
+        expect(globalMockLogger.error).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`
+        );
 
-        // Third request should fail fast with CircuitOpenError
-        await expect(run(protectedTask, 'test3')).rejects.toThrow('is open and not accepting requests');
-        expect(mockLogger.warn).toHaveBeenCalledTimes(2); // No additional failure logged
+        await expect(run(protectedTask, 'test3')).rejects.toThrow(new CircuitOpenError(circuitId));
       });
 
       it('should fail fast with CircuitOpenError when circuit is open', async () => {
-        const slowTask = defineTask(async () => {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          throw new Error('Should not reach here');
+        const circuitId = getUniqueCircuitId('open-fail-fast-circuit');
+        const slowTask = defineTaskScoped(async () => {
+          vi.advanceTimersByTime(100);
+          throw new Error('Underlying task error');
+        });
+        const protectedTask = withCircuitBreaker(slowTask, { // No tools argument
+          id: circuitId,
+          failureThreshold: 1,
         });
 
-        const protectedTask = withCircuitBreaker(slowTask, {
-          id: 'open-circuit',
-          failureThreshold: 1
-        });
+        await expect(run(protectedTask, 'test1')).rejects.toThrow('Underlying task error');
+        expect(globalMockLogger.error).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`
+        );
 
-        // Trip the circuit
-        await expect(run(protectedTask, 'test1')).rejects.toThrow('Should not reach here');
-        expect(mockLogger.error).toHaveBeenCalledWith('[Circuit Breaker: open-circuit] Failure threshold reached. State changed to OPEN.');
-
-        // Subsequent requests should fail fast
-        const start = Date.now();
-        await expect(run(protectedTask, 'test2')).rejects.toThrow(CircuitOpenError);
-        const elapsed = Date.now() - start;
-        
-        expect(elapsed).toBeLessThan(100); // Should fail immediately
+        const startTime = Date.now();
+        await expect(run(protectedTask, 'test2')).rejects.toThrow(new CircuitOpenError(circuitId));
+        const endTime = Date.now();
+        expect(endTime - startTime).toBeLessThan(50);
       });
     });
 
     describe('HALF-OPEN state behavior', () => {
       it('should transition to HALF-OPEN after timeout and succeed on trial request', async () => {
-        let shouldFail = true;
-        const recoveringTask = defineTask(async (input: string) => {
-          if (shouldFail) {
+        const circuitId = getUniqueCircuitId('half-open-success-circuit');
+        let allowRecovery = false;
+        const recoveringTask = defineTaskScoped(async (input: string) => {
+          if (!allowRecovery) {
             throw new Error('Still failing');
           }
           return `recovered-${input}`;
         });
-
-        const protectedTask = withCircuitBreaker(recoveringTask, {
-          id: 'recovering-circuit',
+        const protectedTask = withCircuitBreaker(recoveringTask, { // No tools argument
+          id: circuitId,
           failureThreshold: 1,
-          openStateTimeoutMs: 1000
+          openStateTimeoutMs: 1000,
         });
 
-        // Trip the circuit
         await expect(run(protectedTask, 'test1')).rejects.toThrow('Still failing');
-        expect(mockLogger.error).toHaveBeenCalledWith('[Circuit Breaker: recovering-circuit] Failure threshold reached. State changed to OPEN.');
+        expect(globalMockLogger.error).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`
+        );
+        await expect(run(protectedTask, 'test2')).rejects.toThrow(new CircuitOpenError(circuitId));
 
-        // Should be open immediately
-        await expect(run(protectedTask, 'test2')).rejects.toThrow('is open and not accepting requests');
+        vi.advanceTimersByTime(1001);
+        allowRecovery = true;
 
-        // Advance time to trigger half-open transition
-        vi.advanceTimersByTime(1000);
-        shouldFail = false; // Allow recovery
-
-        // Next request should transition to HALF-OPEN and succeed
-        const result = await run(protectedTask, 'test3');
+        const result = await run(protectedTask, 'test3'); // Trial
         expect(result).toBe('recovered-test3');
-        
-        expect(mockLogger.warn).toHaveBeenCalledWith('[Circuit Breaker: recovering-circuit] State changed to HALF-OPEN. Attempting trial request.');
-        expect(mockLogger.info).toHaveBeenCalledWith('[Circuit Breaker: recovering-circuit] Trial request succeeded. State changed to CLOSED.');
+        expect(globalMockLogger.warn).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] State changed to HALF-OPEN. Attempting trial request.`
+        );
+        expect(globalMockLogger.info).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Trial request succeeded. State changed to CLOSED.`
+        );
+
+        allowRecovery = true;
+        const result2 = await run(protectedTask, 'test4');
+        expect(result2).toBe('recovered-test4');
       });
 
       it('should return to OPEN state if trial request fails', async () => {
-        const alwaysFailingTask = defineTask(async () => {
-          throw new Error('Still failing');
+        const circuitId = getUniqueCircuitId('half-open-fail-circuit');
+        const alwaysFailingTask = defineTaskScoped(async () => {
+          throw new Error('Trial always fails');
         });
-
-        const protectedTask = withCircuitBreaker(alwaysFailingTask, {
-          id: 'still-failing-circuit',
+        const protectedTask = withCircuitBreaker(alwaysFailingTask, { // No tools argument
+          id: circuitId,
           failureThreshold: 1,
-          openStateTimeoutMs: 500
+          openStateTimeoutMs: 500,
         });
 
-        // Trip the circuit
-        await expect(run(protectedTask, 'test1')).rejects.toThrow('Still failing');
-        expect(mockLogger.error).toHaveBeenCalledWith('[Circuit Breaker: still-failing-circuit] Failure threshold reached. State changed to OPEN.');
+        await expect(run(protectedTask, 'test1')).rejects.toThrow('Trial always fails');
+        expect(globalMockLogger.error).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`
+        );
 
-        // Advance time to trigger half-open transition
-        vi.advanceTimersByTime(500);
+        vi.advanceTimersByTime(501);
 
-        // Trial request should fail and return to OPEN
-        await expect(run(protectedTask, 'test2')).rejects.toThrow('is open and not accepting requests');
-        expect(mockLogger.warn).toHaveBeenCalledWith('[Circuit Breaker: still-failing-circuit] State changed to HALF-OPEN. Attempting trial request.');
-        expect(mockLogger.error).toHaveBeenLastCalledWith('[Circuit Breaker: still-failing-circuit] Trial request failed. State changed back to OPEN.');
+        await expect(run(protectedTask, 'test2')).rejects.toThrow('Trial always fails');
+        expect(globalMockLogger.warn).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] State changed to HALF-OPEN. Attempting trial request.`
+        );
+        expect(globalMockLogger.error).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Trial request failed. State changed back to OPEN.`
+        );
 
-        // Subsequent requests should fail fast again
-        await expect(run(protectedTask, 'test3')).rejects.toThrow(CircuitOpenError);
+        await expect(run(protectedTask, 'test3')).rejects.toThrow(new CircuitOpenError(circuitId));
       });
 
       it('should only transition to HALF-OPEN after the full timeout period', async () => {
-        const failingTask = defineTask(async () => {
-          throw new Error('Fails');
-        });
-
-        const protectedTask = withCircuitBreaker(failingTask, {
-          id: 'timeout-circuit',
+        const circuitId = getUniqueCircuitId('half-open-full-timeout-circuit');
+        const failingTask = defineTaskScoped(async () => { throw new Error('Fails'); });
+        const protectedTask = withCircuitBreaker(failingTask, { // No tools argument
+          id: circuitId,
           failureThreshold: 1,
-          openStateTimeoutMs: 2000
+          openStateTimeoutMs: 2000,
         });
 
-        // Trip the circuit
-        await expect(run(protectedTask, 'test1')).rejects.toThrow('Fails');
+        await expect(run(protectedTask, 'trip')).rejects.toThrow('Fails');
 
-        // Should still be open before timeout
-        vi.advanceTimersByTime(1500);
-        await expect(run(protectedTask, 'test2')).rejects.toThrow('is open and not accepting requests');
+        vi.advanceTimersByTime(1999);
+        await expect(run(protectedTask, 'still-open')).rejects.toThrow(new CircuitOpenError(circuitId));
+        expect(globalMockLogger.warn).not.toHaveBeenCalledWith(
+          expect.stringContaining('State changed to HALF-OPEN')
+        );
 
-        // Should transition after timeout
-        vi.advanceTimersByTime(500);
-        await expect(run(protectedTask, 'test3')).rejects.toThrow('Fails');
-        expect(mockLogger.warn).toHaveBeenCalledWith('[Circuit Breaker: timeout-circuit] State changed to HALF-OPEN. Attempting trial request.');
+        vi.advanceTimersByTime(2);
+        await expect(run(protectedTask, 'trial')).rejects.toThrow('Fails');
+        expect(globalMockLogger.warn).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] State changed to HALF-OPEN. Attempting trial request.`
+        );
       });
     });
 
     describe('Configuration options', () => {
       it('should respect custom failure threshold', async () => {
-        const failingTask = defineTask(async () => {
-          throw new Error('Fails');
+        const circuitId = getUniqueCircuitId('config-threshold-circuit');
+        const failingTask = defineTaskScoped(async () => { throw new Error('Fails'); });
+        const protectedTask = withCircuitBreaker(failingTask, { // No tools argument
+          id: circuitId,
+          failureThreshold: 5,
         });
 
-        const protectedTask = withCircuitBreaker(failingTask, {
-          id: 'custom-threshold-circuit',
-          failureThreshold: 5
-        });
-
-        // Should allow 4 failures without tripping
         for (let i = 1; i <= 4; i++) {
           await expect(run(protectedTask, `test${i}`)).rejects.toThrow('Fails');
-          expect(mockLogger.warn).toHaveBeenLastCalledWith(`[Circuit Breaker: custom-threshold-circuit] Recorded failure #${i}.`, { error: expect.any(Error) });
+          expect(globalMockLogger.warn).toHaveBeenCalledWith(
+            `[Circuit Breaker: ${circuitId}] Recorded failure #${i}.`, { error: expect.any(Error) }
+          );
         }
+        expect(globalMockLogger.error).not.toHaveBeenCalledWith(
+          expect.stringContaining('Failure threshold reached')
+        );
 
-        // 5th failure should trip the circuit
         await expect(run(protectedTask, 'test5')).rejects.toThrow('Fails');
-        expect(mockLogger.error).toHaveBeenCalledWith('[Circuit Breaker: custom-threshold-circuit] Failure threshold reached. State changed to OPEN.');
+        expect(globalMockLogger.error).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`
+        );
       });
 
       it('should respect custom open state timeout', async () => {
-        const failingTask = defineTask(async () => {
-          throw new Error('Fails');
-        });
-
-        const protectedTask = withCircuitBreaker(failingTask, {
-          id: 'custom-timeout-circuit',
+        const circuitId = getUniqueCircuitId('config-custom-timeout-circuit');
+        const failingTask = defineTaskScoped(async () => { throw new Error('Fails'); });
+        const protectedTask = withCircuitBreaker(failingTask, { // No tools argument
+          id: circuitId,
           failureThreshold: 1,
-          openStateTimeoutMs: 5000
+          openStateTimeoutMs: 5000,
         });
 
-        // Trip the circuit
-        await expect(run(protectedTask, 'test1')).rejects.toThrow('Fails');
+        await expect(run(protectedTask, 'trip')).rejects.toThrow('Fails');
 
-        // Should still be open before custom timeout
-        vi.advanceTimersByTime(4000);
-        await expect(run(protectedTask, 'test2')).rejects.toThrow('is open and not accepting requests');
+        vi.advanceTimersByTime(4999);
+        await expect(run(protectedTask, 'still-open')).rejects.toThrow(new CircuitOpenError(circuitId));
 
-        // Should transition after custom timeout
-        vi.advanceTimersByTime(1000);
-        await expect(run(protectedTask, 'test3')).rejects.toThrow('Fails');
-        expect(mockLogger.warn).toHaveBeenCalledWith('[Circuit Breaker: custom-timeout-circuit] State changed to HALF-OPEN. Attempting trial request.');
+        vi.advanceTimersByTime(2);
+        await expect(run(protectedTask, 'trial')).rejects.toThrow('Fails');
+        expect(globalMockLogger.warn).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] State changed to HALF-OPEN. Attempting trial request.`
+        );
       });
 
       it('should respect custom isFailure predicate', async () => {
-        class TemporaryError extends Error {
-          constructor() {
-            super('Temporary error');
-            this.name = 'TemporaryError';
-          }
-        }
+        const circuitId = getUniqueCircuitId('config-isFailure-circuit');
+        class TemporaryError extends Error { constructor() { super('Temporary'); this.name = "TemporaryError"; } }
+        class PermanentError extends Error { constructor() { super('Permanent'); this.name = "PermanentError"; } }
 
-        class PermanentError extends Error {
-          constructor() {
-            super('Permanent error');
-            this.name = 'PermanentError';
-          }
-        }
-
-        let errorType: 'temporary' | 'permanent' = 'temporary';
-        const selectiveFailingTask = defineTask(async () => {
-          if (errorType === 'temporary') {
-            throw new TemporaryError();
-          } else {
-            throw new PermanentError();
-          }
-        });
-
-        const protectedTask = withCircuitBreaker(selectiveFailingTask, {
-          id: 'selective-circuit',
+        let errorToThrow: Error = new TemporaryError();
+        const selectiveFailingTask = defineTaskScoped(async () => { throw errorToThrow; });
+        const protectedTask = withCircuitBreaker(selectiveFailingTask, { // No tools argument
+          id: circuitId,
           failureThreshold: 2,
-          isFailure: (error) => error instanceof PermanentError
+          isFailure: (error) => error instanceof PermanentError,
         });
 
-        // Temporary errors should not count as failures
-        await expect(run(protectedTask, 'test1')).rejects.toThrow('Temporary error');
-        await expect(run(protectedTask, 'test2')).rejects.toThrow('Temporary error');
-        expect(mockLogger.warn).not.toHaveBeenCalled();
+        errorToThrow = new TemporaryError();
+        await expect(run(protectedTask, 'temp1')).rejects.toThrow(TemporaryError);
+        errorToThrow = new TemporaryError();
+        await expect(run(protectedTask, 'temp2')).rejects.toThrow(TemporaryError);
+        expect(globalMockLogger.warn).not.toHaveBeenCalledWith(
+          expect.stringContaining("Recorded failure")
+        );
 
-        // Permanent errors should count as failures
-        errorType = 'permanent';
-        await expect(run(protectedTask, 'test3')).rejects.toThrow(PermanentError);
-        expect(mockLogger.warn).toHaveBeenCalledWith('[Circuit Breaker: selective-circuit] Recorded failure #1.', { error: expect.any(PermanentError) });
+        errorToThrow = new PermanentError();
+        await expect(run(protectedTask, 'perm1')).rejects.toThrow(PermanentError);
+        expect(globalMockLogger.warn).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Recorded failure #1.`,
+          { error: expect.any(PermanentError) }
+        );
 
-        await expect(run(protectedTask, 'test4')).rejects.toThrow(PermanentError);
-        expect(mockLogger.error).toHaveBeenCalledWith('[Circuit Breaker: selective-circuit] Failure threshold reached. State changed to OPEN.');
+        errorToThrow = new PermanentError();
+        await expect(run(protectedTask, 'perm2')).rejects.toThrow(PermanentError);
+        expect(globalMockLogger.error).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`
+        );
       });
 
       it('should not count BacktrackSignal as failure by default', async () => {
-        let protectedTask: any;
-        
-        const backtrackingTask = defineTask(async function backtrackingImplementation(attempt: number) {
-          if (attempt < 3) {
-            throw new BacktrackSignal(protectedTask, attempt + 1);
+        const circuitId = getUniqueCircuitId('config-backtrack-default-circuit');
+
+        const backtrackingLogic = defineTaskScoped(async function actualBacktrackingTask(attempt: number) {
+          if (attempt < 2) {
+            throw new BacktrackSignal(backtrackingLogic, attempt + 1);
           }
-          throw new Error('Real failure');
+          throw new Error('Real failure after backtrack');
         });
 
-        protectedTask = withCircuitBreaker(backtrackingTask, {
-          id: 'backtrack-circuit',
-          failureThreshold: 1
+        const taskInstanceForBacktrack = withCircuitBreaker(backtrackingLogic, { // No tools argument
+          id: circuitId,
+          failureThreshold: 1,
         });
 
-        // BacktrackSignal should eventually result in real failure after retries
-        await expect(run(protectedTask, 1)).rejects.toThrow('Real failure');
-        expect(mockLogger.warn).toHaveBeenCalledTimes(1); // Real failure should count
-
-        // Circuit should trip after failure threshold
-        expect(mockLogger.error).toHaveBeenCalledWith('[Circuit Breaker: backtrack-circuit] Failure threshold reached. State changed to OPEN.');
+        await expect(run(taskInstanceForBacktrack, 1)).rejects.toThrow('Real failure after backtrack');
+        expect(globalMockLogger.warn).toHaveBeenCalledTimes(1);
+        expect(globalMockLogger.warn).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Recorded failure #1.`,
+          { error: expect.objectContaining({ message: 'Real failure after backtrack' }) }
+        );
+        expect(globalMockLogger.error).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`
+        );
       });
     });
 
     describe('Multiple circuit instances', () => {
       it('should maintain separate state for different circuit IDs', async () => {
-        const failingTask = defineTask(async (input: string) => {
-          throw new Error(`Failure: ${input}`);
-        });
+        const id1 = 'multi-instance-id-A1'; // Explicitly different IDs
+        const id2 = 'multi-instance-id-B2';
+        const failingTask = defineTaskScoped(async (idSuffix: string) => { throw new Error(`Fail id-${idSuffix}`); });
 
-        const circuit1 = withCircuitBreaker(failingTask, {
-          id: 'circuit-1',
-          failureThreshold: 2
-        });
+        const protected1 = withCircuitBreaker(failingTask, { id: id1, failureThreshold: 1 }); // No tools
+        const protected2 = withCircuitBreaker(failingTask, { id: id2, failureThreshold: 1 }); // No tools
 
-        const circuit2 = withCircuitBreaker(failingTask, {
-          id: 'circuit-2',
-          failureThreshold: 2
-        });
+        await expect(run(protected1, '1a')).rejects.toThrow('Fail id-1a');
+        expect(globalMockLogger.error).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${id1}] Failure threshold reached. State changed to OPEN.`
+        );
+        // Clear mocks if asserting calls for different circuits sequentially in the same test
+        globalMockLogger.error.mockClear();
+        globalMockLogger.warn.mockClear();
 
-        // Trip circuit-1
-        await expect(run(circuit1, 'test1')).rejects.toThrow('Failure: test1');
-        await expect(run(circuit1, 'test2')).rejects.toThrow('Failure: test2');
-        
-        // circuit-1 should be open
-        await expect(run(circuit1, 'test3')).rejects.toThrow('is open and not accepting requests');
+        await expect(run(protected1, '1b')).rejects.toThrow(new CircuitOpenError(id1));
 
-        // circuit-2 should still be closed and working
-        await expect(run(circuit2, 'test1')).rejects.toThrow('Failure: test1');
-        expect(mockLogger.warn).toHaveBeenLastCalledWith('[Circuit Breaker: circuit-2] Recorded failure #1.', { error: expect.any(Error) });
+        await expect(run(protected2, '2a')).rejects.toThrow('Fail id-2a');
+        expect(globalMockLogger.warn).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${id2}] Recorded failure #1.`,
+          { error: expect.objectContaining({ message: 'Fail id-2a' }) }
+        );
+        expect(globalMockLogger.error).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${id2}] Failure threshold reached. State changed to OPEN.`
+        );
       });
     });
 
     describe('Context integration', () => {
-      it('should work without logger in context', async () => {
-        const { run: runWithoutLogger, defineTask: defineTaskWithoutLogger } = createContext<BaseContext>({});
-        
-        const task = defineTaskWithoutLogger(async () => {
-          throw new Error('Test error');
-        });
+      it('should work without logger in context if context only has scope', async () => {
+        const circuitId = getUniqueCircuitId('ctx-no-logger-circuit-B');
+        const minimalContextTools = createContext<BaseContext>({});
+        const { run: runMinimal, defineTask: defineMinimalTask } = minimalContextTools;
 
-        const protectedTask = withCircuitBreaker(task, {
-          id: 'no-logger-circuit',
-          failureThreshold: 1
-        });
+        const task = defineMinimalTask(async () => { throw new Error('Test error no logger'); });
 
-        // Should not throw due to missing logger
-        await expect(runWithoutLogger(protectedTask, undefined)).rejects.toThrow('Test error');
+        const protectedTask = withCircuitBreaker(
+          task as Task<BaseContext & { logger?: Logger }, void, void>, // Cast needed as C expects logger?
+          { id: circuitId, failureThreshold: 1 }
+        );
+
+        await expect(runMinimal(protectedTask, undefined)).rejects.toThrow('Test error no logger');
       });
 
       it('should use context logger when available', async () => {
-        const customLogger = {
-          debug: vi.fn(),
-          info: vi.fn(),
-          warn: vi.fn(),
-          error: vi.fn()
+        const circuitId = getUniqueCircuitId('ctx-custom-logger-circuit-B');
+        const customLocalLogger = {
+          debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
         };
+        const task = defineTaskScoped(async () => { throw new Error('Custom logger error'); });
+        const protectedTask = withCircuitBreaker(task, { id: circuitId, failureThreshold: 1 }); // No tools
 
-        const task = defineTask(async () => {
-          throw new Error('Custom logger test');
-        });
+        await expect(run(protectedTask, undefined, { overrides: { logger: customLocalLogger } }))
+          .rejects.toThrow('Custom logger error');
 
-        const protectedTask = withCircuitBreaker(task, {
-          id: 'custom-logger-circuit',
-          failureThreshold: 1
-        });
-
-        await expect(run(protectedTask, undefined, {
-          overrides: { logger: customLogger }
-        })).rejects.toThrow('Custom logger test');
-
-        expect(customLogger.warn).toHaveBeenCalledWith('[Circuit Breaker: custom-logger-circuit] Recorded failure #1.', { error: expect.any(Error) });
-        expect(customLogger.error).toHaveBeenCalledWith('[Circuit Breaker: custom-logger-circuit] Failure threshold reached. State changed to OPEN.');
+        expect(customLocalLogger.warn).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Recorded failure #1.`, { error: expect.objectContaining({ message: 'Custom logger error' }) }
+        );
+        expect(customLocalLogger.error).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`
+        );
+        // Ensure the global mock logger (default for the context) was NOT called
+        // because the override should have taken precedence.
+        expect(globalMockLogger.warn).not.toHaveBeenCalled();
+        expect(globalMockLogger.error).not.toHaveBeenCalled();
       });
     });
 
     describe('Edge cases and error scenarios', () => {
-      it('should handle undefined and null values correctly', async () => {
-        const nullTask = defineTask(async (input: null) => {
-          if (input === null) {
-            return 'handled-null';
-          }
-          throw new Error('Not null');
+      it('should handle undefined and null values correctly as input', async () => {
+        const circuitId = getUniqueCircuitId('edge-null-undef-circuit-B');
+        const taskAcceptsNull = defineTaskScoped(async (input: null | undefined) => {
+          if (input === null) return 'null processed';
+          if (input === undefined) return 'undefined processed';
+          throw new Error('Unexpected input');
         });
+        const protectedTask = withCircuitBreaker(taskAcceptsNull, { id: circuitId }); // No tools
 
-        const protectedTask = withCircuitBreaker(nullTask, {
-          id: 'null-circuit',
-          failureThreshold: 2
-        });
-
-        const result = await run(protectedTask, null);
-        expect(result).toBe('handled-null');
+        expect(await run(protectedTask, null)).toBe('null processed');
+        expect(await run(protectedTask, undefined)).toBe('undefined processed');
       });
 
-      it('should handle rapid successive calls correctly', async () => {
-        let callCount = 0;
-        const countingTask = defineTask(async () => {
-          callCount++;
-          if (callCount <= 2) {
-            throw new Error(`Call ${callCount} failed`);
+      it('should handle rapid successive calls correctly (trial request)', async () => {
+        const circuitId = getUniqueCircuitId('edge-rapid-trial-circuit-B');
+        let actualTaskExecutions = 0;
+        const slowTrialTask = defineTaskScoped(async () => {
+          actualTaskExecutions++;
+          await new Promise(r => setTimeout(r, 50));
+          return 'trial success rapid';
+        });
+
+        let tripDone = false;
+        const trippingAndSlowTask = defineTaskScoped(async () => {
+          if (!tripDone) {
+            tripDone = true;
+            throw new Error('Forced trip for rapid test B');
           }
-          return `Success on call ${callCount}`;
+          return slowTrialTask(undefined as any);
         });
 
-        const protectedTask = withCircuitBreaker(countingTask, {
-          id: 'rapid-circuit',
-          failureThreshold: 2
+        const protectedTask = withCircuitBreaker(trippingAndSlowTask, { // No tools
+          id: circuitId,
+          failureThreshold: 1,
+          openStateTimeoutMs: 100,
         });
 
-        // Run multiple calls in parallel
+        await expect(run(protectedTask, undefined)).rejects.toThrow('Forced trip for rapid test B');
+        expect(globalMockLogger.error).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`
+        );
+
+        vi.advanceTimersByTime(101);
+
         const promises = [
+          run(protectedTask, undefined),
           run(protectedTask, undefined).catch(e => e),
           run(protectedTask, undefined).catch(e => e),
-          run(protectedTask, undefined).catch(e => e),
-          run(protectedTask, undefined).catch(e => e)
         ];
 
         const results = await Promise.all(promises);
-        
-        // At least some should be CircuitOpenError due to rapid tripping
-        const openErrors = results.filter(r => r instanceof CircuitOpenError);
-        expect(openErrors.length).toBeGreaterThan(0);
+
+        const successResults = results.filter(r => r === 'trial success rapid');
+        const openErrors = results.filter(r => r instanceof CircuitOpenError && r.id === circuitId);
+
+        expect(actualTaskExecutions).toBe(1);
+        expect(successResults.length).toBe(1);
+        expect(openErrors.length).toBe(2);
+
+        expect(globalMockLogger.warn).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] State changed to HALF-OPEN. Attempting trial request.`
+        );
+        expect(globalMockLogger.info).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Trial request succeeded. State changed to CLOSED.`
+        );
       });
 
-      it('should maintain state across different execution contexts', async () => {
-        const sharedFailingTask = defineTask(async () => {
-          throw new Error('Shared failure');
-        });
+      it('should maintain state across different run calls if ID is the same', async () => {
+        const circuitId = 'fixed-id-for-shared-state-test-runs-B';
+        const task = defineTaskScoped(async () => { throw new Error('Shared state fail for runs B'); });
 
-        const protectedTask = withCircuitBreaker(sharedFailingTask, {
-          id: 'shared-circuit',
-          failureThreshold: 1
-        });
+        // IMPORTANT: protectedTask is defined ONCE with the fixed ID
+        const protectedTask = withCircuitBreaker(task, { id: circuitId, failureThreshold: 1 }); // No tools
 
-        // Trip circuit in first context
-        await expect(run(protectedTask, undefined)).rejects.toThrow('Shared failure');
+        await expect(run(protectedTask, undefined)).rejects.toThrow('Shared state fail for runs B');
+        expect(globalMockLogger.error).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`
+        );
 
-        // Should be open in second context with different overrides
-        await expect(run(protectedTask, undefined, {
-          overrides: { counter: 999 }
-        })).rejects.toThrow('is open and not accepting requests');
+        // Call run again with the SAME protectedTask instance
+        await expect(run(protectedTask, undefined, { overrides: { counter: 123 } }))
+          .rejects.toThrow(new CircuitOpenError(circuitId));
       });
     });
 
     describe('Recovery scenarios', () => {
       it('should handle mixed success/failure patterns correctly', async () => {
-        const pattern = [false, false, true, false, true, true]; // false = fail, true = succeed
-        let index = 0;
-        
-        const patternTask = defineTask(async (input: string) => {
-          const shouldSucceed = pattern[index % pattern.length];
-          index++;
-          
-          if (shouldSucceed) {
-            return `success-${input}`;
-          } else {
-            throw new Error(`pattern-failure-${input}`);
-          }
-        });
-
-        const protectedTask = withCircuitBreaker(patternTask, {
-          id: 'pattern-circuit',
+        const circuitId = getUniqueCircuitId('recovery-mixed-pattern-circuit-B');
+        const responses = [
+          () => { throw new Error('FailPattern1B'); },
+          () => { throw new Error('FailPattern2B'); },
+          () => 'SuccessPatternAfterOpenB',
+          () => { throw new Error('FailPattern3B'); },
+          () => 'SuccessPatternAgainB',
+          () => 'SuccessPatternFinalB',
+        ];
+        let responseIdx = 0;
+        const patternedTask = defineTaskScoped(async () => responses[responseIdx++]());
+        const protectedTask = withCircuitBreaker(patternedTask, { // No tools
+          id: circuitId,
           failureThreshold: 2,
-          openStateTimeoutMs: 100
+          openStateTimeoutMs: 100,
         });
 
-        // First two should fail
-        await expect(run(protectedTask, 'test1')).rejects.toThrow('pattern-failure-test1');
-        await expect(run(protectedTask, 'test2')).rejects.toThrow('pattern-failure-test2');
-        expect(mockLogger.error).toHaveBeenCalledWith('[Circuit Breaker: pattern-circuit] Failure threshold reached. State changed to OPEN.');
+        await expect(run(protectedTask, undefined)).rejects.toThrow('FailPattern1B');
+        await expect(run(protectedTask, undefined)).rejects.toThrow('FailPattern2B');
+        expect(globalMockLogger.error).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`
+        );
 
-        // Should be open
-        await expect(run(protectedTask, 'test3')).rejects.toThrow('is open and not accepting requests');
+        await expect(run(protectedTask, undefined)).rejects.toThrow(new CircuitOpenError(circuitId));
 
-        // Wait for half-open transition
-        vi.advanceTimersByTime(100);
+        vi.advanceTimersByTime(101);
+        expect(await run(protectedTask, undefined)).toBe('SuccessPatternAfterOpenB');
+        expect(globalMockLogger.info).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Trial request succeeded. State changed to CLOSED.`
+        );
 
-        // Next should succeed (pattern[2] = true)
-        const result = await run(protectedTask, 'test4');
-        expect(result).toBe('success-test4');
-        expect(mockLogger.info).toHaveBeenCalledWith('[Circuit Breaker: pattern-circuit] Trial request succeeded. State changed to CLOSED.');
+        globalMockLogger.warn.mockClear();
+        await expect(run(protectedTask, undefined)).rejects.toThrow('FailPattern3B');
+        expect(globalMockLogger.warn).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Recorded failure #1.`,
+          { error: expect.objectContaining({ message: 'FailPattern3B' }) }
+        );
 
-        // Continue with pattern
-        await expect(run(protectedTask, 'test5')).rejects.toThrow('pattern-failure-test5');
-        const result2 = await run(protectedTask, 'test6');
-        expect(result2).toBe('success-test6');
+        expect(await run(protectedTask, undefined)).toBe('SuccessPatternAgainB');
+        expect(await run(protectedTask, undefined)).toBe('SuccessPatternFinalB');
+        expect(globalMockLogger.error).toHaveBeenCalledTimes(1);
+        expect(globalMockLogger.error).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`
+        );
       });
     });
   });

@@ -5,7 +5,7 @@
  * workflows with built-in support for flow control, data transformation,
  * error handling, and resource management.
  *
- * The primary method of composition is the `pipe` function, which allows for
+ * The primary method of composition is the `createWorkflow` function, which allows for
  * creating clean, readable, and type-safe chains of operations.
  */
 
@@ -380,7 +380,8 @@ export function createWorkflow(...steps: any[]): Task<any, any, any> {
 
     // 3. If it's a function with arity 2, assume it's a "raw" context-aware function:
     // (context, value) => R | Promise<R>. Lift to (context, value) => Promise<R>.
-    if (stepOrFn.length === 2) {
+    const fnStr = String(stepOrFn?.toString?.())
+    if (stepOrFn.length === 2 && (fnStr.includes('context') || fnStr.includes('ctx') || fnStr.includes('scope'))) {
       const rawTaskWrapper = async (context: BaseContext, value: any): Promise<any> => {
         const result = stepOrFn(context, value);
         return Promise.resolve(result); // Handles both sync and async results
@@ -541,26 +542,65 @@ export function map<C extends BaseContext, V, R>(
 }
 
 /**
- * **Pipeable Operator:** Transforms the value in a workflow into a new `Task`.
- * Also known as `chain` or `bind`.
- * @param f A function that takes a value and returns a new `Task`.
+ * **Pipeable Operator:** Transforms the value in a workflow into a new `Task` by applying function `f`.
+ * The function `f` receives the current value and context, and must return a new `Task`.
+ * This new `Task` is then executed with the same context and the current value.
+ * Also known as `bind` or `chain` in monadic terms.
+ *
+ * @template C The context type.
+ * @template V The input value type for this step of the workflow.
+ * @template RNext The result type of the `Task` returned by `f`.
+ * @param f A function that takes the current value (`V`) and context (`C`), and returns a new `Task<C, V, RNext>`.
+ * @returns A `Task<C, V, RNext>` that represents the execution of the task returned by `f`.
+ *
  * @example
  * ```typescript
- * const workflow = createWorkflow(
- *   fetchUser,
- *   flatMap(user => fetchPostsForUser(user.id))
+ * const fetchUserAndThenPosts = createWorkflow(
+ *   fetchUser, // Task<C, string, User>
+ *   flatMap((user: User, context: C) => fetchPostsForUser(context, user.id)) // user.id is string, fetchPostsForUser returns Task<C, string, Post[]>
  * );
- * const posts = await run(workflow, 'user-123');
+ * // The type of fetchPostsForUser would effectively be Task<C, string, Post[]>
+ * // flatMap needs Task<C, User, Post[]> if the task from f uses 'user' as input.
+ * // If f uses user.id as input for fetchPostsForUser, the V for fetchPostsForUser is string.
+ * // The V for the *returned task from f* should match the input type it expects.
+ *
+ * // Corrected example logic:
+ * const fetchPostsTaskForUser = (user: User): Task<AppContext, User, Post[]> =>
+ *   defineTask(async (context: AppContext, u: User) => { // u here is 'user'
+ *     return api.fetchPosts(u.id);
+ *   });
+ *
+ * const workflow = createWorkflow(
+ *   fetchUserById, // Task<AppContext, string, User>
+ *   flatMap((user: User, ctx: AppContext) => fetchPostsTaskForUser(user)) // fetchPostsTaskForUser(user) is Task<AppContext, User, Post[]>
+ * );
+ * // The resulting workflow takes string (userId) and returns Post[]
  * ```
  */
-export function flatMap<C extends BaseContext, V, R>(
-  f: (value: V, context: C) => Task<C, V, R>
-): Task<C, V, R> {
-  return async (context: C, value: V): Promise<R> => {
-    const nextTask = f(value, context);
-    return nextTask(context, value);
+export function flatMap<C extends BaseContext, V, RNext>(
+  // f's returned Task takes VInNext as input, which could be different from V.
+  // However, the common flatMap pattern implies the returned Task uses V (or part of V) as its input.
+  // For maximum flexibility, VInNext could be a separate generic, but let's stick to common usage.
+  // If f returns Task<C, VAlt, RNext>, then the flatMap must correctly provide VAlt.
+  // The current signature Task<C,V,RNext> means the task from f *also* takes V as input.
+  f: (value: V, context: C) => Task<C, V, RNext>
+): Task<C, V, RNext> {
+  const flatMapTask: Task<C, V, RNext> = async (context: C, value: V): Promise<RNext> => {
+    const nextTask: Task<C, V, RNext> = f(value, context);
+    if (typeof nextTask !== 'function' || !nextTask.name === undefined) { // Basic check
+      throw new Error('flatMap function f must return a valid Task.');
+    }
+    return nextTask(context, value); // Execute the returned task
   };
+
+  // Enhancer property propagation
+  Object.defineProperty(flatMapTask, 'name', { value: `flatMap(${f.name || 'anonymousFn'})`, configurable: true });
+  // flatMap creates a new logical step; it typically wouldn't propagate __task_id or __steps from 'f'
+  // as it's not the same task but a new one derived from it.
+
+  return flatMapTask;
 }
+
 
 // --- Direct Composition Helpers (standalone) ---
 
@@ -585,24 +625,56 @@ export function mapTask<C extends BaseContext, V, A, B>(
 }
 
 /**
- * **Direct Composition:** Transforms the successful output of a task into a new task.
- * @param task The initial task to execute.
- * @param f A function that takes the successful result of the first task and returns a new `Task`.
+ * **Direct Composition:** Executes a task, then uses its result to produce and execute a second task.
+ * The function `f` receives the result of the first `task` and must return a new `Task`.
+ * This new `Task` is then executed. The context is passed through.
+ *
+ * @template C The context type.
+ * @template In The input type of the initial `task`.
+ * @template A The result type of the initial `task` (and input type to `f`).
+ * @template RNext The result type of the `Task` returned by `f`.
+ * @param task The initial `Task<C, In, A>` to execute.
+ * @param f A function that takes the result `A` of the first task and returns a new `Task<C, A, RNext>`.
+ *          The returned task will be called with the context and `A` as its input.
+ * @returns A new `Task<C, In, RNext>` representing the sequential composition.
+ *
  * @example
  * ```typescript
- * const fetchUserAndPosts = andThenTask(fetchUser, user => fetchPostsForUser(user.id));
- * const posts = await run(fetchUserAndPosts, 'user-123');
+ * const fetchUserById: Task<Ctx, string, User> = defineTask(async (ctx, id) => api.getUser(id));
+ * const fetchPostsForUserTask = (user: User): Task<Ctx, User, Post[]> =>
+ *   defineTask(async (ctx, u) => api.getPosts(u.id));
+ *
+ * const fetchUserAndTheirPosts = andThenTask(
+ *   fetchUserById,
+ *   (user: User) => fetchPostsForUserTask(user) // This returns Task<Ctx, User, Post[]>
+ * );
+ * // `fetchUserAndTheirPosts` is Task<Ctx, string, Post[]>
+ * // When run: fetchUserById('123') -> User -> fetchPostsForUserTask(User)(User) -> Post[]
  * ```
  */
-export function andThenTask<C extends BaseContext, In, A, B>(
+export function andThenTask<C extends BaseContext, In, A, RNext>(
   task: Task<C, In, A>,
-  f: (value: A) => Task<C, A, B>
-): Task<C, In, B> {
-  return async (context: C, inputValue: In): Promise<B> => {
-    const intermediateResult = await task(context, inputValue);
-    const nextTask = f(intermediateResult);
+  f: (value: A) => Task<C, A, RNext> // f produces a task that takes A as input
+): Task<C, In, RNext> {
+  const andThenCompositionTask: Task<C, In, RNext> = async (context: C, inputValue: In): Promise<RNext> => {
+    const intermediateResult: A = await task(context, inputValue);
+    const nextTask: Task<C, A, RNext> = f(intermediateResult);
+    if (typeof nextTask !== 'function' || nextTask.name === undefined) { // Basic check
+      throw new Error('andThenTask function f must return a valid Task.');
+    }
+    // The `nextTask` expects `A` as its value input, which is `intermediateResult`.
     return nextTask(context, intermediateResult);
   };
+
+  Object.defineProperty(andThenCompositionTask, 'name', {
+    value: `andThen(${task.name || 'anonymousTask'}, ${f.name || 'anonymousFn'})`,
+    configurable: true
+  });
+  // This creates a new composite task. Propagating __task_id from the first task
+  // might be misleading if backtracking targets the composite.
+  // If `task` was a workflow, its `__steps` are internal to it.
+
+  return andThenCompositionTask;
 }
 
 /**
@@ -801,57 +873,183 @@ export function attempt<C extends BaseContext, V, R, E extends Error>(
   };
 }
 
-export interface RetryOptions {
+export interface RetryOptions<E = Error> { // Added E generic for error type
+  /**
+   * Maximum number of attempts (including the initial call).
+   * @default 3
+   */
   attempts?: number;
+  /**
+   * Initial delay in milliseconds before the first retry.
+   * @default 100
+   */
   delayMs?: number;
+  /**
+   * Backoff strategy for delays between retries.
+   * - 'fixed': Uses `delayMs` for all retries.
+   * - 'exponential': Doubles the delay for each subsequent retry (`delayMs * 2^i`).
+   * @default 'exponential'
+   */
   backoff?: 'fixed' | 'exponential';
-  shouldRetry?: (error: unknown) => boolean;
+  /**
+   * A function to determine if a specific error should trigger a retry.
+   * By default, retries on any error that is not a `BacktrackSignal`.
+   * @param error The error thrown by the task.
+   * @returns `true` if the task should be retried for this error, `false` otherwise.
+   */
+  shouldRetry?: (error: E | unknown) => boolean; // E | unknown for flexibility
+  /**
+   * An optional jitter function to apply to the delay.
+   * 'none': No jitter.
+   * 'full': Adds a random amount between 0 and the calculated delay.
+   * (value: number) => number: A custom function that takes the calculated delay and returns the jittered delay.
+   * @default 'none'
+   */
+  jitter?: 'none' | 'full' | ((delay: number) => number);
 }
 
 /**
  * Wraps a task with automatic, cancellable retry logic.
- * @param task The task to make resilient.
+ * If the wrapped task fails, it will be retried according to the specified options.
+ * The delay between retries can be fixed or exponential and can include jitter.
+ * Retries are aborted if the context's scope signal is aborted.
+ *
+ * @template C The context type, which must include `scope` and can optionally include `logger`.
+ * @template V The input value type of the task.
+ * @template R The result type of the task.
+ * @template E The expected primary error type for the `shouldRetry` predicate.
+ * @param task The `Task` to make resilient.
  * @param options Configuration for the retry behavior.
+ * @returns A new `Task` that incorporates retry logic.
+ *
  * @example
  * ```typescript
- * const resilientFetch = withRetry(unstableApiCall, { attempts: 5 });
- * await run(resilientFetch);
+ * const resilientFetch = withRetry(fetchData, {
+ *   attempts: 5,
+ *   delayMs: 200,
+ *   backoff: 'exponential',
+ *   jitter: 'full',
+ *   shouldRetry: (error) => error instanceof NetworkError || error.status === 503,
+ * });
+ * await run(resilientFetch, requestData);
  * ```
  */
-export function withRetry<C extends BaseContext & { logger?: Logger }, V, R>(
+export function withRetry<
+  C extends BaseContext & { logger?: Logger },
+  V,
+  R,
+  E extends Error = Error // Default E to Error
+>(
   task: Task<C, V, R>,
-  options: RetryOptions = {}
+  options: RetryOptions<E> = {}
 ): Task<C, V, R> {
-  const { attempts = 3, delayMs = 100, backoff = 'exponential', shouldRetry = () => true } = options;
+  const {
+    attempts = 3,
+    delayMs = 100,
+    backoff = 'exponential',
+    // Default shouldRetry to check for non-BacktrackSignal errors.
+    shouldRetry = (error): error is E => !isBacktrackSignal(error),
+    jitter = 'none',
+  } = options;
 
-  // Return a function that matches the Task signature
-  const retryTask = async (context: C, value: V): Promise<R> => {
+  if (attempts <= 0) {
+    throw new Error('Retry attempts must be positive.');
+  }
+
+  const applyJitter = (currentDelay: number): number => {
+    if (jitter === 'none') {
+      return currentDelay;
+    }
+    if (jitter === 'full') {
+      return currentDelay + Math.random() * currentDelay;
+    }
+    return jitter(currentDelay);
+  };
+
+  const retryTaskLogic = async (context: C, value: V): Promise<R> => {
     const logger = context.logger || noopLogger;
-    let lastError: unknown;
-    for (let i = 0; i < attempts; i++) {
+    let lastError: E | unknown = new Error('Task was not attempted.'); // Initialize with a generic error
+
+    for (let attemptCount = 0; attemptCount < attempts; attemptCount++) {
       try {
-        if (context.scope.signal.aborted) throw (context.scope.signal.reason ?? new DOMException('Aborted', 'AbortError'));
+        // Check for cancellation before each attempt
+        if (context.scope.signal.aborted) {
+          // If already aborted before first attempt, or between retries
+          throw (context.scope.signal.reason ?? new DOMException('Aborted before attempt', 'AbortError'));
+        }
         return await task(context, value);
       } catch (error) {
-        lastError = error;
-        if (isBacktrackSignal(error) || !shouldRetry(error)) throw error;
-        if (i < attempts - 1) {
-          const currentDelay = backoff === 'exponential' ? delayMs * 2 ** i : delayMs;
-          logger.warn(`Task '${task.name || 'anonymous'}' failed. Retrying in ${currentDelay}ms... (Attempt ${i + 1}/${attempts})`, { error });
-          // Simple delay without context dependency
-          await new Promise(resolve => setTimeout(resolve, currentDelay));
+        lastError = error; // Store the caught error
+
+        // If it's a BacktrackSignal, or shouldRetry returns false, or it's the last attempt, re-throw.
+        if (isBacktrackSignal(error) || !shouldRetry(error as E | unknown) || attemptCount === attempts - 1) {
+          throw error;
+        }
+
+        // Calculate delay for the next retry
+        let currentDelay = delayMs;
+        if (backoff === 'exponential' && attemptCount > 0) { // No delay before first retry if delayMs is for "after first failure"
+          currentDelay = delayMs * (2 ** attemptCount);
+        }
+        currentDelay = applyJitter(currentDelay);
+
+
+        logger.warn(
+          `Task '${task.name || 'anonymous'}' failed (attempt ${attemptCount + 1}/${attempts}). Retrying in ${Math.round(currentDelay)}ms...`,
+          { originalError: error } // Log the specific error that caused the retry
+        );
+
+        try {
+          // Wait for the delay, respecting cancellation
+          await sleep(currentDelay)(context, null);
+        } catch (sleepError) {
+          // If sleep itself was aborted (e.g., context.scope.signal)
+          if (sleepError instanceof DOMException && sleepError.name === 'AbortError') {
+            logger.warn(
+              `[withRetry - ${task.name || 'anonymous'}] Retry delay aborted (attempt ${attemptCount + 1}/${attempts}). Re-throwing original task error.`,
+              { originalError: error, abortReason: sleepError }
+            );
+            // When delay is aborted, standard behavior is to not proceed with more retries
+            // and let the last known error from the task propagate.
+            throw lastError; // Or throw sleepError if aborting the retry process itself is preferred.
+          }
+          // Should not happen with current sleep, but good practice
+          throw sleepError;
         }
       }
     }
+    // This line should theoretically be unreachable if attempts > 0,
+    // as the loop will either return a result or throw an error (either lastError or from within).
+    // But to satisfy TypeScript and as a safeguard:
     throw lastError;
   };
 
-  // Copy the task ID if it exists for backtracking support
+  // Create the task function with potential properties
+  const enhancedTask: Task<C, V, R> = retryTaskLogic;
+
+  Object.defineProperty(enhancedTask, 'name', {
+    value: `withRetry(${task.name || 'anonymous'}, attempts=${attempts})`,
+    configurable: true,
+  });
+
   if (task.__task_id) {
-    retryTask.__task_id = task.__task_id;
+    Object.defineProperty(enhancedTask, '__task_id', {
+      value: task.__task_id, // Or a new Symbol for distinctness if enhancers create new backtrackable steps
+      configurable: true,
+      enumerable: false,
+      writable: false,
+    });
+  }
+  if (task.__steps) {
+    Object.defineProperty(enhancedTask, '__steps', {
+      value: task.__steps,
+      configurable: true,
+      enumerable: false,
+      writable: false,
+    });
   }
 
-  return retryTask as Task<C, V, R>;
+  return enhancedTask;
 }
 
 // =================================================================
@@ -878,28 +1076,110 @@ export function withName<C extends BaseContext, V, R>(task: Task<C, V, R>, name:
 
 /**
  * Creates a memoized version of a `Task` that caches its result based on
- * the input value (compared by deep equality).
+ * the input value. The input value is used as a key in an internal Map.
+ * For object inputs, a deep equality check is performed to find matching keys.
+ * The cache is specific to each instance of the memoized task created by this function.
+ *
+ * @template C The context type.
+ * @template V The input value type for the task. Must be usable as a Map key or comparable with `deepEqual`.
+ * @template R The resolved output value type of the task.
  * @param task The `Task` to memoize.
+ * @param options Optional configuration for memoization.
+ * @param options.cacheKeyFn An optional function to generate a custom cache key from the input value.
+ *                         Useful for complex objects or when `deepEqual` is not suitable/performant.
+ * @returns A new `Task` that caches results of the original task.
+ *
  * @example
  * ```typescript
- * const memoizedFetch = memoize(fetchConfig);
- * await run(memoizedFetch, 'config-a'); // Fetches from network
- * await run(memoizedFetch, 'config-a'); // Returns from cache
+ * const memoizedFetchConfig = memoize(fetchConfig);
+ * await run(memoizedFetchConfig, 'config-a'); // Fetches from network
+ * await run(memoizedFetchConfig, 'config-a'); // Returns from cache
+ *
+ * const memoizedComplexOp = memoize(complexObjectOperation, {
+ *   cacheKeyFn: (obj) => obj.id // Use only 'id' property for caching
+ * });
  * ```
  */
-export function memoize<C extends BaseContext, V, R>(task: Task<C, V, R>): Task<C, V, R> {
-  const cache = new Map<V, Promise<R>>();
-  const findInCache = (key: V) => {
-    for (const [k, v] of cache.entries()) if (deepEqual(k, key)) return v;
+export function memoize<C extends BaseContext, V, R>(
+  task: Task<C, V, R>,
+  options?: {
+    cacheKeyFn?: (value: V) => string | number | symbol | boolean;
+  }
+): Task<C, V, R> {
+  // Each call to memoize gets its own private cache.
+  const cache = new Map<any, Promise<R>>(); // Key can be primitive or complex if no cacheKeyFn
+
+  const getCacheKey = options?.cacheKeyFn
+    ? options.cacheKeyFn
+    : (value: V): V | string => {
+      // For primitive types, use the value itself as the key.
+      // For objects, if no custom key function, we'll rely on finding via deepEqual or stringify.
+      // Stringifying can be lossy or inconsistent for complex objects, so deepEqual is preferred for lookup.
+      // However, Map itself uses SameValueZero for keys, so distinct objects won't match.
+      // So, if it's an object and no cacheKeyFn, we'll use the object itself and iterate for deepEqual.
+      if (typeof value === 'object' && value !== null) {
+        return value; // Store the object, lookup will use deepEqual iteration.
+      }
+      return value; // Primitives can be direct keys.
+    };
+
+  const findInCache = (value: V, generatedKey: any): Promise<R> | undefined => {
+    if (options?.cacheKeyFn || (typeof value !== 'object' || value === null)) {
+      return cache.get(generatedKey);
+    }
+    // If it's an object and no cacheKeyFn, iterate and deepEqual
+    for (const [k, v] of cache.entries()) {
+      if (deepEqual(k, value)) { // `value` here is the original object input
+        return v;
+      }
+    }
     return undefined;
   };
-  return async (context: C, value: V): Promise<R> => {
-    const cachedPromise = findInCache(value);
-    if (cachedPromise) return cachedPromise;
-    const newPromise = task(context, value);
-    cache.set(value, newPromise);
+
+  const memoizedTask: Task<C, V, R> = async (context: C, value: V): Promise<R> => {
+    const cacheKey = getCacheKey(value);
+    const cachedPromise = findInCache(value, cacheKey);
+
+    if (cachedPromise) {
+      // If a promise is found, return it. This handles concurrent calls for the same input correctly,
+      // as they will all await the same initial promise.
+      return cachedPromise;
+    }
+
+    // Execute the task, store the promise in cache, then return it.
+    // Store the promise itself, not the result, to handle inflight requests.
+    const newPromise = task(context, value).catch(err => {
+      // If the task fails, remove the promise from cache to allow retries.
+      // This behavior is debatable: some might want to cache failures too.
+      // For simplicity, we remove on failure.
+      if (options?.cacheKeyFn || (typeof value !== 'object' || value === null)) {
+        cache.delete(cacheKey);
+      } else {
+        // Iterate to find and delete the object key if no custom key fn
+        for (const k of cache.keys()) {
+          if (deepEqual(k, value)) {
+            cache.delete(k);
+            break;
+          }
+        }
+      }
+      throw err; // Re-throw the error
+    });
+
+    cache.set(cacheKey, newPromise); // Store the actual object if no cacheKeyFn for deepEqual lookup
     return newPromise;
   };
+
+  // Propagate name and task ID for consistency and debugging
+  Object.defineProperty(memoizedTask, 'name', { value: `memoized(${task.name || 'anonymous'})`, configurable: true });
+  if (task.__task_id) {
+    memoizedTask.__task_id = task.__task_id; // Or a new Symbol(`memoized_${task.__task_id.description}`)
+  }
+  if (task.__steps) { // If the original task was a workflow
+    memoizedTask.__steps = task.__steps;
+  }
+
+  return memoizedTask;
 }
 
 /**
@@ -923,37 +1203,139 @@ export function once<C extends BaseContext, V, R>(task: Task<C, V, R>): Task<C, 
 }
 
 /**
- * Wraps a task with a timeout. Throws a `TimeoutError` if the task exceeds the duration.
- * @param task The task to apply the timeout to.
- * @param durationMs The timeout duration in milliseconds.
+ * Custom error thrown when a task wrapped by `withTimeout` exceeds its allocated execution time.
+ */
+export class TimeoutError extends Error {
+  public readonly _tag = 'TimeoutError' as const; // For easier type guarding if needed
+  constructor(taskName: string, durationMs: number) {
+    super(`Task '${taskName}' timed out after ${durationMs}ms.`);
+    this.name = 'TimeoutError';
+    // Ensure the prototype chain is correct for custom errors
+    Object.setPrototypeOf(this, TimeoutError.prototype);
+  }
+}
+
+/**
+ * Wraps a task with a timeout. If the task does not complete within the specified
+ * duration, it will be rejected with a `TimeoutError`.
+ * The timeout mechanism respects the task's context `AbortSignal`: if the signal
+ * is aborted, the timeout timer is cleared.
+ *
+ * @template C The context type, which must include `scope`.
+ * @template V The input value type of the task.
+ * @template R The result type of the task.
+ * @param task The `Task` to apply the timeout to.
+ * @param durationMs The timeout duration in milliseconds. Must be non-negative.
+ * @returns A new `Task` that will either resolve with the original task's result
+ *          or reject with a `TimeoutError` or an error from the original task
+ *          (including an AbortError if the context is cancelled).
+ *
  * @example
  * ```typescript
- * const fastTask = withTimeout(slowApiCall, 1000);
- * await run(fastTask); // Fails if slowApiCall takes > 1s
+ * const verySlowTask = defineTask(async () => {
+ *   await new Promise(resolve => setTimeout(resolve, 5000)); // 5s delay
+ *   return 'done';
+ * });
+ *
+ * const quickTask = withTimeout(verySlowTask, 1000); // 1s timeout
+ *
+ * try {
+ *   await run(quickTask, null);
+ * } catch (error) {
+ *   if (error instanceof TimeoutError) {
+ *     console.error('Operation timed out!'); // This will be caught
+ *   } else {
+ *     console.error('Other error:', error);
+ *   }
+ * }
  * ```
  */
 export function withTimeout<C extends BaseContext, V, R>(
   task: Task<C, V, R>,
   durationMs: number
 ): Task<C, V, R> {
-  class TimeoutError extends Error {
-    constructor() { super(`Task '${task.name || 'anonymous'}' timed out after ${durationMs}ms.`); this.name = 'TimeoutError'; }
+  if (durationMs < 0) {
+    throw new Error('Timeout durationMs must be non-negative.');
   }
 
-  const timeoutTask = async (context: C, value: V): Promise<R> => {
+  // Define TimeoutError class outside the returned task function if preferred,
+  // but keeping it here for closure over task.name and durationMs is fine.
+  // For this version, we'll use the exported TimeoutError class.
+  const taskNameForError = task.name || 'anonymous';
+
+  const timeoutEnhancedTask: Task<C, V, R> = (context: C, value: V): Promise<R> => {
+    let timerId: ReturnType<typeof setTimeout> | undefined = undefined;
+
     const timeoutPromise = new Promise<never>((_, reject) => {
-      const timerId = setTimeout(() => reject(new TimeoutError()), durationMs);
-      context.scope.signal.addEventListener('abort', () => clearTimeout(timerId), { once: true });
+      timerId = setTimeout(() => {
+        // Important: Clear the listener for 'abort' when the timeout fires
+        // to prevent potential memory leaks if the context outlives this operation.
+        if (timerId !== undefined) { // Check because it might have been cleared by abort
+          context.scope.signal.removeEventListener('abort', abortListener);
+        }
+        reject(new TimeoutError(taskNameForError, durationMs));
+      }, durationMs);
     });
-    return Promise.race([task(context, value), timeoutPromise]);
+
+    const abortListener = () => {
+      if (timerId !== undefined) {
+        clearTimeout(timerId);
+        timerId = undefined; // Indicate timer is cleared
+        // No need to reject timeoutPromise here; if the main task respects abort,
+        // Promise.race will settle with the main task's abort-related rejection.
+        // If the main task doesn't respect abort, it might still complete,
+        // but this timeout mechanism itself is cleaned up.
+      }
+    };
+
+    // Listen for abortion to clear the timeout
+    // Use { once: true } as we only need to clear it once.
+    context.scope.signal.addEventListener('abort', abortListener, { once: true });
+
+    return Promise.race([
+      task(context, value), // The original task execution
+      timeoutPromise,
+    ]).finally(() => {
+      // Cleanup: Regardless of outcome (resolve, reject from task, or reject from timeoutPromise),
+      // ensure the timer is cleared if it hasn't fired yet, and remove the abort listener.
+      // This is crucial if the main `task` resolves/rejects *before* the timeout.
+      if (timerId !== undefined) {
+        clearTimeout(timerId);
+      }
+      // The abortListener is {once: true}, so it auto-removes if fired.
+      // If it wasn't fired, remove it manually.
+      // Note: Checking signal.aborted here might be too late if the event already fired.
+      // Relying on {once: true} is generally sufficient. For robustness, if not using {once:true},
+      // you would always call removeEventListener.
+      context.scope.signal.removeEventListener('abort', abortListener);
+    });
   };
 
-  // Copy the task ID if it exists for backtracking support
+  // Set a descriptive name for the enhanced task
+  Object.defineProperty(timeoutEnhancedTask, 'name', {
+    value: `withTimeout(${task.name || 'anonymous'}, ${durationMs}ms)`,
+    configurable: true,
+  });
+
+  // Copy internal properties like __task_id and __steps for consistency
   if (task.__task_id) {
-    timeoutTask.__task_id = task.__task_id;
+    Object.defineProperty(timeoutEnhancedTask, '__task_id', {
+      value: task.__task_id, // Or a new Symbol if enhancers should be distinct steps
+      configurable: true,
+      enumerable: false,
+      writable: false,
+    });
+  }
+  if (task.__steps) {
+    Object.defineProperty(timeoutEnhancedTask, '__steps', {
+      value: task.__steps,
+      configurable: true,
+      enumerable: false,
+      writable: false,
+    });
   }
 
-  return timeoutTask as Task<C, V, R>;
+  return timeoutEnhancedTask;
 }
 
 export interface StateTools<S> {
@@ -1000,20 +1382,30 @@ export function withState<C extends BaseContext, V, R, S>(
 // Section 6: Advanced Scheduling, Batching, and Polling
 // =================================================================
 
-export interface ThrottleOptions {
-  limit: number;
-  intervalMs: number;
-}
+  export interface ThrottleOptions {
+    /** Maximum number of calls allowed within the interval. */
+    limit: number;
+    /** The time interval in milliseconds. */
+    intervalMs: number;
+  }
 
 /**
  * Creates a throttled version of a task that respects a rate limit.
- * Calls exceeding the limit are queued and executed respecting cancellation.
+ * Calls exceeding the limit are queued. Queued calls respect cancellation.
+ * The throttling is based on a token bucket-like approach where tokens are refilled periodically.
+ *
+ * @template C The context type, which must include `scope`.
+ * @template V The input value type of the task.
+ * @template R The result type of the task.
  * @param task The `Task` to throttle.
  * @param options The throttling configuration.
+ * @returns A new `Task` that enforces the specified rate limit.
+ *
  * @example
  * ```typescript
- * const throttledCall = withThrottle(apiCall, { limit: 5, intervalMs: 1000 });
+ * const throttledApiCall = withThrottle(apiCall, { limit: 5, intervalMs: 1000 });
  * // This task can now be called rapidly, but will only execute 5 times per second.
+ * // Excess calls are queued and processed as capacity becomes available.
  * ```
  */
 export function withThrottle<C extends BaseContext, V, R>(
@@ -1021,34 +1413,91 @@ export function withThrottle<C extends BaseContext, V, R>(
   options: ThrottleOptions
 ): Task<C, V, R> {
   const { limit, intervalMs } = options;
-  const callQueue: { value: V; resolve: (v: R) => void; reject: (r: any) => void; context: C }[] = [];
+  if (limit <= 0 || intervalMs <= 0) {
+    throw new Error('Throttle limit and intervalMs must be positive.');
+  }
+
+  // Queue for pending calls: { value, resolve, reject, context }
+  const callQueue: Array<{
+    value: V;
+    resolve: (result: R) => void;
+    reject: (error: any) => void;
+    context: C;
+  }> = [];
+
   let currentTokens = limit;
-  let isProcessing = false;
-  const refillInterval = setInterval(() => { currentTokens = Math.min(limit, currentTokens + 1); processQueue(); }, intervalMs / limit);
-  if (typeof refillInterval.unref === 'function') refillInterval.unref();
+  let isProcessingQueue = false; // Mutex to prevent concurrent processing of the queue
+
+  // Calculate refill rate: how often to add one token.
+  // Ensure refillIntervalTime is at least 1ms to prevent setInterval(0).
+  const refillIntervalTime = Math.max(1, intervalMs / limit);
+  const refillInterval: ReturnType<typeof setInterval> = setInterval(() => {
+    if (currentTokens < limit) {
+      currentTokens++;
+    }
+    processQueue(); // Attempt to process queue whenever a token is refilled
+  }, refillIntervalTime);
+
+  // For Node.js, allow the process to exit if this is the only active timer.
+  if (typeof refillInterval.unref === 'function') {
+    refillInterval.unref();
+  }
 
   const processQueue = async () => {
-    if (isProcessing || callQueue.length === 0) return;
-    isProcessing = true;
-    while (callQueue.length > 0 && currentTokens >= 1) {
-      if (callQueue[0].context.scope.signal.aborted) {
-        const { reject, context } = callQueue.shift()!;
-        reject(context.scope.signal.reason ?? new DOMException('Aborted', 'AbortError'));
-        continue;
+    if (isProcessingQueue) return;
+    isProcessingQueue = true;
+
+    // Process as many items as there are tokens and queued items
+    while (callQueue.length > 0 && currentTokens > 0) {
+      const nextCall = callQueue[0]; // Peek, don't shift yet
+
+      if (nextCall.context.scope.signal.aborted) {
+        callQueue.shift(); // Remove aborted call
+        nextCall.reject(nextCall.context.scope.signal.reason ?? new DOMException('Aborted', 'AbortError'));
+        continue; // Check next in queue
       }
-      currentTokens--;
-      const { resolve, reject, value, context } = callQueue.shift()!;
-      task(context, value).then(resolve).catch(reject);
+
+      currentTokens--; // Consume a token
+      callQueue.shift(); // Now remove it from queue
+
+      // Execute the task. Do not await here to allow multiple tasks to run concurrently up to the token limit.
+      // The promise resolves/rejects the original Promise returned to the caller of withThrottle.
+      task(nextCall.context, nextCall.value)
+        .then(nextCall.resolve)
+        .catch(nextCall.reject)
+        .finally(() => {
+          // Although tokens are refilled by setInterval,
+          // if tasks complete very quickly, one could argue for immediate token return.
+          // However, typical throttle aims to limit start rate, so setInterval refill is standard.
+        });
     }
-    isProcessing = false;
+    isProcessingQueue = false;
   };
 
-  return async (context: C, value: V): Promise<R> => {
+  const throttledTask: Task<C, V, R> = (context: C, value: V): Promise<R> => {
     return new Promise<R>((resolve, reject) => {
+      if (context.scope.signal.aborted) {
+        reject(context.scope.signal.reason ?? new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+
       callQueue.push({ value, resolve, reject, context });
-      processQueue();
+      processQueue(); // Attempt to process immediately if tokens are available
     });
   };
+
+  Object.defineProperty(throttledTask, 'name', { value: `throttled(${task.name || 'anonymous'})`, configurable: true });
+  if (task.__task_id) {
+    throttledTask.__task_id = task.__task_id;
+  }
+  if (task.__steps) {
+    throttledTask.__steps = task.__steps;
+  }
+
+  // Note: Consider adding a cleanup function for `clearInterval(refillInterval)`
+  // if the throttledTask itself can be "disposed of". For typical usage, it runs for app lifetime.
+
+  return throttledTask;
 }
 
 export interface PollOptions<R> {
@@ -1114,7 +1563,7 @@ export function createBatchingTask<C extends BaseContext, K, R>(
   options: BatchingOptions = {}
 ): Task<C, K, R> {
   let pending: { key: K; resolve: (v: R) => void; reject: (r: any) => void; signal: AbortSignal }[] = [];
-  let timer: NodeJS.Timeout | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
   const { windowMs = 10 } = options;
   const dispatch = () => {
     if (timer) clearTimeout(timer);
@@ -1144,61 +1593,188 @@ export function createBatchingTask<C extends BaseContext, K, R>(
 }
 
 
+export interface DebounceOptions {
+  /**
+   * If true, the AbortSignal from the latest call's context will be linked
+   * to the debounced execution. If the latest call's context is aborted
+   * before the debounced function executes, the execution can be cancelled.
+   * Note: This means only the *latest* call's signal is respected for cancellation
+   * of the pending execution.
+   * @default true
+   */
+  linkToLatestSignal?: boolean;
+}
+
 /**
  * Creates a debounced version of a task. The task will only be executed
- * after a specified period of inactivity. All calls made during the debounce
- * window will receive the same promise, which resolves with the result of
+ * after a specified period of inactivity (`durationMs`) following the last call.
+ * All calls made during the debounce window (i.e., before the task executes)
+ * will receive the same promise, which resolves or rejects with the result of
  * the single eventual execution.
  *
+ * This implements a "trailing edge" debounce.
+ *
+ * @template C The context type, which must include `scope`.
+ * @template V The input value type of the task.
+ * @template R The result type of the task.
  * @param task The `Task` to debounce.
- * @param durationMs The debounce duration in milliseconds.
+ * @param durationMs The debounce duration in milliseconds. Must be non-negative.
+ * @param options Optional configuration for the debounce behavior.
  * @returns A new, debounced `Task`.
  *
  * @example
  * ```typescript
  * const debouncedSearch = withDebounce(searchApi, 300);
- * // Can be called rapidly, but the API call only happens 300ms after the last call.
- * run(debouncedSearch, 'query');
+ * // Can be called rapidly; API call only happens 300ms after the last invocation.
+ * run(debouncedSearch, 'query1');
+ * run(debouncedSearch, 'query2'); // 'query1' call is superseded, 'query2' will be used.
  * ```
  */
 export function withDebounce<C extends BaseContext, V, R>(
   task: Task<C, V, R>,
-  durationMs: number
+  durationMs: number,
+  options?: DebounceOptions
 ): Task<C, V, R> {
-  let timer: NodeJS.Timeout | null = null;
-  let pendingPromise: Promise<R> | null = null;
-  let lastCall: { value: V; context: C; resolve: (v: R) => void; reject: (r: any) => void; } | null = null;
+  if (durationMs < 0) {
+    throw new Error('Debounce durationMs must be non-negative.');
+  }
 
-  return async (context: C, value: V): Promise<R> => {
-    // If a promise is already pending, return it.
-    if (pendingPromise) {
-      return pendingPromise;
+  const { linkToLatestSignal = true } = options || {};
+
+  let timerId: ReturnType<typeof setTimeout> | null = null;
+  // Stores the promise for the currently pending debounced execution.
+  let pendingExecutionPromise: Promise<R> | null = null;
+  // Stores the arguments and promise resolvers of the *latest* call that initiated/reset the timer.
+  let latestCallPayload: {
+    value: V;
+    context: C;
+    resolve: (value: R) => void;
+    reject: (reason?: any) => void;
+    abortController?: AbortController; // Controller for linking external signal
+  } | null = null;
+
+  const debouncedTaskLogic: Task<C, V, R> = async (context: C, value: V): Promise<R> => {
+    // If there's an active timer, clear it because a new call has arrived.
+    if (timerId !== null) {
+      clearTimeout(timerId);
+      timerId = null;
+      // If the previous timer had an abort listener, remove it.
+      if (latestCallPayload?.abortController) {
+        latestCallPayload.context.scope.signal.removeEventListener('abort', latestCallPayload.abortController.abort);
+      }
     }
 
-    // Clear any existing timer.
-    if (timer) {
-      clearTimeout(timer);
+    // If no promise is pending for an execution cycle, create one.
+    // This promise will be shared by all calls within this debounce window.
+    if (!pendingExecutionPromise) {
+      pendingExecutionPromise = new Promise<R>((resolve, reject) => {
+        // Store the details from the current (latest) call to be used when the timer fires.
+        // This will effectively become the (resolve, reject) for pendingExecutionPromise.
+        latestCallPayload = { value, context, resolve, reject };
+      });
+    } else {
+      // A pendingExecutionPromise exists. We update latestCallPayload to reflect this newest call's
+      // details (value, context) but keep the original promise's resolve/reject.
+      // This means the original promise will resolve with the result of an execution
+      // using the *latest* value and context.
+      // NOTE: This is a common debounce behavior. If `resolve` and `reject` from previous
+      // callers that shared `pendingExecutionPromise` should be ignored, the logic becomes more complex.
+      // Typically, all callers to a debounced function get the same eventual result.
+      // Here, we update the payload that the timer will use.
+      if (latestCallPayload) { // Should always be true if pendingExecutionPromise is not null
+        latestCallPayload.value = value;
+        latestCallPayload.context = context;
+        // The resolve/reject functions remain from the call that initiated pendingExecutionPromise
+      }
     }
 
-    // Create a new promise for this invocation cycle.
-    pendingPromise = new Promise((resolve, reject) => {
-      // Store the details of the latest call.
-      lastCall = { value, context, resolve, reject };
+    // Prepare for potential cancellation linked to the latest call's context
+    let currentCallAbortController: AbortController | undefined;
+    const onLatestCallAbort = () => {
+      // If this specific call (which set up the current timer) is aborted,
+      // we should clear the timer and reject its associated promise.
+      if (timerId !== null && latestCallPayload && latestCallPayload.context === context) {
+        clearTimeout(timerId);
+        timerId = null;
+        // Resetting `pendingExecutionPromise` means subsequent calls start a new debounce cycle.
+        // The `reject` here is for the `pendingExecutionPromise` that all current waiters are on.
+        latestCallPayload.reject(context.scope.signal.reason ?? new DOMException('Debounced execution aborted by latest caller', 'AbortError'));
+        pendingExecutionPromise = null;
+        latestCallPayload = null;
+      }
+    };
 
-      timer = setTimeout(() => {
-        if (lastCall) {
-          const { value, context, resolve, reject } = lastCall;
-          // Reset state before execution.
-          pendingPromise = null;
-          timer = null;
-          lastCall = null;
+    if (linkToLatestSignal) {
+      // We only care about the latest signal. If a previous call set up an abort listener,
+      // it's already been cleared when its timer was cleared.
+      if (latestCallPayload) { // latestCallPayload should be set if pendingExecutionPromise is true
+        latestCallPayload.abortController = new AbortController(); // Dummy controller for linking
+        context.scope.signal.addEventListener('abort', onLatestCallAbort, { once: true });
+      }
+    }
 
-          // Execute the task and resolve/reject the promise.
-          task(context, value).then(resolve).catch(reject);
+
+    timerId = setTimeout(() => {
+      // Timer fired. Use the details from the latestCallPayload.
+      if (latestCallPayload) {
+        const { value: execValue, context: execContext, resolve: execResolve, reject: execReject, abortController } = latestCallPayload;
+
+        // Clean up: remove signal listener, reset timerId
+        if (linkToLatestSignal && abortController) {
+          execContext.scope.signal.removeEventListener('abort', onLatestCallAbort);
         }
-      }, durationMs);
-    });
+        timerId = null;
+        // Keep pendingExecutionPromise and latestCallPayload until task resolves/rejects
+        // so that new calls arriving *while the task is executing* still get this promise.
 
-    return pendingPromise;
+        // Before executing, check if the context associated with this execution was aborted *while timer was running*.
+        // This check is covered by onLatestCallAbort if linkToLatestSignal is true.
+        // If linkToLatestSignal is false, the original task should check its own signal.
+        if (linkToLatestSignal && execContext.scope.signal.aborted) {
+          execReject(execContext.scope.signal.reason ?? new DOMException('Debounced execution aborted before start', 'AbortError'));
+          pendingExecutionPromise = null; // Allow new debounce cycle
+          latestCallPayload = null;
+          return;
+        }
+
+        task(execContext, execValue)
+          .then(execResolve)
+          .catch(execReject)
+          .finally(() => {
+            // After the task completes (success or fail), clear pendingExecutionPromise
+            // so the next call to withDebounce will start a new debounce cycle.
+            pendingExecutionPromise = null;
+            latestCallPayload = null;
+          });
+      }
+    }, durationMs);
+
+    // All calls in the current debounce window return the same pendingExecutionPromise.
+    return pendingExecutionPromise;
   };
+
+  const debouncedTask: Task<C, V, R> = debouncedTaskLogic;
+
+  Object.defineProperty(debouncedTask, 'name', {
+    value: `withDebounce(${task.name || 'anonymous'}, ${durationMs}ms)`,
+    configurable: true,
+  });
+  if (task.__task_id) {
+    Object.defineProperty(debouncedTask, '__task_id', {
+      value: task.__task_id, // Or a new Symbol
+      configurable: true,
+      enumerable: false,
+      writable: false,
+    });
+  }
+  if (task.__steps) {
+    Object.defineProperty(debouncedTask, '__steps', {
+      value: task.__steps,
+      configurable: true,
+      enumerable: false,
+      writable: false,
+    });
+  }
+
+  return debouncedTask;
 }
