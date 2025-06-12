@@ -1,5 +1,5 @@
-import { createContext } from './src/run.js';
-import { mapReduce } from './src/data-processing.js';
+import { createContext } from '../src/run.js';
+import { mapReduce } from '../src/data-processing.js';
 
 const { run, defineTask, getContext } = createContext({
   multiplier: 2

@@ -1,5 +1,5 @@
-import { createContext, defineTask } from './src/run.js';
-import { createWorkflow, fromValue } from './src/utils.js';
+import { createContext, defineTask } from '../src/run.js';
+import { createWorkflow, fromValue } from '../src/utils.js';
 
 const { run } = createContext({ userId: 'test-user' });
 

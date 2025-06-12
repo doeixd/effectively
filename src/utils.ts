@@ -147,6 +147,81 @@ export function flow(...fns: Function[]): Function {
   };
 }
 
+// Helper to check if a function is a generator function
+function isGeneratorFunction(fn: any): fn is (...args: any[]) => Generator {
+  return Object.prototype.toString.call(fn) === '[object GeneratorFunction]';
+}
+
+// Helper to run a lifted generator function and adapt it to the Task signature
+function runLiftedGenerator<V, R>(genFn: (value: V) => Generator<any, R, any>) {
+  return async (context: BaseContext, value: V): Promise<R> => {
+    const gen = genFn(value); // Get the iterator by calling the generator function
+
+    return new Promise<R>((resolve, reject) => {
+      function iterateGenerator(nextValueToPass?: any): void {
+        try {
+          const result = gen.next(nextValueToPass); // { value: yieldedValue, done: boolean }
+
+          if (result.done) {
+            resolve(result.value as R); // Generator returned
+            return;
+          }
+
+          // If it yielded a promise, wait for it. Otherwise, pass the yielded value to the next iteration.
+          Promise.resolve(result.value)
+            .then(resolvedYieldedValue => iterateGenerator(resolvedYieldedValue))
+            .catch(errFromYieldedPromise => {
+              try {
+                // Propagate error into the generator
+                const resultFromThrow = gen.throw(errFromYieldedPromise); // Allow generator to catch it
+                // Process resultFromThrow just like result from gen.next()
+                if (resultFromThrow.done) {
+                  resolve(resultFromThrow.value as R);
+                  return;
+                }
+                Promise.resolve(resultFromThrow.value)
+                  .then(res => iterateGenerator(res))
+                  .catch(innerErr => reject(innerErr)); // Error from promise yielded after catch
+              } catch (errorThrownByGenerator) {
+                // This catches errors if gen.throw() itself throws (i.e., generator didn't catch it or re-threw)
+                reject(errorThrownByGenerator);
+              }
+            });
+        } catch (errorDuringNext) {
+          // This catches errors if gen.next() itself throws (e.g. error in generator before first yield)
+          reject(errorDuringNext);
+        }
+      }
+      iterateGenerator(); // Start the generator execution
+    });
+  };
+}
+
+/**
+ * A function that can be lifted into a Task, taking only the input value.
+ * It can be synchronous, asynchronous, or a generator function.
+ */
+export type ValueTransformFn<V, R> =
+  | ((value: V) => R) // Sync
+  | ((value: V) => Promise<R>) // Async
+  | ((value: V) => Generator<any, R, any>); // Generator
+
+/**
+ * A function that can be lifted into a Task, taking both context and input value.
+ * It can be synchronous or asynchronous.
+ */
+export type ContextAwareFn<C extends BaseContext, V, R> =
+  | ((context: C, value: V) => R) // Sync, context-aware
+  | ((context: C, value: V) => Promise<R>); // Async, context-aware
+
+/**
+ * Represents any function or Task that can be a step in a `createWorkflow` pipeline.
+ * It will be automatically lifted into a conformant Task if it's not one already.
+ */
+export type WorkflowStep<C extends BaseContext, V, R> =
+  | Task<C, V, R>
+  | ValueTransformFn<V, R>
+  | ContextAwareFn<C, V, R>;
 
 /**
  * Chains multiple tasks together into a single, sequential workflow.
@@ -169,57 +244,198 @@ export function flow(...fns: Function[]): Function {
  * const greeting = await run(workflow); // "Hello, John Doe!"
  * ```
  */
-export function createWorkflow<C extends BaseContext, V, R1>(a: Task<C, V, R1>): Task<C, V, R1>;
-export function createWorkflow<C extends BaseContext, V, R1, R2>(a: Task<C, V, R1>, b: Task<C, R1, R2> | ((val: R1) => R2)): Task<C, V, R2>;
-export function createWorkflow<C extends BaseContext, V, R1, R2, R3>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3> | ((val: R2) => R3)): Task<C, V, R3>;
-export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>): Task<C, V, R4>;
-export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>): Task<C, V, R5>;
-export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>): Task<C, V, R6>;
-export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>): Task<C, V, R7>;
-export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>): Task<C, V, R8>;
-export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8, R9>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>): Task<C, V, R9>;
-export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>, j: Task<C, R9, R10>): Task<C, V, R10>;
-export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>, j: Task<C, R9, R10>, k: Task<C, R10, R11>): Task<C, V, R11>;
-export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12>(a: Task<C, V, R1>, b: Task<C, R1, R2>, c: Task<C, R2, R3>, d: Task<C, R3, R4>, e: Task<C, R4, R5>, f: Task<C, R5, R6>, g: Task<C, R6, R7>, h: Task<C, R7, R8>, i: Task<C, R8, R9>, j: Task<C, R9, R10>, k: Task<C, R10, R11>, l: Task<C, R11, R12>): Task<C, V, R12>;
+export function createWorkflow<C extends BaseContext, V, R1>(
+  s1: WorkflowStep<C, V, R1>
+): Task<C, V, R1>;
+export function createWorkflow<C extends BaseContext, V, R1, R2>(
+  s1: WorkflowStep<C, V, R1>,
+  s2: WorkflowStep<C, R1, R2>
+): Task<C, V, R2>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3>(
+  s1: WorkflowStep<C, V, R1>,
+  s2: WorkflowStep<C, R1, R2>,
+  s3: WorkflowStep<C, R2, R3>
+): Task<C, V, R3>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4>(
+  s1: WorkflowStep<C, V, R1>,
+  s2: WorkflowStep<C, R1, R2>,
+  s3: WorkflowStep<C, R2, R3>,
+  s4: WorkflowStep<C, R3, R4>
+): Task<C, V, R4>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5>(
+  s1: WorkflowStep<C, V, R1>,
+  s2: WorkflowStep<C, R1, R2>,
+  s3: WorkflowStep<C, R2, R3>,
+  s4: WorkflowStep<C, R3, R4>,
+  s5: WorkflowStep<C, R4, R5>
+): Task<C, V, R5>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6>(
+  s1: WorkflowStep<C, V, R1>,
+  s2: WorkflowStep<C, R1, R2>,
+  s3: WorkflowStep<C, R2, R3>,
+  s4: WorkflowStep<C, R3, R4>,
+  s5: WorkflowStep<C, R4, R5>,
+  s6: WorkflowStep<C, R5, R6>
+): Task<C, V, R6>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7>(
+  s1: WorkflowStep<C, V, R1>,
+  s2: WorkflowStep<C, R1, R2>,
+  s3: WorkflowStep<C, R2, R3>,
+  s4: WorkflowStep<C, R3, R4>,
+  s5: WorkflowStep<C, R4, R5>,
+  s6: WorkflowStep<C, R5, R6>,
+  s7: WorkflowStep<C, R6, R7>
+): Task<C, V, R7>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8>(
+  s1: WorkflowStep<C, V, R1>,
+  s2: WorkflowStep<C, R1, R2>,
+  s3: WorkflowStep<C, R2, R3>,
+  s4: WorkflowStep<C, R3, R4>,
+  s5: WorkflowStep<C, R4, R5>,
+  s6: WorkflowStep<C, R5, R6>,
+  s7: WorkflowStep<C, R6, R7>,
+  s8: WorkflowStep<C, R7, R8>
+): Task<C, V, R8>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8, R9>(
+  s1: WorkflowStep<C, V, R1>,
+  s2: WorkflowStep<C, R1, R2>,
+  s3: WorkflowStep<C, R2, R3>,
+  s4: WorkflowStep<C, R3, R4>,
+  s5: WorkflowStep<C, R4, R5>,
+  s6: WorkflowStep<C, R5, R6>,
+  s7: WorkflowStep<C, R6, R7>,
+  s8: WorkflowStep<C, R7, R8>,
+  s9: WorkflowStep<C, R8, R9>
+): Task<C, V, R9>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10>(
+  s1: WorkflowStep<C, V, R1>,
+  s2: WorkflowStep<C, R1, R2>,
+  s3: WorkflowStep<C, R2, R3>,
+  s4: WorkflowStep<C, R3, R4>,
+  s5: WorkflowStep<C, R4, R5>,
+  s6: WorkflowStep<C, R5, R6>,
+  s7: WorkflowStep<C, R6, R7>,
+  s8: WorkflowStep<C, R7, R8>,
+  s9: WorkflowStep<C, R8, R9>,
+  s10: WorkflowStep<C, R9, R10>
+): Task<C, V, R10>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11>(
+  s1: WorkflowStep<C, V, R1>,
+  s2: WorkflowStep<C, R1, R2>,
+  s3: WorkflowStep<C, R2, R3>,
+  s4: WorkflowStep<C, R3, R4>,
+  s5: WorkflowStep<C, R4, R5>,
+  s6: WorkflowStep<C, R5, R6>,
+  s7: WorkflowStep<C, R6, R7>,
+  s8: WorkflowStep<C, R7, R8>,
+  s9: WorkflowStep<C, R8, R9>,
+  s10: WorkflowStep<C, R9, R10>,
+  s11: WorkflowStep<C, R10, R11>
+): Task<C, V, R11>;
+export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12>(
+  s1: WorkflowStep<C, V, R1>,
+  s2: WorkflowStep<C, R1, R2>,
+  s3: WorkflowStep<C, R2, R3>,
+  s4: WorkflowStep<C, R3, R4>,
+  s5: WorkflowStep<C, R4, R5>,
+  s6: WorkflowStep<C, R5, R6>,
+  s7: WorkflowStep<C, R6, R7>,
+  s8: WorkflowStep<C, R7, R8>,
+  s9: WorkflowStep<C, R8, R9>,
+  s10: WorkflowStep<C, R9, R10>,
+  s11: WorkflowStep<C, R10, R11>,
+  s12: WorkflowStep<C, R11, R12>
+): Task<C, V, R12>;
+
+// Implementation
 export function createWorkflow(...steps: any[]): Task<any, any, any> {
   if (steps.length === 0) {
-    return async (context: any, v: any) => v; // Identity task
+    // Return an identity task if no steps are provided
+    const identityTask = async (context: any, v: any) => v;
+    Object.defineProperty(identityTask, 'name', { value: 'identityWorkflow', configurable: true });
+    Object.defineProperty(identityTask, '__task_id', { value: Symbol('identityWorkflow'), configurable: true, enumerable: false, writable: false });
+    return identityTask;
   }
 
-  const toTask = (step: any): Task<any, any, any> => {
-    if (typeof step !== 'function') {
-      throw new Error(`Invalid workflow step: expected function, got ${typeof step}`);
+  const toTask = (stepOrFn: any): Task<any, any, any> => {
+    if (typeof stepOrFn !== 'function') {
+      throw new Error(
+        `Invalid workflow step: expected a function, Task, or generator function, but got ${typeof stepOrFn}.`
+      );
     }
-    
-    // Already a task (has task ID or looks like a task function)
-    if (step.__task_id) return step;
-    
-    // Check if it looks like a task function: (context, value) => ...
-    // Tasks typically have length 2 and are often named with context/value params
-    if (step.length === 2) {
-      // Additional heuristic: check parameter names if available
-      const fnStr = step.toString();
-      if (fnStr.includes('context') || fnStr.includes('ctx') || fnStr.includes('scope')) {
-        return step;
-      }
+
+    // 1. If it's already a Task (marked with __task_id from defineTask), use it directly.
+    // Tasks are (context, value) => Promise<R>
+    if (stepOrFn.__task_id) {
+      return stepOrFn as Task<any, any, any>;
     }
-    
-    // Convert plain function to task - handle both sync and async functions
-    return async (context: any, value: any) => {
-      const result = step(value);
-      return result instanceof Promise ? result : Promise.resolve(result);
+
+    // 2. If it's a generator function: (value) => Generator<any, R, any>
+    // Lift it to: (context, value) => Promise<R>
+    if (isGeneratorFunction(stepOrFn)) {
+      const liftedGenTask = runLiftedGenerator(stepOrFn as (value: any) => Generator<any, any, any>);
+      Object.defineProperty(liftedGenTask, 'name', { value: stepOrFn.name || 'liftedGeneratorTask', configurable: true });
+      return liftedGenTask;
+    }
+
+    // 3. If it's a function with arity 2, assume it's a "raw" context-aware function:
+    // (context, value) => R | Promise<R>. Lift to (context, value) => Promise<R>.
+    if (stepOrFn.length === 2) {
+      const rawTaskWrapper = async (context: BaseContext, value: any): Promise<any> => {
+        const result = stepOrFn(context, value);
+        return Promise.resolve(result); // Handles both sync and async results
+      };
+      Object.defineProperty(rawTaskWrapper, 'name', { value: stepOrFn.name || 'liftedContextAwareFn', configurable: true });
+      return rawTaskWrapper;
+    }
+
+    // 4. Otherwise, it's a plain sync or async function taking one argument (the value):
+    // (value) => R | Promise<R>. Lift to (context, value) => Promise<R>.
+    const liftedPlainTask = async (context: BaseContext, value: any): Promise<any> => {
+      const result = stepOrFn(value);
+      return Promise.resolve(result); // Handles both sync returns and Promise returns
     };
+    Object.defineProperty(liftedPlainTask, 'name', { value: stepOrFn.name || 'liftedValueTransformFn', configurable: true });
+    return liftedPlainTask;
   };
 
-  const allTasks = steps.map(toTask);
+  const allLiftedTasks = steps.map(toTask);
 
-  return async (context: any, initialValue: any) => {
+  const composedWorkflow: Task<any, any, any> = async (context: any, initialValue: any) => {
     let currentValue = initialValue;
-    for (const task of allTasks) {
+    for (const task of allLiftedTasks) {
+      if (context.scope?.signal?.aborted) { // Check for cancellation before each step
+        throw new DOMException('Workflow aborted', 'AbortError');
+      }
       currentValue = await task(context, currentValue);
     }
     return currentValue;
   };
+
+  // For backtracking, the run engine needs to know the original steps.
+  // Store the lifted tasks, as these are what will be executed.
+  // Backtracking targets are identified by __task_id, which only defined Tasks will have.
+  Object.defineProperty(composedWorkflow, '__steps', {
+    value: Object.freeze([...allLiftedTasks]),
+    configurable: true,
+    enumerable: false,
+    writable: false,
+  });
+
+  const stepNames = allLiftedTasks.map(t => t.name || 'anonymous_step').join('_then_');
+  Object.defineProperty(composedWorkflow, 'name', {
+    value: `workflow(${stepNames || 'empty'})`,
+    configurable: true,
+  });
+  // A composed workflow is also a task, give it a unique ID for potential nesting/backtracking.
+  Object.defineProperty(composedWorkflow, '__task_id', {
+    value: Symbol(`workflow_${stepNames || 'empty'}`),
+    configurable: true,
+    enumerable: false,
+    writable: false,
+  });
+
+  return composedWorkflow;
 }
 
 /**

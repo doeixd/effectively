@@ -1,4 +1,4 @@
-const { createContext, defineTask, createBracketTools, bracket: mainBracket } = require('./dist/index.cjs');
+const { createContext, defineTask, createBracketTools, bracket: mainBracket } = require('../dist/index.cjs');
 
 const testContextDefaults = {
   logs: [],
