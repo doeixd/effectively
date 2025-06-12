@@ -3,161 +3,268 @@
  * This module provides high-level utilities for parallel data processing. It
  * includes abstractions like `mapReduce`, parallel `filter`, and parallel
  * `groupBy` to operate on collections of data concurrently, leveraging the
- * full power of the underlying scheduler for maximum performance.
+ * scheduler from './scheduler.ts' for parallel execution.
  */
 
-import { defineTask, getContext, run, type Task, type BaseContext, type Scope } from './run';
+import {
+  defineTask, // Globally imported, smart defineTask
+  getContext, // Used in groupBy if keyingTaskOrFn is a function needing context
+  type Task,
+  type BaseContext,
+  type Scope, // Assuming BaseContext implies Scope
+} from './run';
 
-// Import the symbol used to store unctx instance on context objects
-const UNCTX_INSTANCE_SYMBOL = Symbol('__unctx_instance__');
-import { all, type ParallelOptions } from './scheduler';
+// Import `all` and `allSettled` from the provided scheduler.ts
+// These functions expect an array of Tasks and a single common input value for those tasks.
+import { all, allSettled, type ParallelOptions, type ParallelResult } from './scheduler';
 
-interface MapReduceOptions<C extends BaseContext, T, R, U> extends ParallelOptions {
-  map: Task<C, T, R>;
-  reduce: (accumulator: U, current: R) => U;
-  initial: U;
+// =================================================================
+// Section 1: MapReduce Pattern
+// =================================================================
+
+/**
+ * Configuration options for the `mapReduce` utility.
+ * @template C The context type for the mapping task.
+ * @template TItem The type of individual items in the input data array.
+ * @template RMapped The type of results produced by the mapping task for each item.
+ * @template UAccumulator The type of the final accumulated/reduced value.
+ */
+interface MapReduceOptions<C extends BaseContext, TItem, RMapped, UAccumulator> extends ParallelOptions {
+  /** The Task to apply to each item in the data array during the map phase. Receives TItem. */
+  map: Task<C, TItem, RMapped>;
+  /** A synchronous function to reduce the mapped results into a single value. */
+  reduce: (accumulator: UAccumulator, currentMappedResult: RMapped, currentIndex: number, allMappedResults: RMapped[]) => UAccumulator;
+  /** The initial value for the accumulator in the reduce phase. */
+  initial: UAccumulator;
 }
 
 /**
- * Performs a parallel map operation over an array of data, followed by a
- * sequential reduce operation to produce a single summary value. This is a
- * classic MapReduce pattern.
+ * Performs a parallel map operation over an array of data items, followed by a
+ * sequential reduce operation to produce a single summary value.
  *
- * @param data The array of data to process.
- * @param options The configuration containing the mapping `Task`, the reduce function,
- *                and the initial value for the accumulator. Concurrency options
- *                for the parallel map phase can also be provided.
- * @returns A `Task` that resolves to the final reduced value.
+ * The mapping `Task` (options.map) is applied to each data item. To achieve parallelism
+ * with the scheduler, a new set of tasks is created where each task is bound to an
+ * individual item from the input `data` array and expects a dummy input (e.g., `null`).
+ * These item-specific tasks are then run in parallel using `scheduler.all` or `scheduler.allSettled`.
  *
- * @example
- * ```typescript
- * const userIds = ['u-1', 'u-2', 'u-3'];
- * const countUserPosts = pipe(fetchPosts, map(posts => posts.length));
+ * If any mapping task fails, this `mapReduce` task will reject (fail-fast behavior).
  *
- * const countAllPosts = mapReduce(userIds, {
- *   map: countUserPosts,
- *   reduce: (total, count) => total + count,
- *   initial: 0,
- *   concurrency: 4,
- * });
- *
- * const total = await run(countAllPosts);
- * ```
+ * @template C The context type. Must include `scope` for cancellation.
+ * @template TItem The type of items in the input `data` array.
+ * @template RMapped The type of results after the map operation for each item.
+ * @template UAccumulator The type of the final reduced value.
+ * @param data The array of data items to process.
+ * @param options Configuration including the `map` Task, `reduce` function,
+ *                `initial` accumulator value, and optional `ParallelOptions`.
+ * @returns A `Task` that takes no input (null) and resolves to the final reduced value `UAccumulator`.
  */
-export function mapReduce<C extends { scope: Scope }, T, R, U>(
-  data: T[],
-  options: MapReduceOptions<C, T, R, U>
-): Task<C, null, U> {
-  const { map: mapTask, reduce: reduceFn, initial, ...parallelOptions } = options;
+export function mapReduce<C extends BaseContext, TItem, RMapped, UAccumulator>(
+  data: TItem[],
+  options: MapReduceOptions<C, TItem, RMapped, UAccumulator>
+): Task<C, null, UAccumulator> {
+  const { map: mapTaskForItem, reduce: reduceFn, initial, ...parallelOptions } = options;
 
-  return async (context: C, _: null): Promise<U> => {
-    // 1. Map Phase: Create an executable task for each item in the data array.
-    // We need to store the unctx instance to properly execute tasks
-    const unctxInstance = (context as any)[UNCTX_INSTANCE_SYMBOL];
-    const mapTasks = data.map(item => async () => {
-      // Execute the task within the proper unctx context if available
-      if (unctxInstance) {
-        return unctxInstance.callAsync(context, () => mapTask(context, item));
-      } else {
-        return mapTask(context, item);
+  const mapReduceOverallTask: Task<C, null, UAccumulator> =
+    async (context: C, _: null): Promise<UAccumulator> => {
+      if (!data || data.length === 0) {
+        // Handle empty data according to reduceFn behavior with initial (or return initial directly)
+        // For an empty array, reduce with an initial value returns the initial value.
+        const emptyMappedResults: RMapped[] = [];
+        return emptyMappedResults.reduce(reduceFn, initial); // Or simply: return initial;
       }
-    });
 
-    // Execute all mapping tasks in parallel.
-    const mappedResults = await all(mapTasks, null, parallelOptions, context);
+      // 1. Map Phase: Create an array of item-specific tasks.
+      // Each task in `itemProcessingTasks` is Task<C, null, RMapped>
+      // because `item` is captured in its closure.
+      const itemProcessingTasks: Array<Task<C, null, RMapped>> = data.map((item, index) => {
+        const itemSpecificMapTask: Task<C, null, RMapped> = (ctx: C, _dmy: null) => mapTaskForItem(ctx, item);
+        // Optionally, give these intermediate tasks names for debugging the scheduler
+        Object.defineProperty(itemSpecificMapTask, 'name', {
+          value: `mapReduceItemTask(${mapTaskForItem.name || 'mapFn'})_idx${index}`,
+          configurable: true
+        });
+        return itemSpecificMapTask;
+      });
 
-    // 2. Reduce Phase: Sequentially apply the reducer to the results.
-    return mappedResults.reduce(reduceFn, initial);
-  };
+      // Execute all item-specific mapping tasks in parallel using `scheduler.all`.
+      // `scheduler.all` expects Task<C, V, R>[], V (common input), options, context.
+      // Here, V is `null` for our `itemProcessingTasks`.
+      // `scheduler.all` will reject if any task in `itemProcessingTasks` rejects.
+      const mappedResults: RMapped[] = await all<C, null, RMapped>(
+        itemProcessingTasks,
+        null, // Common dummy input for all itemProcessingTasks
+        { ...parallelOptions, preserveOrder: true }, // Ensure order for reduce
+        context // Pass overall context for cancellation propagation to scheduler.all
+      );
+
+      // 2. Reduce Phase: Sequentially apply the reducer to the mapped results.
+      return mappedResults.reduce(reduceFn, initial);
+    };
+
+  Object.defineProperty(mapReduceOverallTask, 'name', {
+    value: `mapReduce(${mapTaskForItem.name || 'mapTask'}, ${reduceFn.name || 'reduceFn'})`,
+    configurable: true,
+  });
+  Object.defineProperty(mapReduceOverallTask, '__task_id', {
+    value: Symbol(`mapReduceTask_${mapTaskForItem.name || 'mapTask'}`),
+    configurable: true, enumerable: false, writable: false,
+  });
+
+  return mapReduceOverallTask;
 }
 
+// =================================================================
+// Section 2: Parallel Collection Operations (Filter, GroupBy)
+// =================================================================
+
 /**
- * **Pipeable Operator:** Filters an array by applying an async predicate `Task`
- * to each item in parallel.
+ * **Pipeable Operator:** Filters an array by applying an asynchronous predicate `Task`
+ * to each item in parallel. Items for which the predicate resolves to `true` are
+ * included in the result array. The predicate tasks are run using `scheduler.allSettled`
+ * to ensure all predicates are evaluated; however, if a predicate task unexpectedly
+ * throws an error (other than resolving to false), that error will cause this
+ * filter task to reject.
  *
- * @param predicateTask A `Task` that takes an item and returns a `Promise<boolean>`.
- * @param options Optional concurrency settings for the predicate execution.
- * @returns A `Task` that receives an array and resolves to the new, filtered array.
- *
- * @example
- * ```typescript
- * const filterActiveUsers = pipe(
- *   fetchAllUsers,
- *   filter(userIsActiveTask, { concurrency: 8 }), // userIsActiveTask runs in parallel
- *   map(activeUsers => `Found ${activeUsers.length} active users.`)
- * );
- * ```
+ * @template C The context type. Must include `scope` for cancellation.
+ * @template VItem The type of items in the array.
+ * @param predicateTask A `Task<C, VItem, boolean>` that takes an item and its context,
+ *                      and returns a `Promise<boolean>` indicating if the item should be included.
+ * @param options Optional `ParallelOptions` to control concurrency of predicate execution.
+ * @returns A `Task<C, VItem[], VItem[]>` that receives an array and resolves to the new, filtered array.
  */
-export function filter<C extends { scope: Scope }, V>(
-  predicateTask: Task<C, V, boolean>,
+export function filter<C extends BaseContext, VItem>(
+  predicateTaskForItem: Task<C, VItem, boolean>,
   options?: ParallelOptions
-): Task<C, V[], V[]> {
-  return async (context: C, data: V[]): Promise<V[]> => {
-    const unctxInstance = (context as any)[UNCTX_INSTANCE_SYMBOL];
-    const predicateTasks = data.map(item =>
-      async () => {
-        // Execute the task within the proper unctx context if available
-        if (unctxInstance) {
-          return unctxInstance.callAsync(context, () => predicateTask(context, item));
-        } else {
-          return predicateTask(context, item);
-        }
+): Task<C, VItem[], VItem[]> {
+  const filterWorkflowTask: Task<C, VItem[], VItem[]> =
+    async (context: C, data: VItem[]): Promise<VItem[]> => {
+      if (!data || data.length === 0) {
+        return [];
       }
-    );
 
-    // Run all predicates in parallel to get a corresponding array of booleans.
-    const results = await all(predicateTasks, null, options, context);
+      // Create item-specific predicate tasks: Task<C, null, boolean>[]
+      const itemPredicateTasks: Array<Task<C, null, boolean>> = data.map((item, index) => {
+        const itemSpecificPredicateTask: Task<C, null, boolean> = (ctx: C, _dmy: null) => predicateTaskForItem(ctx, item);
+        Object.defineProperty(itemSpecificPredicateTask, 'name', {
+          value: `filterItemPredicate(${predicateTaskForItem.name || 'predicateFn'})_idx${index}`,
+          configurable: true
+        });
+        return itemSpecificPredicateTask;
+      });
 
-    // Filter the original data array based on the boolean results.
-    return data.filter((_, index) => results[index]);
-  };
+      // Run all predicates in parallel using `scheduler.allSettled` to get boolean results.
+      // We use allSettled to ensure we get a boolean result for each item, even if some predicate
+      // calls might face operational errors (though ideally a predicate just returns true/false).
+      // The `preserveOrder` option is important here.
+      const settledBooleanResults: Array<ParallelResult<boolean>> = await allSettled<C, null, boolean>(
+        itemPredicateTasks,
+        null, // Dummy input
+        { ...options, preserveOrder: true }, // Crucial: preserve order to match items
+        context
+      );
+
+      const filteredData: VItem[] = [];
+      for (let i = 0; i < data.length; i++) {
+        const result = settledBooleanResults[i];
+        if (result.status === 'fulfilled' && result.value === true) {
+          filteredData.push(data[i]);
+        } else if (result.status === 'rejected') {
+          // Decide how to handle predicate errors: re-throw, log, or exclude item?
+          // For now, re-throwing to make it visible. Could also log and exclude.
+          console.error(`[filter] Predicate for item at index ${i} (value: ${JSON.stringify(data[i])}) rejected with reason:`, result.reason);
+          throw new Error(`Predicate error during filter for item at index ${i}: ${result.reason instanceof Error ? result.reason.message : result.reason}`);
+        }
+        // If status is 'fulfilled' but value is false, item is simply excluded.
+      }
+      return filteredData;
+    };
+
+  Object.defineProperty(filterWorkflowTask, 'name', {
+    value: `filter(${predicateTaskForItem.name || 'predicateTask'})`,
+    configurable: true,
+  });
+  Object.defineProperty(filterWorkflowTask, '__task_id', {
+    value: Symbol(`filterTask_${predicateTaskForItem.name || 'predicateTask'}`),
+    configurable: true, enumerable: false, writable: false,
+  });
+
+  return filterWorkflowTask;
 }
 
 /**
  * **Pipeable Operator:** Groups items in an array into a `Map` based on a key
- * generated by a `keyingTask` that runs in parallel for each item.
+ * generated by a `keyingTaskOrFn`. The keying operation for each item is run in parallel
+ * using `scheduler.all`. If any keying operation fails, the `groupBy` task will reject.
  *
- * @param keyingTask A `Task` that takes an item and returns a `Promise` of its key.
- *                   This can also be a simple synchronous function for simple cases.
- * @param options Optional concurrency settings for the keying task execution.
- * @returns A `Task` that resolves to a `Map` where keys are the generated keys
- *          and values are arrays of items belonging to that key.
+ * @template C The context type. Must include `scope` for cancellation.
+ * @template VItem The type of items in the array.
+ * @template KKey The type of the key used for grouping (string, number, or symbol).
+ * @param keyingTaskOrFn A `Task<C, VItem, KKey>` or a synchronous function `(item: VItem) => KKey`
+ *                       that produces the key for an item. If a synchronous function
+ *                       is provided, it will be wrapped into a `Task` using `defineTask`.
+ * @param options Optional `ParallelOptions` to control concurrency of key generation.
+ * @returns A `Task<C, VItem[], Map<KKey, VItem[]>>` that receives an array and resolves to a `Map`.
  */
-export function groupBy<C extends { scope: Scope }, V, K extends string | number | symbol>(
-  keyingTask: Task<C, V, K> | ((item: V) => K),
+export function groupBy<C extends BaseContext, VItem, KKey extends string | number | symbol>(
+  keyingTaskOrFn: Task<C, VItem, KKey> | ((item: VItem) => KKey), // Simpler sync fn signature
   options?: ParallelOptions
-): Task<C, V[], Map<K, V[]>> {
-  // Normalize the input to always be a Task for consistent handling.
-  const task = typeof keyingTask === 'function' && !(keyingTask as any).__task_id
-    ? defineTask(async (item: V) => (keyingTask as ((item: V) => K))(item))
-    : (keyingTask as Task<C, V, K>);
+): Task<C, VItem[], Map<KKey, VItem[]>> {
 
-  return async (context: C, data: V[]): Promise<Map<K, V[]>> => {
-    // Generate all keys in parallel using the scheduler's all function to respect concurrency limits
-    const unctxInstance = (context as any)[UNCTX_INSTANCE_SYMBOL];
-    const keyTasks = data.map(item => async () => {
-      // Execute the task within the proper unctx context if available
-      if (unctxInstance) {
-        return unctxInstance.callAsync(context, () => task(context, item));
-      } else {
-        return task(context, item);
+  const normalizedKeyingTask: Task<C, VItem, KKey> =
+    typeof keyingTaskOrFn === 'function' && !(keyingTaskOrFn as Task<C, VItem, KKey>).__task_id
+      ? defineTask<VItem, KKey>(async (item: VItem) => { // Global defineTask
+        // Plain function is (item: VItem) => KKey. Context is not passed to it here.
+        // If context is needed for keying, it must be a Task<C, VItem, KKey>.
+        return (keyingTaskOrFn as (item: VItem) => KKey)(item);
+      }) as Task<C, VItem, KKey> // Cast from Task<any, VItem, KKey>
+      : (keyingTaskOrFn as Task<C, VItem, KKey>);
+
+  const groupByWorkflowTask: Task<C, VItem[], Map<KKey, VItem[]>> =
+    async (context: C, data: VItem[]): Promise<Map<KKey, VItem[]>> => {
+      if (!data || data.length === 0) {
+        return new Map<KKey, VItem[]>();
       }
-    });
 
-    // Execute all keying tasks in parallel with concurrency limits
-    const keys = await all(keyTasks, null, options, context);
+      // Create item-specific keying tasks: Task<C, null, KKey>[]
+      const itemKeyingTasks: Array<Task<C, null, KKey>> = data.map((item, index) => {
+        const itemSpecificKeyingTask: Task<C, null, KKey> = (ctx: C, _dmy: null) => normalizedKeyingTask(ctx, item);
+        Object.defineProperty(itemSpecificKeyingTask, 'name', {
+          value: `groupByItemKeying(${(normalizedKeyingTask as Task<C, VItem, KKey>).name || 'keyFn'})_idx${index}`,
+          configurable: true
+        });
+        return itemSpecificKeyingTask;
+      });
 
-    // Group items by their corresponding key.
-    const groups = new Map<K, V[]>();
-    for (let i = 0; i < data.length; i++) {
-      const key = keys[i];
-      const item = data[i];
-      if (!groups.has(key)) {
-        groups.set(key, []);
+      // Execute all keying tasks in parallel. `scheduler.all` will fail fast.
+      const keys: KKey[] = await all<C, null, KKey>(
+        itemKeyingTasks,
+        null, // Dummy input
+        { ...options, preserveOrder: true }, // Crucial: preserve order to match items
+        context
+      );
+
+      const groups = new Map<KKey, VItem[]>();
+      for (let i = 0; i < data.length; i++) {
+        const key = keys[i];
+        const item = data[i];
+        const existingGroup = groups.get(key);
+        if (existingGroup) {
+          existingGroup.push(item);
+        } else {
+          groups.set(key, [item]);
+        }
       }
-      groups.get(key)!.push(item);
-    }
+      return groups;
+    };
 
-    return groups;
-  };
+  Object.defineProperty(groupByWorkflowTask, 'name', {
+    value: `groupBy(${(normalizedKeyingTask as Task<C, VItem, KKey>).name || 'keyingTaskOrFn'})`,
+    configurable: true,
+  });
+  Object.defineProperty(groupByWorkflowTask, '__task_id', {
+    value: Symbol(`groupByTask_${(normalizedKeyingTask as Task<C, VItem, KKey>).name || 'keyingTaskOrFn'}`),
+    configurable: true, enumerable: false, writable: false,
+  });
+
+  return groupByWorkflowTask;
 }
