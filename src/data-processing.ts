@@ -6,7 +6,10 @@
  * full power of the underlying scheduler for maximum performance.
  */
 
-import { defineTask, getContext, type Task, type BaseContext, type Scope } from './run';
+import { defineTask, getContext, run, type Task, type BaseContext, type Scope } from './run';
+
+// Import the symbol used to store unctx instance on context objects
+const UNCTX_INSTANCE_SYMBOL = Symbol('__unctx_instance__');
 import { all, type ParallelOptions } from './scheduler';
 
 interface MapReduceOptions<C extends BaseContext, T, R, U> extends ParallelOptions {
@@ -49,7 +52,16 @@ export function mapReduce<C extends { scope: Scope }, T, R, U>(
 
   return async (context: C, _: null): Promise<U> => {
     // 1. Map Phase: Create an executable task for each item in the data array.
-    const mapTasks = data.map(item => async () => mapTask(context, item));
+    // We need to store the unctx instance to properly execute tasks
+    const unctxInstance = (context as any)[UNCTX_INSTANCE_SYMBOL];
+    const mapTasks = data.map(item => async () => {
+      // Execute the task within the proper unctx context if available
+      if (unctxInstance) {
+        return unctxInstance.callAsync(context, () => mapTask(context, item));
+      } else {
+        return mapTask(context, item);
+      }
+    });
 
     // Execute all mapping tasks in parallel.
     const mappedResults = await all(mapTasks, null, parallelOptions, context);
@@ -81,8 +93,16 @@ export function filter<C extends { scope: Scope }, V>(
   options?: ParallelOptions
 ): Task<C, V[], V[]> {
   return async (context: C, data: V[]): Promise<V[]> => {
+    const unctxInstance = (context as any)[UNCTX_INSTANCE_SYMBOL];
     const predicateTasks = data.map(item =>
-      async () => predicateTask(context, item)
+      async () => {
+        // Execute the task within the proper unctx context if available
+        if (unctxInstance) {
+          return unctxInstance.callAsync(context, () => predicateTask(context, item));
+        } else {
+          return predicateTask(context, item);
+        }
+      }
     );
 
     // Run all predicates in parallel to get a corresponding array of booleans.
@@ -109,13 +129,22 @@ export function groupBy<C extends { scope: Scope }, V, K extends string | number
 ): Task<C, V[], Map<K, V[]>> {
   // Normalize the input to always be a Task for consistent handling.
   const task = typeof keyingTask === 'function' && !(keyingTask as any).__task_id
-    ? async (context: C, item: V) => (keyingTask as ((item: V) => K))(item)
+    ? defineTask(async (item: V) => (keyingTask as ((item: V) => K))(item))
     : (keyingTask as Task<C, V, K>);
 
   return async (context: C, data: V[]): Promise<Map<K, V[]>> => {
-    const keyTasks = data.map(item => async () => task(context, item));
+    // Generate all keys in parallel using the scheduler's all function to respect concurrency limits
+    const unctxInstance = (context as any)[UNCTX_INSTANCE_SYMBOL];
+    const keyTasks = data.map(item => async () => {
+      // Execute the task within the proper unctx context if available
+      if (unctxInstance) {
+        return unctxInstance.callAsync(context, () => task(context, item));
+      } else {
+        return task(context, item);
+      }
+    });
 
-    // Generate all keys in parallel.
+    // Execute all keying tasks in parallel with concurrency limits
     const keys = await all(keyTasks, null, options, context);
 
     // Group items by their corresponding key.

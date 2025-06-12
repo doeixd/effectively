@@ -1,5 +1,5 @@
 import type { Task, BaseContext, Scope } from './run';
-import { defineTask, getContext } from './run';
+import { defineTask, getContext, provide } from './run';
 
 /**
  * Configuration for the bracket function.
@@ -78,9 +78,14 @@ export function bracket<C extends { scope: Scope }, R, V, U>(
       // Create enhanced context with the resource
       const enhancedContext = config.merge(context, resource);
       
-      // Execute the use workflow with enhanced context
-      // Run the use function directly with the enhanced context
-      return await config.use(enhancedContext, value);
+      // Execute the use workflow with enhanced context using provide
+      // This ensures getContext() calls within the use task see the enhanced context
+      const { scope, ...overrides } = enhancedContext;
+      return await provide(overrides, async () => {
+        // Within this block, getContext() will return the enhanced context
+        const currentContext = getContext<C & Record<string, any>>();
+        return await config.use(currentContext, value);
+      });
     } catch (err) {
       error = err;
       throw err;
@@ -331,6 +336,172 @@ export function makeAsyncDisposable<T extends object>(
   return Object.assign(value, {
     [AsyncDisposeSymbol]: () => dispose(value)
   }) as T & AsyncDisposable;
+}
+
+/**
+ * Creates context-specific bracket functions for a given context.
+ * This is useful when working within isolated contexts where global functions
+ * might not have access to the current context.
+ * 
+ * @template C The context type
+ * @param contextTools The context tools from createContext
+ * @returns An object with context-specific bracket functions
+ */
+export function createBracketTools<C extends BaseContext>(contextTools: { 
+  defineTask: <V, R>(fn: (value: V) => Promise<R>) => Task<C, V, R>;
+  getContext: () => C;
+  provide?: <R>(overrides: Partial<Omit<C, 'scope'>>, fn: () => Promise<R>) => Promise<R>;
+  run?: <V, R>(workflow: Task<C, V, R>, initialValue: V, options?: any) => Promise<R>;
+}) {
+  const { defineTask, getContext, provide: contextProvide, run: contextRun } = contextTools;
+
+  function bracket<R, V, U>(
+    config: BracketConfig<C, R, V, U>
+  ): Task<C, V, U> {
+    return defineTask(async (value: V) => {
+      const context = getContext();
+      let resource: R | undefined;
+      let error: unknown;
+      
+      try {
+        // Acquire the resource
+        resource = await config.acquire(context, value);
+        
+        // Create enhanced context with the resource
+        const enhancedContext = config.merge(context, resource);
+        
+        // Execute the use workflow with enhanced context
+        if (contextProvide) {
+          // Use context-specific provide if available
+          const { scope, ...overrides } = enhancedContext;
+          return await contextProvide(overrides, async () => {
+            const currentContext = getContext() as C & Record<string, any>;
+            return await config.use(currentContext, value);
+          });
+        } else {
+          // Fallback to direct execution with enhanced context
+          return await config.use(enhancedContext, value);
+        }
+      } catch (err) {
+        error = err;
+        throw err;
+      } finally {
+        // Always release the resource if it was acquired
+        if (resource !== undefined) {
+          try {
+            await config.release(context, resource);
+          } catch (releaseError) {
+            // If we already have an error from the use phase, log the release error
+            // but re-throw the original error
+            if (error !== undefined) {
+              console.error('Error during resource release:', releaseError);
+            } else {
+              // If no prior error, throw the release error
+              throw releaseError;
+            }
+          }
+        }
+      }
+    }) as Task<C, V, U>;
+  }
+
+  function bracketDisposable<
+    R extends Disposable | AsyncDisposable,
+    V,
+    U
+  >(config: {
+    acquire: Task<C, V, R>;
+    use: Task<C & Record<string, any>, V, U>;
+    merge: (context: C, resource: R) => C & Record<string, any>;
+  }): Task<C, V, U> {
+    // Create a release task that calls the dispose method
+    const release: Task<C, R, void> = defineTask(async (resource: R) => {
+      if (isAsyncDisposable(resource)) {
+        await resource[AsyncDisposeSymbol]();
+      } else if (isDisposable(resource)) {
+        resource[DisposeSymbol]();
+      } else {
+        throw new Error('Resource is not disposable');
+      }
+    });
+    
+    return bracket({
+      ...config,
+      release
+    });
+  }
+
+  function bracketMany<V, U>(
+    resources: Array<{
+      acquire: Task<C, any, any>;
+      release: Task<C, any, void>;
+      merge: (context: any, resource: any) => any;
+    }>,
+    use: Task<any, V, U>
+  ): Task<C, V, U> {
+    return defineTask(async (value: V) => {
+      const context = getContext();
+      const acquired: Array<{ resource: any; release: Task<C, any, void> }> = [];
+      let currentContext: any = context;
+      let error: unknown;
+      
+      try {
+        // Acquire all resources in order
+        for (const config of resources) {
+          const resource = await config.acquire(currentContext, value);
+          acquired.push({ resource, release: config.release });
+          currentContext = config.merge(currentContext, resource);
+        }
+        
+        // Execute the use workflow with all resources
+        if (contextProvide) {
+          // Use context-specific provide if available
+          const { scope, ...overrides } = currentContext;
+          return await contextProvide(overrides, async () => {
+            const enhancedContext = getContext();
+            return await use(enhancedContext, value);
+          });
+        } else {
+          // Fallback to direct execution
+          return await use(currentContext, value);
+        }
+      } catch (err) {
+        error = err;
+        throw err;
+      } finally {
+        // Release all resources in reverse order
+        const releaseErrors: unknown[] = [];
+        
+        for (let i = acquired.length - 1; i >= 0; i--) {
+          const { resource, release } = acquired[i];
+          try {
+            await release(context, resource);
+          } catch (releaseError) {
+            releaseErrors.push(releaseError);
+          }
+        }
+        
+        // If we have release errors and no prior error, throw them
+        if (releaseErrors.length > 0 && error === undefined) {
+          if (releaseErrors.length === 1) {
+            throw releaseErrors[0];
+          } else {
+            throw new AggregateError(releaseErrors, 'Multiple errors during resource cleanup');
+          }
+        } else if (releaseErrors.length > 0) {
+          // Log release errors if we already have a main error
+          console.error('Errors during resource cleanup:', releaseErrors);
+        }
+      }
+    }) as Task<C, V, U>;
+  }
+
+  return {
+    bracket,
+    bracketDisposable,
+    bracketMany,
+    resource: bracket
+  };
 }
 
 /**

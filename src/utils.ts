@@ -187,9 +187,28 @@ export function createWorkflow(...steps: any[]): Task<any, any, any> {
   }
 
   const toTask = (step: any): Task<any, any, any> => {
-    if (typeof step === 'function' && step.__task_id) return step;
-    // Convert plain function to task
-    return async (context: any, value: any) => step(value);
+    if (typeof step !== 'function') {
+      throw new Error(`Invalid workflow step: expected function, got ${typeof step}`);
+    }
+    
+    // Already a task (has task ID or looks like a task function)
+    if (step.__task_id) return step;
+    
+    // Check if it looks like a task function: (context, value) => ...
+    // Tasks typically have length 2 and are often named with context/value params
+    if (step.length === 2) {
+      // Additional heuristic: check parameter names if available
+      const fnStr = step.toString();
+      if (fnStr.includes('context') || fnStr.includes('ctx') || fnStr.includes('scope')) {
+        return step;
+      }
+    }
+    
+    // Convert plain function to task - handle both sync and async functions
+    return async (context: any, value: any) => {
+      const result = step(value);
+      return result instanceof Promise ? result : Promise.resolve(result);
+    };
   };
 
   const allTasks = steps.map(toTask);

@@ -603,57 +603,96 @@ describe('Payment Workflow', () => {
 
 ## 🤔 Comparisons & Where It Fits
 
-Effectively is a powerful tool, but it's important to understand when other approaches might be a better fit. For a detailed exploration of the motivation behind Effectively and how it compares to other patterns, see [Why Effectively?](docs/why-effectively.md).
+Effectively offers a powerful and pragmatic approach to building resilient TypeScript applications. Understanding how it compares to other tools and paradigms can help you decide if it's the right fit for your project. Our core philosophy is to **enhance `async/await` with structured patterns and opt-in algebraic effects**, rather than requiring a full paradigm shift.
 
-### Plain `async/await` & Native Promises
+For a deeper dive into the motivations, see [Why Effectively?](docs/why-effectively.md).
 
-**Use When:**
-- You have simple scripts with no complex dependencies.
-- You're building a library with minimal dependencies and zero overhead is critical.
-- Your async logic is straightforward with simple error handling.
-
-**Why:** For simple cases, plain `async/await` is more direct. Effectively enhances `async/await` for complex applications but isn't meant to replace it everywhere.
-
-### Effect-TS or fp-ts
+### 1. Plain `async/await` & Native Promises
 
 **Use When:**
-- Your team is fully committed to pure functional programming.
-- You need the power of a fiber-based runtime with true delimited continuations.
-- You want compile-time guarantees for *all* effects.
+*   You're writing simple scripts with minimal asynchronous logic.
+*   Dependency management is straightforward (e.g., direct imports, few shared services).
+*   Error handling, retries, and resource management are trivial or not critical.
+*   You're building a very small library where zero external dependencies are paramount.
 
-| Aspect             | **Effectively**                                  | **[Effect-TS](https://effect.website)**                                | **[Tinyeffect](https://github.com/Snowflyt/tinyeffect)**                               |
-| ------------------ | ------------------------------------------------ | -------------------------------------------- | -------------------------------------------- |
-| **Philosophy**     | Enhance `async/await`                            | Replace the async foundation                 | Algebraic effects with generators            |
-| **Learning Curve** | Low (builds on existing knowledge)               | High (new programming model)                 | Medium (generator-based effects)             |
-| **Integration**    | Seamless with existing Promise-based code        | Requires wrapping code in the `Effect` runtime | Requires generator functions with `yield*`   |
-| **Best For**       | Teams wanting better patterns with low overhead  | Teams wanting maximum purity and type safety | Teams wanting unified effect handling        |
+**How Effectively Differs:**
+Plain `async/await` is the foundation. Effectively builds upon it by providing:
+*   **Structured Dependency Injection:** The `Context` system eliminates prop-drilling and global singletons.
+*   **Composable Units:** `Task` and `Workflow` primitives make complex async flows manageable.
+*   **Built-in Resilience:** `withRetry`, `withTimeout`, `withCircuitBreaker` add production-readiness easily.
+*   **Guaranteed Resource Cleanup:** The `bracket` pattern prevents leaks.
+*   **Standardized Error Handling:** A clear strategy for domain vs. system errors.
+*   **Opt-in Algebraic Effects:** For abstracting side effects when needed, without forcing it everywhere.
 
-### Tinyeffect
+Effectively aims to be the natural next step when your `async/await` code starts to become complex and brittle.
 
-**Use When:**
-- You want to handle all side effects (errors, async, dependencies) in a unified way.
-- You need type-safe effect handling with explicit effect signatures.
-- You're comfortable with generator functions and `yield*` syntax.
-- You want algebraic effects without the complexity of a full FP ecosystem.
+### 2. Full Functional Effect Systems (e.g., Effect-TS, fp-ts)
 
-**Why:** Tinyeffect provides true algebraic effects for TypeScript, allowing you to model all side effects uniformly. Effects are typed and must be handled explicitly, preventing unhandled cases at compile time.
-
-### [RxJS](https://rxjs.dev/)
+These libraries provide powerful, all-encompassing ecosystems for purely functional programming, often with their own runtimes (like fibers) and a deep emphasis on type-driven development and total effect tracking.
 
 **Use When:**
-- Your application is primarily reactive and event-driven.
-- You are dealing with complex event streams (e.g., UI events, WebSockets).
-- You need powerful stream operators like `debounce`, `throttle`, `buffer`, etc.
+*   Your team is fully committed to and proficient in pure functional programming.
+*   You require the advanced capabilities of a fiber-based runtime (e.g., fine-grained concurrency control, true delimited continuations).
+*   You want compile-time guarantees for *all* side effects, enforced by the type system across the entire application.
+*   Learning a new, comprehensive programming model is acceptable for the benefits gained.
 
-**Why:** RxJS is purpose-built for reactive programming and managing streams of events over time. Effectively is designed for managing workflows with a clear start and end.
+**How Effectively Differs:**
+*   **Lower Learning Curve:** Builds directly on `async/await` and familiar TypeScript patterns. The algebraic effects system in Effectively is opt-in and designed to be more approachable.
+*   **Seamless Integration:** Works effortlessly with existing Promise-based libraries and codebases. No need to wrap everything in a special `Effect` type.
+*   **Pragmatism over Purity:** While encouraging good patterns, Effectively doesn't enforce strict purity for all operations. Its effects system is a tool for better testability and abstraction where it provides the most value.
+*   **Familiar Debugging:** Stack traces and debugging feel closer to standard TypeScript `async/await`.
 
-### Synchronous Code
+Effectively offers many benefits of structured programming and effect management without the steep learning curve or the "all-or-nothing" commitment of full FP effect systems.
+
+### 3. Generator-Based Algebraic Effect Libraries (e.g., Tinyeffect)
+
+Libraries like Tinyeffect use generator functions (`function*`) and `yield*` as the primary mechanism to define and handle all side effects (DI, errors, async operations) in a unified, type-safe manner.
 
 **Use When:**
-- Your code doesn't involve I/O or other asynchronous operations.
-- You are performing pure computations on in-memory data.
+*   You want a **singular, unified model** for all side effects, where everything is an explicitly declared and handled effect.
+*   Your team is comfortable with generator-based control flow as the dominant pattern.
+*   The strong compile-time guarantee that *all* declared effects are handled before runtime is paramount.
+*   The "purity" of knowing exactly what effects a piece of code can perform (from its type signature) is a primary design goal.
 
-**Why:** Async has overhead. Don't introduce the complexity of `async/await` or Effectively if your function is synchronous.
+**How Effectively Differs:**
+*   **`async/await` as the Core:** Effectively's `Tasks` are standard `async` functions. This provides a more conventional programming model for many developers and easier integration with the broader JavaScript/TypeScript ecosystem. Generators are opt-in for `doTask` notation.
+*   **Separate Concerns, Synergistic Solutions:**
+    *   **Dependency Injection:** Effectively has a robust, dedicated `Context` system that is intuitive and powerful on its own, independent of the effects system.
+    *   **Error Handling:** Provides a pragmatic dual strategy (`Result` for domain errors, `withErrorBoundary` for panics) that works well with standard `async/await` throwing behavior.
+    *   **Algebraic Effects:** Effectively's `defineEffect` and `withHandlers` system allows abstracting specific side effects where beneficial (e.g., for testability or swappable implementations), but doesn't *require* DI or basic async operations to be effects.
+*   **Progressive Enhancement:** You can use Effectively's `Context`, `Workflows`, and resilience patterns without immediately diving into its algebraic effects system. Adopt features as your application's complexity grows.
+*   **Built-in Utilities Beyond Effects:** Patterns like `bracket`, `withRetry`, and `forkJoin` are first-class utilities, not just patterns to be implemented via custom effect handlers.
+
+The table below summarizes key differences with more direct competitors in the "effects" space:
+
+| Aspect                     | **Effectively**                                                                 | **Effect-TS**                                  | **Tinyeffect**                                         |
+| :------------------------- | :------------------------------------------------------------------------------ | :--------------------------------------------- | :----------------------------------------------------- |
+| **Primary Paradigm**       | Enhances `async/await` with patterns & opt-in algebraic effects via `Context`   | Pure Functional Programming, Fiber-based runtime | Algebraic effects via Generators                       |
+| **Core Abstraction**       | `Task` (async function), `Context`, `Workflow`                                  | `Effect` data type                               | `Effected` program (generator)                       |
+| **Learning Curve**         | Low to Medium (builds on existing knowledge, effects are opt-in)              | High (new programming model & ecosystem)       | Medium (generator syntax, effect handling model)       |
+| **Integration**            | Seamless with existing Promise-based code                                       | Requires wrapping code in `Effect` runtime       | Requires generator functions & `yield*`; `effectify` for Promises |
+| **DI Approach**            | Explicit `Context` system, `getContext()`, overrides                          | Typically via `Context` or `Layer` (Effect's DI) | `dependency` effect, handled by `provide`              |
+| **Error Handling**         | `Result<T,E>` for domain, `withErrorBoundary` for panics; Tasks can throw      | All errors are values within `Effect` type     | Errors are `error` effects, handled by `catch`         |
+| **Effect System Scope**    | Opt-in for specific side effects (e.g., I/O, external services)                 | All side effects are managed by `Effect`       | All side effects are managed by `effected` programs    |
+| **Best For**               | Teams wanting structured `async/await`, pragmatic DI, resilience, and testable side effects with a gradual learning curve. | Teams committed to pure FP, seeking maximum purity, type safety, and powerful concurrency abstractions. | Teams wanting a unified, type-safe model for *all* side effects using generators. |
+
+### 4. Reactive Programming (e.g., RxJS)
+
+**Use When:**
+*   Your application is primarily event-driven and involves managing complex streams of asynchronous events over time (e.g., UI interactions, WebSockets, real-time data feeds).
+*   You need powerful stream manipulation operators like `debounce`, `throttle`, `buffer`, `mergeMap`, etc.
+
+**How Effectively Differs:**
+Effectively is designed for managing **workflows** – sequences of operations that typically have a defined start and end, often involving fetching data, processing it, and producing a result or side effect. RxJS excels at managing ongoing **streams** of events. While there can be overlap, their primary use cases are distinct. You might even use both in a larger application (e.g., RxJS for UI events, triggering an Effectively workflow).
+
+### 5. Synchronous Code
+
+**Use When:**
+*   Your code doesn't involve I/O, timers, or other asynchronous operations.
+*   You are performing pure computations on in-memory data.
+
+**How Effectively Differs:**
+Effectively is specifically for asynchronous code. Introducing its patterns for purely synchronous logic would be unnecessary overhead.
 
 <br />
 
@@ -860,6 +899,99 @@ Use this guide to choose the appropriate context function:
 | Must ensure you're in a specific context | `getContextLocal<MyContext>()` | Throws if wrong context |
 | Always want global context | `getContextGlobal()` | Predictable behavior |
 | Building a library | `getContextLocal()` or `getContext<C>()` | Explicit context requirements |
+
+### Async Context & Environment Issues
+
+Effectively uses [unctx](https://github.com/unjs/unctx) under the hood for context management, which can present challenges in certain environments:
+
+#### **"Context is not available" Errors**
+
+**Problem:** Tasks throw "Context is not available" when run in certain environments (tests, browsers, edge functions).
+
+**Causes & Solutions:**
+
+1. **AsyncLocalStorage Unavailable:**
+   - **Browser environments:** `AsyncLocalStorage` is Node.js-specific and not available in browsers
+   - **Edge environments:** Some edge runtimes don't support `node:async_hooks`
+   - **Solution:** Effectively automatically falls back to sync context when `AsyncLocalStorage` fails, but you may need to wrap async functions
+
+2. **Context Lost After Await:**
+   ```typescript
+   // ❌ This will lose context after the await
+   const task = defineTask(async (input) => {
+     const context = getContext(); // Works
+     await someAsyncOperation();
+     const context2 = getContext(); // ❌ May throw "Context is not available"
+   });
+   ```
+
+   **Solutions:**
+   - **Cache context early:** Store context in a variable before async operations
+   ```typescript
+   const task = defineTask(async (input) => {
+     const context = getContext(); // Cache it
+     await someAsyncOperation();
+     // Use cached context instead of calling getContext() again
+   });
+   ```
+   - **Use unctx transform (advanced):** Install the unctx Vite/Webpack plugin to automatically preserve context
+
+#### **Build Tool Integration (Advanced)**
+
+For applications that heavily use async operations and need context preserved across await boundaries, consider using the unctx transform:
+
+**Vite Integration:**
+```typescript
+// vite.config.ts
+import { unctxPlugin } from 'unctx/plugin';
+
+export default {
+  plugins: [
+    unctxPlugin.vite({
+      // Transform these functions to preserve context
+      asyncFunctions: ['callAsync', 'provide']
+    })
+  ]
+};
+```
+
+**Usage with Transform:**
+```typescript
+import { withAsyncContext } from 'unctx';
+
+// Wrap async functions that need context preservation
+const myAsyncTask = withAsyncContext(async () => {
+  const context = getContext(); // Works
+  await someAsyncOperation();
+  const context2 = getContext(); // ✅ Still works with transform
+});
+```
+
+#### **Testing Environment Issues**
+
+**Vitest/Jest Browser Mode:**
+```typescript
+// If running tests in browser mode, you may need to mock AsyncLocalStorage
+// vitest.config.ts
+export default {
+  test: {
+    environment: 'jsdom', // or 'happy-dom'
+    // Mock node modules in browser environment
+    server: {
+      deps: {
+        external: ['node:async_hooks']
+      }
+    }
+  }
+};
+```
+
+#### **Best Practices for Async Context**
+
+1. **Cache Context Early:** Always get context at the start of tasks, before any async operations
+2. **Use Smart Functions:** Prefer `getContext()` over `getContextLocal()` for better fallback behavior  
+3. **Avoid Deep Async Chains:** Keep async operations within task boundaries rather than spreading across multiple function calls
+4. **Test in Target Environment:** Context behavior can differ between Node.js, browsers, and edge environments
 
 <br />
 

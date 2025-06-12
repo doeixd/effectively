@@ -71,7 +71,7 @@
     "prepack": "pnpm build",
     "play": "jiti playground",
     "release": "changelogen --release && git push --follow-tags",
-    "test": "vitest",
+    "test": "vitest --run --reporter=default --reporter=json --outputFile=./test-results.json",
     "test:types": "tsc --noEmit --skipLibCheck"
   },
   "devDependencies": {
@@ -82,6 +82,7 @@
     "eslint": "^9.17.0",
     "eslint-config-unjs": "^0.4.2",
     "jiti": "^2.4.2",
+    "jsdom": "^26.1.0",
     "prettier": "^3.4.2",
     "typescript": "^5.7.2",
     "unbuild": "^3.0.1",
