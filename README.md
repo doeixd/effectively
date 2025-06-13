@@ -382,6 +382,65 @@ This dual approach ensures:
 - **Runtime resilience** for unexpected failures
 - **Clear separation** between business logic and infrastructure concerns
 
+#### Traditional `try/catch` & `Promise.catch()` (Seamless Integration)
+
+**Effectively is designed to work beautifully with the error handling mechanisms you already know.** You don't need to abandon `try/catch` or `Promise.catch()`. In fact, they are often the simplest way to handle errors within the logic of a single task or when integrating with third-party libraries.
+
+Since Effectively tasks are fundamentally `async` functions returning Promises, standard JavaScript error handling just works.
+
+```typescript
+// import { defineTask, run, createContext, type BaseContext } from '@doeixd/effectively'; // Assuming imports
+
+// const { defineTask: appDefineTask, run: appRun } = createContext<BaseContext>({});
+
+// --- Using try/catch within a Task's logic ---
+const taskWithInternalTryCatch = appDefineTask(async (path: string) => {
+  let fileContent: string;
+  try {
+    // Simulate an operation that might throw
+    if (path === 'nonexistent.txt') {
+      throw new Error(`File not found: ${path}`);
+    }
+    fileContent = `Content of ${path}`; // Replace with actual fs.readFile
+    console.log(`Successfully read ${path}`);
+  } catch (error: any) {
+    console.error(`[Task Logic] Failed to read file '${path}': ${error.message}`);
+    // You can handle it here, re-throw, or return a default/error indicator
+    fileContent = `Error reading ${path}: ${error.message}`; // Recover with an error message
+    // Or: throw new CustomError("Failed to process file", { cause: error });
+  }
+  return `Processed: ${fileContent}`;
+});
+
+
+
+// --- Using .catch() when running a Task or Workflow ---
+const potentiallyFailingTask = appDefineTask(async (shouldFail: boolean) => {
+  if (shouldFail) {
+    throw new Error("Simulated failure in task");
+  }
+  return "Task succeeded!";
+});
+
+// You can use .catch() directly on the Promise returned by run()
+ appRun(potentiallyFailingTask, true)
+   .then(result => console.log("Run succeeded:", result))
+   .catch(error => console.error("Run failed with .catch():", error.message));
+
+// Or within an async function:
+async function executeAndHandle() {
+  try {
+    const result = await appRun(potentiallyFailingTask, false);
+    console.log("Traditional try/catch: Task result:", result);
+
+    await appRun(potentiallyFailingTask, true); // This will throw
+  } catch (error: any) {
+    console.error("Traditional try/catch: Caught error from run():", error.message);
+  }
+}
+executeAndHandle();
+```
+
 <br />
 
 ## 🚀 Features
