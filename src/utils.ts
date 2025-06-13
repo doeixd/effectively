@@ -20,6 +20,7 @@ import {
   getContext,
   isBacktrackSignal,
 } from './run';
+import { TimeoutError as GenericTimeoutError } from './utils'
 
 // A lightweight deep-equal implementation for memoize key comparison
 const deepEqual = (a: any, b: any): boolean => {
@@ -821,56 +822,216 @@ export function sleep(ms: number): Task<BaseContext, any, void> {
 // =================================================================
 
 /**
- * Performs a side effect if a task fails. It does not catch the error.
- * @param task The task to watch for errors.
- * @param f The side-effect function to run on error.
+ * A higher-order task that performs a side effect if the wrapped `task` throws an error.
+ * The original error is always re-thrown after the side effect function `onErrorFn` completes.
+ * This utility is useful for logging errors, sending metrics, or performing other
+ * observational side effects without altering the primary error handling flow.
+ *
+ * `BacktrackSignal`s are ignored by `onErrorFn` and re-thrown immediately.
+ *
+ * @template C The context type for the task and the error handler.
+ * @template V The input value type of the task.
+ * @template R The result type of the task if successful.
+ * @template E The expected type of the error to be passed to `onErrorFn`. Defaults to `unknown`.
+ *             If you expect a specific error type, you can specify it, but ensure
+ *             your `onErrorFn` handles potential type mismatches if other errors occur.
+ * @param task The `Task<C, V, R>` to wrap.
+ * @param onErrorFn A synchronous or asynchronous function that will be called if `task` throws an error.
+ *                  It receives the caught `error` (typed as `E`) and the current `context`.
+ *                  This function's return value is ignored.
+ * @returns A new `Task<C, V, R>` that incorporates the error tapping behavior.
+ *
  * @example
  * ```typescript
- * const loggedFetch = tapError(fetchUser, (err, ctx) => {
- *   ctx.logger.error('Failed to fetch user', err);
+ * const flakyFetch = defineTask(async (ctx, url: string) => {
+ *   if (Math.random() < 0.5) throw new NetworkError('Connection failed');
+ *   return fetch(url);
  * });
- * // The workflow will still fail, but the error will be logged.
- * await run(loggedFetch, 'user-123');
+ *
+ * // Log any NetworkError specifically, or any other error more generically
+ * const loggedFlakyFetch = tapError<AppContext, string, Response, Error>( // Explicit E as Error
+ *  flakyFetch,
+ *  async (error, context) => {
+ *     if (error instanceof NetworkError) {
+ *       context.logger.error(`NetworkError during fetch: ${error.message}`, { url: error.url });
+ *     } else {
+ *       context.logger.error(`Generic error during fetch: ${error.message}`);
+ *     }
+ *     await context.metrics.increment('fetch_errors');
+ *   }
+ * );
+ *
+ * try {
+ *   await run(loggedFlakyFetch, 'https://api.example.com/data');
+ * } catch (e) {
+ *   // The error (NetworkError or other) is still caught here after logging.
+ *   console.log('Caught error after tapError processed it:', e);
+ * }
  * ```
  */
-export function tapError<C extends BaseContext, V, R>(
+export function tapError<C extends BaseContext, V, R, E = unknown>( // E defaults to unknown
   task: Task<C, V, R>,
-  f: (error: unknown, context: C) => void | Promise<void>
+  onErrorFn: (error: E, context: C) => void | Promise<void>
 ): Task<C, V, R> {
-  return async (context: C, value: V): Promise<R> => {
+  const tappedTaskLogic: Task<C, V, R> = async (context: C, value: V): Promise<R> => {
     try {
       return await task(context, value);
     } catch (error) {
-      if (!isBacktrackSignal(error)) await f(error, context);
+      // Do not trigger the side effect for BacktrackSignals
+      if (isBacktrackSignal(error)) {
+        throw error;
+      }
+
+      // Perform the side effect.
+      // The `onErrorFn` is called with `error as E`. This cast is based on the
+      // generic type E provided by the caller. It's up to the caller to ensure
+      // that the `onErrorFn` can handle the types of errors `task` might throw,
+      // or to perform type checks within `onErrorFn`.
+      try {
+        await onErrorFn(error as E, context);
+      } catch (tapFnError) {
+        // If the onErrorFn itself throws an error, log it but prioritize the original error.
+        // This prevents the error tapping logic from masking the primary failure.
+        const logger = (context as C & { logger?: Logger }).logger; // Attempt to get logger
+        if (logger && logger.error) {
+          logger.error(
+            `[tapError] Error occurred within the onErrorFn itself while handling another error. Original error will be re-thrown. Error in tap function:`,
+            tapFnError,
+            { originalError: error }
+          );
+        } else {
+          console.error(
+            `[tapError] Error in onErrorFn (original error: ${error}):`,
+            tapFnError
+          );
+        }
+      }
+
+      // Always re-throw the original error from the task.
       throw error;
     }
   };
+
+  // Set descriptive name and propagate properties
+  Object.defineProperty(tappedTaskLogic, 'name', {
+    value: `tapError(${task.name || 'anonymousTask'}, ${onErrorFn.name || 'onErrorFn'})`,
+    configurable: true,
+  });
+
+  if (task.__task_id) {
+    Object.defineProperty(tappedTaskLogic, '__task_id', {
+      value: task.__task_id,
+      configurable: true, enumerable: false, writable: false,
+    });
+  }
+  if (task.__steps) {
+    Object.defineProperty(tappedTaskLogic, '__steps', {
+      value: task.__steps,
+      configurable: true, enumerable: false, writable: false,
+    });
+  }
+
+  return tappedTaskLogic;
 }
 
 /**
- * Wraps a `Task` that might throw and converts its outcome into a `Result` object.
- * @param task The `Task` to wrap.
+ * Default error mapper for `attempt` when a more specific mapping to `E` is not provided.
+ * It checks if the caught error is an instance of `Error`. If so, it's cast to `E`.
+ * Otherwise, it wraps the caught value in a new `Error` instance and then casts to `E`.
+ * This cast assumes `E` is `Error` or one of its subtypes.
+ */
+function defaultAttemptErrorMapper<E extends Error>(caughtError: unknown): E {
+  if (caughtError instanceof Error) {
+    return caughtError as E; // Assumes E is compatible with Error or is Error itself
+  }
+  // For non-Error types, wrap them in a generic Error instance.
+  return new Error(String(caughtError !== undefined ? caughtError : 'Unknown error during attempt')) as E;
+}
+
+/**
+ * Wraps a `Task` that might throw an error, converting its outcome into a
+ * `Result<R, E>` object from `neverthrow`.
+ *
+ * If the original `task` successfully resolves, this function returns `Ok<R>`.
+ * If the original `task` throws an error (and it's not a `BacktrackSignal`),
+ * this function catches it and returns `Err<E>`.
+ * `BacktrackSignal`s are re-thrown to allow non-linear control flow.
+ *
+ * @template C The context type for the task.
+ * @template V The input value type of the task.
+ * @template R The success result type of the task.
+ * @template E The expected error type if the task fails (must extend `Error`). Defaults to `Error`.
+ * @param task The `Task<C, V, R>` to wrap.
+ * @param mapErrorToE An optional function to map a caught `unknown` error value
+ *                    to the desired error type `E`. If not provided, a default
+ *                    mapper is used which attempts to cast `Error` instances or
+ *                    wraps non-`Error` values in a new `Error`.
+ * @returns A new `Task<C, V, Result<R, E>>` that always resolves (never throws,
+ *          except for `BacktrackSignal`).
+ *
  * @example
  * ```typescript
- * const safeFetch = attempt(fetchUser);
+ * const fetchUserTask = defineTask(async (ctx, userId: string) => {
+ *   if (userId === 'bad-id') throw new Error('Invalid user ID');
+ *   return { id: userId, name: 'John Doe' };
+ * });
+ *
+ * const safeFetchUser = attempt(fetchUserTask);
+ *
  * const workflow = createWorkflow(
- *   fromValue('user-123'),
- *   safeFetch,
- *   map(result => result.isOk() ? `Found user` : `Error: ${result.error.message}`)
+ *   fromValue('user-123'), // or 'bad-id'
+ *   safeFetchUser,
+ *   map(result =>
+ *     result.match(
+ *       user => `User: ${user.name}`,
+ *       error => `Failed to fetch user: ${error.message}`
+ *     )
+ *   )
  * );
+ *
+ * const outcome = await run(workflow);
+ * console.log(outcome);
  * ```
  */
-export function attempt<C extends BaseContext, V, R, E extends Error>(
-  task: Task<C, V, R>
+export function attempt<C extends BaseContext, V, R, E extends Error = Error>(
+  task: Task<C, V, R>,
+  mapErrorToE: (caughtError: unknown) => E = defaultAttemptErrorMapper
 ): Task<C, V, Result<R, E>> {
-  return async (context: C, value: V): Promise<Result<R, E>> => {
-    try {
-      return ok(await task(context, value));
-    } catch (error) {
-      if (isBacktrackSignal(error)) throw error;
-      return err(error as E);
-    }
-  };
+
+  const attemptTaskLogic: Task<C, V, Result<R, E>> =
+    async (context: C, value: V): Promise<Result<R, E>> => {
+      try {
+        const resultValue = await task(context, value);
+        return ok(resultValue);
+      } catch (error) {
+        if (isBacktrackSignal(error)) {
+          throw error; // Propagate BacktrackSignal for control flow
+        }
+        // Use the error mapper to convert the caught error to type E
+        return err(mapErrorToE(error));
+      }
+    };
+
+  // Set descriptive name and propagate properties
+  Object.defineProperty(attemptTaskLogic, 'name', {
+    value: `attempt(${task.name || 'anonymousTask'})`,
+    configurable: true,
+  });
+
+  if (task.__task_id) {
+    Object.defineProperty(attemptTaskLogic, '__task_id', {
+      value: task.__task_id, // Or a new Symbol
+      configurable: true, enumerable: false, writable: false,
+    });
+  }
+  if (task.__steps) {
+    Object.defineProperty(attemptTaskLogic, '__steps', {
+      value: task.__steps,
+      configurable: true, enumerable: false, writable: false,
+    });
+  }
+
+  return attemptTaskLogic;
 }
 
 export interface RetryOptions<E = Error> { // Added E generic for error type
@@ -1338,41 +1499,153 @@ export function withTimeout<C extends BaseContext, V, R>(
   return timeoutEnhancedTask;
 }
 
+/**
+ * Tools provided to the `workflowFn` within `withState` to interact with the
+ * encapsulated state.
+ * @template S The type of the state.
+ */
 export interface StateTools<S> {
+  /**
+   * Retrieves the current value of the encapsulated state.
+   * @returns The current state `S`.
+   */
   getState: () => S;
+  /**
+   * Updates the encapsulated state.
+   * @param updater Either a new state value `S` or a function that takes the
+   *                previous state `(prevState: S)` and returns the new state `S`.
+   *                If an updater function is provided, it should ideally return a new
+   *                state object/value if `S` is complex to maintain immutability,
+   *                though direct mutation is possible if `S` is managed carefully.
+   */
   setState: (updater: S | ((prevState: S) => S)) => void;
 }
 
 /**
- * Creates a task that encapsulates a stateful workflow. The state is private
- * and returned along with the final result.
- * @param initialState A function that produces the initial state.
- * @param workflowFn A function that receives state tools and returns the `Task` to execute.
+ * Creates a task that encapsulates a stateful workflow. The state is initialized
+ * when the task starts and is private to its execution. The final state is returned
+ * along with the result of the workflow.
+ *
+ * This allows for building tasks that maintain and evolve state during their
+ * execution without exposing that state to the outer context or other tasks directly.
+ *
+ * @template C The context type for the inner workflow.
+ * @template V The input value type for the overall stateful task.
+ * @template R The result type of the inner workflow.
+ * @template S The type of the encapsulated state.
+ *
+ * @param initialState A function that takes the `initialValue` (of type `V`) passed to the
+ *                     `withState` task and returns the initial state `S`.
+ * @param workflowFn A function that receives `StateTools<S>` (for getting and setting state)
+ *                   and must return a `Task<C, V, R>` representing the actual workflow
+ *                   to be executed. This workflow will operate with the encapsulated state.
+ * @returns A `Task<C, V, { result: R; state: S }>` that, when run, will execute the
+ *          workflow with state management and return both its result and the final state.
+ *
  * @example
  * ```typescript
- * const workflow = withState(
- *   () => ({ count: 0 }),
- *   ({ setState, getState }) => createWorkflow(
- *     someTask,
- *     tap(() => setState(s => ({ count: s.count + 1 })))
- *   )
+ * interface MyState { count: number; history: string[]; }
+ *
+ * const statefulCounter = withState<AppContext, string, string, MyState>(
+ *   (initialMsg) => ({ count: 0, history: [initialMsg] }), // initialState uses the workflow's input
+ *   ({ getState, setState }) => defineTask(async (ctx, operation: string) => {
+ *     // 'operation' is the V (string) for the task returned by workflowFn
+ *     // 'initialMsg' was used to set up the initial state.
+ *     
+ *     // Example of using an updater function for setState
+ *     setState(prevState => ({
+ *       count: prevState.count + 1,
+ *       history: [...prevState.history, `${operation} (count: ${prevState.count + 1})`]
+ *     }));
+ *
+ *     if (getState().count > 2) {
+ *       return `Count limit reached. Final operation: ${operation}. History: ${getState().history.join(', ')}`;
+ *     }
+ *     return `Performed: ${operation}. Current count: ${getState().count}`;
+ *   })
  * );
- * const { result, state } = await run(workflow); // state is { count: 1 }
+ *
+ * // Running the stateful task
+ * // The 'start' value is passed to initialState and as the V to the inner task.
+ * const outcome1 = await run(statefulCounter, 'increment');
+ * // outcome1.result = "Performed: increment. Current count: 1"
+ * // outcome1.state = { count: 1, history: ["start", "increment (count: 1)"] }
+ * // (Assuming 'start' was the initialValue used if `run` calls initialState with workflow's input)
+ *
+ * // If run again, it's a new stateful execution:
+ * const outcome2 = await run(statefulCounter, 'init');
+ * // outcome2.state.count would be 1 (from 'init' and one 'increment' if it was called with 'increment')
  * ```
  */
 export function withState<C extends BaseContext, V, R, S>(
-  initialState: (initialValue: V) => S,
+  initialStateFn: (initialValue: V) => S, // Renamed for clarity
   workflowFn: (tools: StateTools<S>) => Task<C, V, R>
 ): Task<C, V, { result: R; state: S }> {
-  return async (context: C, initialValue: V): Promise<{ result: R; state: S }> => {
-    let state: S = initialState(initialValue);
-    const tools: StateTools<S> = {
-      getState: () => state,
-      setState: (updater) => { state = typeof updater === 'function' ? (updater as Function)(state) : updater; },
+
+  // The task returned by workflowFn will be used to determine properties like name and __task_id
+  // We need to call workflowFn once (with dummy tools if necessary) to get this template task,
+  // but this is problematic as tools rely on `state` which isn't initialized yet without `initialValue`.
+  // So, we'll name the withState task generically or based on workflowFn's name if possible.
+
+  const statefulTaskLogic: Task<C, V, { result: R; state: S }> =
+    async (context: C, initialValue: V): Promise<{ result: R; state: S }> => {
+      let state: S = initialStateFn(initialValue); // Initialize state using the input to this task
+
+      const tools: StateTools<S> = {
+        getState: () => state,
+        setState: (updater: S | ((prevState: S) => S)) => {
+          if (typeof updater === 'function') {
+            // Type assertion for the updater function
+            state = (updater as (prevState: S) => S)(state);
+          } else {
+            state = updater;
+          }
+        },
+      };
+
+      // Get the actual task to execute from the workflowFn, providing the real tools
+      const taskToExecute = workflowFn(tools);
+
+      // Execute the workflow. It receives the same `context` and `initialValue`
+      // as the outer `withState` task.
+      const result = await taskToExecute(context, initialValue);
+
+      return { result, state };
     };
-    const result = await workflowFn(tools)(context, initialValue);
-    return { result, state };
-  };
+
+  // Enhancer property propagation
+  let innerTaskName = 'anonymousWorkflow';
+  try {
+    // Attempt to get the name of the task returned by workflowFn.
+    // This requires a dummy call, which might not always be safe or desirable
+    // if workflowFn has side effects or relies on tools that need real state.
+    // A safer approach is to rely on workflowFn.name if available.
+    if (workflowFn.name && workflowFn.name !== 'workflowFn') {
+      innerTaskName = workflowFn.name;
+    } else {
+      // Fallback if workflowFn is anonymous or name is not useful
+      // This part is tricky without executing workflowFn.
+      // For now, we'll use a generic name or workflowFn's name.
+    }
+  } catch (e) { /* ignore if dummy call fails */ }
+
+
+  Object.defineProperty(statefulTaskLogic, 'name', {
+    value: `withState(${innerTaskName})`,
+    configurable: true,
+  });
+
+  // The __task_id should ideally be unique for the statefulTaskLogic itself,
+  // or it could try to propagate from the task returned by workflowFn,
+  // but that task instance is only known *during* execution of statefulTaskLogic.
+  // For simplicity, giving withState its own ID.
+  Object.defineProperty(statefulTaskLogic, '__task_id', {
+    value: Symbol(`withStateTask_${innerTaskName}`),
+    configurable: true, enumerable: false, writable: false,
+  });
+  // __steps would be from the task returned by workflowFn, not directly on statefulTaskLogic wrapper.
+
+  return statefulTaskLogic;
 }
 
 
@@ -1500,96 +1773,371 @@ export function withThrottle<C extends BaseContext, V, R>(
   return throttledTask;
 }
 
+/**
+ * Configuration options for the `withPoll` utility.
+ * @template R The type of the result produced by the task being polled.
+ */
 export interface PollOptions<R> {
+  /**
+   * The interval in milliseconds between polling attempts.
+   * Must be non-negative.
+   */
   intervalMs: number;
+  /**
+   * The total duration in milliseconds after which the polling will time out
+   * if the `until` condition is not met. Must be non-negative.
+   */
   timeoutMs: number;
-  until: (result: R) => boolean;
-}
-
-export class PollTimeoutError extends Error {
-  constructor(timeoutMs: number) { super(`Polling timed out after ${timeoutMs}ms.`); this.name = 'PollTimeoutError'; }
+  /**
+   * A predicate function that is called with the result of each polling attempt.
+   * Polling stops when this function returns `true`.
+   * @param result The result from the polled task.
+   * @returns `true` to stop polling, `false` to continue.
+   */
+  until: (result: R) => boolean | Promise<boolean>; // Allow async predicate
+  /**
+   * An optional name for the polling operation, used in the PollTimeoutError message.
+   * If not provided, the name of the wrapped task will be used.
+   */
+  pollName?: string;
 }
 
 /**
- * Creates a task that repeatedly executes another task until a condition is met or a timeout occurs.
- * @param task The `Task` to execute repeatedly.
- * @param options Configuration for the polling behavior.
+ * Custom error thrown by `withPoll` when the `timeoutMs` is reached before
+ * the `until` condition returns true.
+ */
+export class PollTimeoutError extends GenericTimeoutError { // Inherit from a generic TimeoutError if available
+  // public override readonly _tag = 'PollTimeoutError' as const;
+  constructor(operationName: string, timeoutMs: number) {
+    super(
+      // `Polling operation '${operationName}' timed out after ${timeoutMs}ms.`
+      operationName
+      , timeoutMs);
+    this.name = 'PollTimeoutError'; // Override name
+    Object.setPrototypeOf(this, PollTimeoutError.prototype);
+  }
+}
+
+/**
+ * Creates a task that repeatedly executes another `taskToPoll` at a specified
+ * `intervalMs` until an `until` condition (a predicate function) returns `true`
+ * or an overall `timeoutMs` is reached.
+ *
+ * The polling mechanism is cancellable via the context's `AbortSignal`.
+ * If the `timeoutMs` is reached before the `until` condition is met, a `PollTimeoutError` is thrown.
+ *
+ * @template C The context type, which must include `scope`.
+ * @template V The input value type of the task being polled.
+ * @template R The result type of the task being polled (and of this polling task).
+ * @param taskToPoll The `Task<C, V, R>` to execute repeatedly.
+ * @param options Configuration for the polling behavior (`intervalMs`, `timeoutMs`, `until` predicate).
+ * @returns A new `Task<C, V, R>` that implements the polling logic.
+ *
  * @example
  * ```typescript
- * const waitForJob = withPoll(checkJobStatus, {
- *   intervalMs: 5000,
- *   timeoutMs: 60000,
- *   until: (status) => status.isDone,
+ * const checkJobStatusTask = defineTask(async (ctx, jobId: string) => api.getJob(jobId));
+ *
+ * const waitForJobCompletion = withPoll(checkJobStatusTask, {
+ *   intervalMs: 5000,  // Check every 5 seconds
+ *   timeoutMs: 300000, // Timeout after 5 minutes
+ *   until: (jobStatus) => jobStatus.isComplete || jobStatus.hasFailed,
+ *   pollName: 'JobStatusCheck'
  * });
- * await run(waitForJob, 'job-id');
+ *
+ * try {
+ *   const finalJobStatus = await run(waitForJobCompletion, 'job-123');
+ *   // ... process finalJobStatus
+ * } catch (error) {
+ *   if (error instanceof PollTimeoutError) {
+ *     console.error('Job status polling timed out:', error.message);
+ *   } else {
+ *     // Handle errors from checkJobStatusTask itself if they are not caught internally
+ *     console.error('Error during job status check:', error);
+ *   }
+ * }
  * ```
  */
 export function withPoll<C extends BaseContext, V, R>(
-  task: Task<C, V, R>,
+  taskToPoll: Task<C, V, R>,
   options: PollOptions<R>
 ): Task<C, V, R> {
-  const pollingLoop = async (context: C, value: V): Promise<R> => {
+  const { intervalMs, timeoutMs, until: untilPredicate, pollName } = options;
+
+  if (intervalMs < 0) {
+    throw new Error('PollOptions.intervalMs must be non-negative.');
+  }
+  if (timeoutMs < 0) {
+    throw new Error('PollOptions.timeoutMs must be non-negative.');
+  }
+  // Optional: Could warn if timeoutMs is very small relative to intervalMs,
+  // e.g., if timeoutMs < intervalMs, no retry will happen.
+
+  const operationName = pollName || taskToPoll.name || 'anonymousPoll';
+
+  const pollingLoopTask: Task<C, V, R> = async (context: C, value: V): Promise<R> => {
+    // Loop indefinitely until the `until` condition is met or an error (like timeout) is thrown.
+    // The overall timeout is handled by `withTimeout` wrapping this loop.
+    // Cancellation is handled by `taskToPoll` and `sleep` respecting `context.scope.signal`.
+    // eslint-disable-next-line no-constant-condition
     while (true) {
-      const result = await task(context, value);
-      if (options.until(result)) return result;
-      await sleep(options.intervalMs)(context, null);
+      // Explicit check before potentially long operation (taskToPoll)
+      if (context.scope.signal.aborted) {
+        throw context.scope.signal.reason ?? new DOMException('Polling loop aborted before task execution', 'AbortError');
+      }
+
+      const result = await taskToPoll(context, value);
+
+      // Check condition after task execution
+      if (await untilPredicate(result)) { // Await in case `until` is async
+        return result; // Condition met, resolve with the result
+      }
+
+      // Explicit check before potentially long operation (sleep)
+      if (context.scope.signal.aborted) {
+        throw context.scope.signal.reason ?? new DOMException('Polling loop aborted before sleep', 'AbortError');
+      }
+
+      // Wait for the specified interval before the next poll attempt.
+      // `sleep` is cancellable and will throw if context.scope.signal is aborted.
+      await sleep(intervalMs)(context, null);
+      // Loop continues for the next attempt.
     }
   };
 
-  return withTimeout(pollingLoop, options.timeoutMs);
+  // Wrap the pollingLoopTask with the overall timeout mechanism.
+  // If withTimeout throws its own TimeoutError, we want to wrap it in PollTimeoutError.
+  const timedPollingLoop: Task<C, V, R> = async (context: C, value: V) => {
+    try {
+      return await withTimeout(pollingLoopTask, timeoutMs)(context, value);
+    } catch (error) {
+      if (error instanceof GenericTimeoutError && !(error instanceof PollTimeoutError)) { // Check if it's the generic TimeoutError from withTimeout
+        throw new PollTimeoutError(operationName, timeoutMs);
+      }
+      throw error; // Re-throw other errors (e.g., from taskToPoll, or PollTimeoutError itself)
+    }
+  };
+
+  // Set descriptive name and propagate properties for the final task
+  Object.defineProperty(timedPollingLoop, 'name', {
+    value: `withPoll(${operationName}, interval=${intervalMs}ms, timeout=${timeoutMs}ms)`,
+    configurable: true,
+  });
+
+  // Propagate __task_id from the original taskToPoll if it exists.
+  // This implies that if backtracking targets taskToPoll, the polling mechanism restarts.
+  if (taskToPoll.__task_id) {
+    Object.defineProperty(timedPollingLoop, '__task_id', {
+      value: taskToPoll.__task_id,
+      configurable: true, enumerable: false, writable: false,
+    });
+  }
+  if (taskToPoll.__steps) { // If taskToPoll was a workflow
+    Object.defineProperty(timedPollingLoop, '__steps', {
+      value: taskToPoll.__steps,
+      configurable: true, enumerable: false, writable: false,
+    });
+  }
+
+  return timedPollingLoop;
 }
 
 export interface BatchingOptions {
+  /**
+   * The time window in milliseconds to wait for collecting keys before dispatching the batch.
+   * @default 10
+   */
   windowMs?: number;
+  /**
+   * The maximum number of keys to include in a single batch. If this limit is reached
+   * before `windowMs` elapses, the batch will be dispatched immediately.
+   * @default Infinity (no limit other than windowMs)
+   */
+  maxBatchSize?: number;
 }
 
 /**
- * Creates a task that batches multiple calls into a single underlying call,
- * respecting cancellation for queued items.
- * @param batchFn A function that accepts keys and returns results in the same order.
- * @param options Configuration for the batching window.
+ * Represents an item pending in the batch queue.
+ */
+interface PendingBatchItem<K, R> {
+  key: K;
+  resolve: (value: R) => void;
+  reject: (reason?: any) => void;
+  signal: AbortSignal; // Signal from the context of the individual call
+}
+
+/**
+ * Creates a task that batches multiple calls for individual keys into a single
+ * underlying call to `batchFn`. This is extremely useful for reducing the number
+ * of requests to a backend, database, or other I/O-bound service (similar to DataLoader).
+ *
+ * Calls are collected during a `windowMs` time window or until `maxBatchSize` is reached.
+ * Individual calls in the queue respect their context's `AbortSignal`.
+ * The `batchFn` itself can be made cancellable by observing the aggregated signal passed to it.
+ *
+ * @template C The context type. Must include `scope`.
+ * @template K The type of the key for each item (e.g., an ID).
+ * @template R The type of the result for each key.
+ * @param batchFn An asynchronous function that accepts an array of keys (`K[]`),
+ *                the parent context (`C`), and an `AbortSignal` for the batch execution.
+ *                It must return a `Promise` of an array of results (`R[]`) in the
+ *                *same order* as the input keys.
+ * @param options Optional configuration for the batching behavior, including `windowMs`
+ *                and `maxBatchSize`.
+ * @returns A `Task<C, K, R>` that, when called, queues its key and resolves with the
+ *          corresponding result from the batched call.
+ *
  * @example
  * ```typescript
- * const fetchUserBatched = createBatchingTask(
- *   (ids: string[]) => api.users.getByIds(ids),
- *   { windowMs: 10 }
+ * const fetchUsersByIdsBatched = createBatchingTask<AppContext, string, User>(
+ *   async (ids, context, batchSignal) => {
+ *     // In a real scenario, use batchSignal if your API client supports it
+ *     console.log(`[BatchFn] Fetching users for IDs: ${ids.join(', ')} with context`, context.someService);
+ *     return UserAPI.getByIds(ids, { signal: batchSignal }); // Assuming API supports signal
+ *   },
+ *   { windowMs: 20, maxBatchSize: 10 }
  * );
- * // Multiple parallel runs will be batched into one API call.
- * await Promise.all([run(fetchUserBatched, '1'), run(fetchUserBatched, '2')]);
+ *
+ * // In a workflow:
+ * const user1Promise = run(fetchUsersByIdsBatched, 'user-1');
+ * const user2Promise = run(fetchUsersByIdsBatched, 'user-2');
+ * const [user1, user2] = await Promise.all([user1Promise, user2Promise]);
+ * // This would likely result in one call to UserAPI.getByIds(['user-1', 'user-2'])
  * ```
  */
 export function createBatchingTask<C extends BaseContext, K, R>(
-  batchFn: (keys: K[]) => Promise<R[]>,
+  batchFn: (keys: K[], context: C, batchSignal: AbortSignal) => Promise<R[]>,
   options: BatchingOptions = {}
 ): Task<C, K, R> {
-  let pending: { key: K; resolve: (v: R) => void; reject: (r: any) => void; signal: AbortSignal }[] = [];
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const { windowMs = 10 } = options;
+  const { windowMs = 10, maxBatchSize = Infinity } = options;
+
+  if (windowMs < 0) {
+    throw new Error('BatchingOptions windowMs must be non-negative.');
+  }
+  if (maxBatchSize <= 0) {
+    throw new Error('BatchingOptions maxBatchSize must be positive.');
+  }
+
+  let pendingItems: PendingBatchItem<K, R>[] = [];
+  let dispatchTimer: ReturnType<typeof setTimeout> | null = null;
+  // Use the context of the first call in a batch as the representative context for the batchFn.
+  // This is a common approach; alternatively, one could try to merge contexts or require
+  // batchFn to not rely on specific request-scoped context values.
+  let representativeContextForBatch: C | null = null;
+
+
   const dispatch = () => {
-    if (timer) clearTimeout(timer);
-    timer = null;
-    const currentBatch = pending;
-    pending = [];
-    if (currentBatch.length === 0) return;
-    const activeCalls = currentBatch.filter(p => !p.signal.aborted);
-    const abortedCalls = currentBatch.filter(p => p.signal.aborted);
-    abortedCalls.forEach(p => p.reject(p.signal.reason ?? new DOMException('Aborted', 'AbortError')));
-    if (activeCalls.length === 0) return;
-    const keys = activeCalls.map(p => p.key);
-    batchFn(keys)
+    if (dispatchTimer) {
+      clearTimeout(dispatchTimer);
+      dispatchTimer = null;
+    }
+
+    const currentBatchItems = pendingItems;
+    const batchContext = representativeContextForBatch; // Use the captured context
+
+    pendingItems = [];
+    representativeContextForBatch = null;
+
+    if (currentBatchItems.length === 0 || !batchContext) {
+      return;
+    }
+
+    // Filter out calls that were aborted while in the queue
+    const activeCalls: PendingBatchItem<K, R>[] = [];
+    const abortedCalls: PendingBatchItem<K, R>[] = [];
+
+    for (const item of currentBatchItems) {
+      if (item.signal.aborted) {
+        abortedCalls.push(item);
+      } else {
+        activeCalls.push(item);
+      }
+    }
+
+    abortedCalls.forEach(item =>
+      item.reject(item.signal.reason ?? new DOMException('Call aborted before batch dispatch', 'AbortError'))
+    );
+
+    if (activeCalls.length === 0) {
+      return;
+    }
+
+    const keysForBatch = activeCalls.map(item => item.key);
+
+    // Create an AbortController for the batchFn call itself.
+    // This can be aborted if the representativeContextForBatch's scope is aborted.
+    // Or, if we had a way to aggregate signals from all activeCalls (complex).
+    // For now, link it to the representativeContextForBatch's signal.
+    const batchAbortController = new AbortController();
+    const onBatchContextAbort = () => {
+      batchAbortController.abort(batchContext.scope.signal.reason ?? new DOMException('Batch execution aborted by context', 'AbortError'));
+    };
+    batchContext.scope.signal.addEventListener('abort', onBatchContextAbort, { once: true });
+
+    batchFn(keysForBatch, batchContext, batchAbortController.signal)
       .then(results => {
-        if (results.length !== activeCalls.length) throw new Error('Batch function must return an array of the same length as the keys array.');
-        activeCalls.forEach((cb, i) => cb.resolve(results[i]));
+        if (results.length !== activeCalls.length) {
+          // This is a critical error in the batchFn implementation
+          const error = new Error(
+            `Batch function contract violation: expected ${activeCalls.length} results, but got ${results.length}.`
+          );
+          activeCalls.forEach(item => item.reject(error));
+          return;
+        }
+        activeCalls.forEach((item, i) => item.resolve(results[i]));
       })
-      .catch(error => activeCalls.forEach(cb => cb.reject(error)));
+      .catch(error => {
+        // If batchFn itself throws, reject all promises in this batch
+        activeCalls.forEach(item => item.reject(error));
+      })
+      .finally(() => {
+        batchContext.scope.signal.removeEventListener('abort', onBatchContextAbort);
+        // If batchAbortController wasn't aborted by context, ensure it's cleaned up.
+        if (!batchAbortController.signal.aborted) {
+          batchAbortController.abort(new DOMException('Batch function concluded.', 'AbortError'));
+        }
+      });
   };
-  return async (context: C, key: K): Promise<R> => {
-    return new Promise<R>((resolve, reject) => {
-      const { scope } = context;
-      pending.push({ key, resolve, reject, signal: scope.signal });
-      if (!timer) timer = setTimeout(dispatch, windowMs);
+
+  const batchingTask: Task<C, K, R> = (context: C, key: K): Promise<R> => {
+    // If this call itself is already aborted, reject immediately
+    if (context.scope.signal.aborted) {
+      return Promise.reject(context.scope.signal.reason ?? new DOMException('Call aborted before queueing', 'AbortError'));
+    }
+
+    // Capture the context of the first item in a new batch.
+    if (!representativeContextForBatch) {
+      representativeContextForBatch = context;
+    }
+
+    const promise = new Promise<R>((resolve, reject) => {
+      pendingItems.push({ key, resolve, reject, signal: context.scope.signal });
     });
+
+    // Clear existing timer if one is pending (i.e., this call arrived before previous window closed)
+    if (dispatchTimer) {
+      clearTimeout(dispatchTimer);
+    }
+    // Start a new timer
+    dispatchTimer = setTimeout(dispatch, windowMs);
+
+    // If maxBatchSize is reached, dispatch immediately
+    if (pendingItems.length >= maxBatchSize) {
+      dispatch();
+    }
+
+    return promise;
   };
+
+  Object.defineProperty(batchingTask, 'name', {
+    value: `createBatchingTask(${batchFn.name || 'batchFn'})`,
+    configurable: true,
+  });
+  // A batching task usually doesn't have a single __task_id in the same way
+  // as a direct task, as it's a queueing mechanism.
+  // If needed, a unique Symbol could be assigned.
+  // Object.defineProperty(batchingTask, '__task_id', { value: Symbol(...) });
+
+  return batchingTask;
 }
 
 

@@ -1176,6 +1176,21 @@ export default {
 
 For detailed telemetry setup and configuration, see the [OpenTelemetry Integration Guide](docs/telemetry.md).
 
+### Task Enhancers
+
+| Function                                                               | Description                                                                                                                                                                          |
+| :--------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `composeEnhancers(...enhancers)`                                   | Composes multiple `TaskEnhancer` functions into a single enhancer. Enhancers are applied right-to-left (e.g., `enhancer1(enhancer2(task))`).                                         |
+| `createTaskEnhancer(enhancerLogicFactory, options?)`                 | A factory to simplify creating new `TaskEnhancer`s. Handles consistent application of metadata (like `name`, `__task_id`) to the enhanced task based on configurable options.       |
+| `finalizeEnhancedTask(originalTask, enhancedTaskLogic, metaOptions)` | A low-level helper for enhancer authors to consistently apply standard metadata (like `name`, `__task_id`, `__steps`) to an already defined enhanced task logic.                 |
+
+**Types & Interfaces:**
+
+*   **`TaskEnhancer<C, V, R>`** - A type alias representing a function `(task: Task<C,V,R>) => Task<C,V,R>` that enhances a task.
+*   **`EnhancerMetaOptions`** - An interface for options passed to `finalizeEnhancedTask`, controlling how metadata (`name`, `__task_id` propagation, `__steps` propagation) is applied to an enhanced task.
+*   **`CreateEnhancerOptions`** - An interface for options passed to `createTaskEnhancer`, guiding the automatic metadata application and naming of tasks produced by the enhancer logic.
+
+
 <br />
 
 ## 🤝 Contributing
