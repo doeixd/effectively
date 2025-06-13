@@ -489,7 +489,7 @@ interface DefaultGlobalContext extends BaseContext {}
 const DEFAULT_GLOBAL_CONTEXT_KEY = '__effectively_default_context__' as const;
 
 declare global {
-  var __effectively_default_context__: ContextTools<DefaultGlobalContext> | undefined;
+  var __effectively_default_context__: ContextTools<DefaultGlobalContext, DefaultGlobalContext> | undefined;
 }
 
 
@@ -1208,7 +1208,7 @@ async function _INTERNAL_provideImpl<R, ParentCtx extends BaseContext, Overrides
  *                  The `scope` property cannot be overridden.
  * @param fn The asynchronous function to execute within the new, modified context.
  *           Calls to `getContext()` within this function will resolve to the new context.
- *
+ * @param options ParamImplOptions 
  * @returns A Promise that resolves with the result of `fn`.
  *
  * @example
@@ -1231,16 +1231,19 @@ async function _INTERNAL_provideImpl<R, ParentCtx extends BaseContext, Overrides
  */
 export function provide<R>(
   overrides: Partial<Omit<DefaultGlobalContext, 'scope'> & Record<string | symbol | number, any>>,
-  fn: () => Promise<R>
+  fn: () => Promise<R>,
+  options?: ProvideImplOptions
 ): Promise<R>;
 export function provide<C extends BaseContext, R>(
   overrides: Partial<Omit<C, 'scope'> & Record<string | symbol | number, any>>, // `overrides` typed against `C`
-  fn: () => Promise<R>
+  fn: () => Promise<R>,
+  options?: ProvideImplOptions,
 ): Promise<R>;
 
 export function provide<R, CtxForOverrides extends BaseContext = BaseContext>(
   overrides: Partial<Omit<CtxForOverrides, 'scope'> & Record<string | symbol | number, any>>,
-  fn: () => Promise<R>
+  fn: () => Promise<R>,
+  options?: ProvideImplOptions
 ): Promise<R> {
   const activeSpecificContext = getContextOrUndefinedFromActiveInstance<CtxForOverrides>();
 
@@ -1260,7 +1263,7 @@ export function provide<R, CtxForOverrides extends BaseContext = BaseContext>(
     parentContextData,
     overrides,
     fn,
-    { strategy: 'spread' } // Explicitly use spread for the default `provide`
+    options || { strategy: 'spread' }
   );
 }
 
@@ -2061,7 +2064,7 @@ export function createContext<C extends BaseContext, G extends BaseContext = Def
           `Ensure getContext() is called within a run() or provide() scope managed by these specific tools.`
         );
       }
-      return ctx;
+      return ctx 
     } catch (error) {
       if (error instanceof ContextNotFoundError) throw error;
       throw new ContextNotFoundError(

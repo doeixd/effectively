@@ -6,7 +6,6 @@ import {
   withErrorBoundary,
   tryCatch,
   type ErrorTypeOptions,
-  type ErrorHandler
 } from '../src/errors';
 import {
   createContext,
@@ -25,13 +24,15 @@ interface TestContext extends BaseContext {
     error: (msg: string, error?: any) => void;
     warn: (msg: string, ...args: any[]) => void;
     info: (msg: string, ...args: any[]) => void;
+    debug: (msg: string, ...args: any[]) => void;
   };
 }
 
 const mockLogger = {
   error: vi.fn(),
   warn: vi.fn(),
-  info: vi.fn()
+  info: vi.fn(),
+  debug: vi.fn()
 };
 
 const testContextDefaults: Omit<TestContext, 'scope'> = {
@@ -265,7 +266,7 @@ describe('Error Handling (errors.ts)', () => {
       });
 
       protectedTask = withErrorBoundary(backtrackingTask, [
-        createErrorHandler(Error, () => 'error-caught')
+        createErrorHandler(Error, () => -1)
       ]);
 
       // BacktrackSignal should not be caught by error boundary, should succeed with retries

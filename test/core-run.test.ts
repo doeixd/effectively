@@ -33,6 +33,7 @@ import {
   type Scope,
   type Logger
 } from '../src/run';
+import { createWorkflow } from '../src';
 
 interface TestContext extends BaseContext {
   userId: string;
@@ -159,16 +160,23 @@ describe('Core Execution Engine (run.ts)', () => {
   describe('Backtracking and control flow', () => {
     it('should handle BacktrackSignal correctly', async () => {
       const { run, defineTask } = createContext<TestContext>(testContextDefaults);
-      
-      const retryTask = defineTask(async (attempt: number) => {
+
+      const taskA = defineTask(async (attempt: number) => {
         if (attempt < 3) {
-          throw new BacktrackSignal(retryTask, attempt + 1);
+          // This is the key: backtrack to a task that has already run.
+          throw new BacktrackSignal(taskA, attempt + 1);
         }
-        return `Success after ${attempt} attempts`;
+        return `Finished at attempt ${attempt}`;
       });
 
-      const result = await run(retryTask, 1);
-      expect(result).toBe('Success after 3 attempts');
+      const taskB = defineTask(async (msg: string) => {
+        return `${msg} and then taskB ran.`;
+      });
+
+      const workflow = createWorkflow(taskA, taskB);
+
+      const result = await run(workflow, 1);
+      expect(result).toBe('Finished at attempt 3 and then taskB ran.');
     });
 
     it('should identify BacktrackSignal with type guard', () => {
@@ -276,7 +284,7 @@ describe('Core Execution Engine (run.ts)', () => {
   describe('provide function and context overrides', () => {
     it('should temporarily override context values', async () => {
       const { run, defineTask, getContext, provide } = createContext<TestContext>(testContextDefaults);
-      
+
       const contextTask = defineTask(async () => {
         return getContext().userId;
       });
@@ -284,11 +292,9 @@ describe('Core Execution Engine (run.ts)', () => {
       const outerResult = await run(contextTask, undefined);
       expect(outerResult).toBe('test-user');
 
-      const innerResult = await run(async () => {
-        return provide({ userId: 'temporary-user' }, async () => {
-          return run(contextTask, undefined);
-        });
-      }, undefined);
+      const innerResult = await provide({ userId: 'temporary-user' }, async () => {
+        return run(contextTask, undefined);
+      });
       expect(innerResult).toBe('temporary-user');
     });
 
@@ -386,7 +392,7 @@ describe('Core Execution Engine (run.ts)', () => {
   describe('Dependency injection', () => {
     it('should create and use injection tokens', async () => {
       const { run, defineTask, provide, inject } = createContext<TestContext>(testContextDefaults);
-      
+
       const userServiceToken = createInjectionToken<{ getCurrentUser: () => string }>('UserService');
       const userService = { getCurrentUser: () => 'injected-user' };
 
@@ -395,11 +401,9 @@ describe('Core Execution Engine (run.ts)', () => {
         return service.getCurrentUser();
       });
 
-      const result = await run(async () => {
-        return provide({ [userServiceToken]: userService } as any, async () => {
-          return run(injectionTask, undefined);
-        });
-      }, undefined);
+      const result = await provide({ [userServiceToken]: userService }, async () => {
+        return run(injectionTask, undefined);
+      });
 
       expect(result).toBe('injected-user');
     });

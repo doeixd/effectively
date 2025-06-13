@@ -117,7 +117,7 @@ export function pipe(value: any, ...fns: Function[]): any {
  * const result = processString("  hello world  "); // "HELLO_WORLD"
  * ```
  */
-// Overloads are essential for TypeScript's type inference to work correctly.
+export function flow(): <T>(arg: T) => T;
 export function flow<A extends any[], B>(f1: (...args: A) => B): (...args: A) => B;
 export function flow<A extends any[], B, C>(f1: (...args: A) => B, f2: (b: B) => C): (...args: A) => C;
 export function flow<A extends any[], B, C, D>(f1: (...args: A) => B, f2: (b: B) => C, f3: (c: C) => D): (...args: A) => D;
@@ -1476,8 +1476,18 @@ export function withTimeout<C extends BaseContext, V, R>(
 }
 
 /**
- * Tools provided to the `workflowFn` within `withState` to interact with the
- * encapsulated state.
+ * A unique symbol used to store StateTools in the context.
+ * @internal
+ */
+const STATE_TOOLS_KEY = Symbol('effectively.stateTools');
+
+// ... keep all other existing code ...
+
+// REPLACE the old withState and its related types with all of this:
+
+/**
+ * Tools for interacting with the state managed by `withState`.
+ * These are injected into the context for the wrapped task.
  * @template S The type of the state.
  */
 export interface StateTools<S> {
@@ -1490,136 +1500,115 @@ export interface StateTools<S> {
    * Updates the encapsulated state.
    * @param updater Either a new state value `S` or a function that takes the
    *                previous state `(prevState: S)` and returns the new state `S`.
-   *                If an updater function is provided, it should ideally return a new
-   *                state object/value if `S` is complex to maintain immutability,
-   *                though direct mutation is possible if `S` is managed carefully.
    */
   setState: (updater: S | ((prevState: S) => S)) => void;
 }
 
 /**
- * Creates a task that encapsulates a stateful workflow. The state is initialized
- * when the task starts and is private to its execution. The final state is returned
- * along with the result of the workflow.
+ * A "hook" to access the state management tools (`getState` and `setState`)
+ * from within a task that has been wrapped by `withState`.
  *
- * This allows for building tasks that maintain and evolve state during their
- * execution without exposing that state to the outer context or other tasks directly.
+ * It retrieves the tools from the current context.
  *
- * @template C The context type for the inner workflow.
- * @template V The input value type for the overall stateful task.
- * @template R The result type of the inner workflow.
+ * @template S The type of the state.
+ * @param context The context object, retrieved via `getContext()`.
+ * @returns The `StateTools` for interacting with the state.
+ * @throws {Error} If called outside of a `withState`-enhanced task's execution scope.
+ */
+export function useState<S>(context: BaseContext): StateTools<S> {
+  const tools = (context as any)[STATE_TOOLS_KEY] as StateTools<S> | undefined;
+  if (!tools) {
+    throw new Error(
+      'useState() can only be used within a task wrapped by withState(). ' +
+      'Ensure withState() is an ancestor enhancer in your workflow.'
+    );
+  }
+  return tools;
+}
+
+/**
+ * An enhancer that wraps a task to provide it with a private, encapsulated state.
+ * The state is initialized when the task begins and is discarded when it ends.
+ *
+ * This new implementation is a proper enhancer, making it more composable and
+ * improving type inference significantly. The wrapped task can access `getState`
+* and `setState` tools via the `useState(getContext())` hook.
+ *
+ * @template C The context type of the inner task.
+ * @template V The input value type for the task.
+ * @template R The result type of the inner task.
  * @template S The type of the encapsulated state.
  *
- * @param initialState A function that takes the `initialValue` (of type `V`) passed to the
- *                     `withState` task and returns the initial state `S`.
- * @param workflowFn A function that receives `StateTools<S>` (for getting and setting state)
- *                   and must return a `Task<C, V, R>` representing the actual workflow
- *                   to be executed. This workflow will operate with the encapsulated state.
- * @returns A `Task<C, V, { result: R; state: S }>` that, when run, will execute the
- *          workflow with state management and return both its result and the final state.
+ * @param initialState A value or a function `(initialValue: V) => S` to create the initial state.
+ * @param task The `Task` that will be executed with access to the state tools via context.
+ * @returns A new `Task<C, V, { result: R; state: S }>` that returns both the task's
+ *          result and the final state.
  *
  * @example
  * ```typescript
- * interface MyState { count: number; history: string[]; }
- *
- * const statefulCounter = withState<AppContext, string, string, MyState>(
- *   (initialMsg) => ({ count: 0, history: [initialMsg] }), // initialState uses the workflow's input
- *   ({ getState, setState }) => defineTask(async (ctx, operation: string) => {
- *     // 'operation' is the V (string) for the task returned by workflowFn
- *     // 'initialMsg' was used to set up the initial state.
- *     
- *     // Example of using an updater function for setState
- *     setState(prevState => ({
- *       count: prevState.count + 1,
- *       history: [...prevState.history, `${operation} (count: ${prevState.count + 1})`]
- *     }));
- *
- *     if (getState().count > 2) {
- *       return `Count limit reached. Final operation: ${operation}. History: ${getState().history.join(', ')}`;
- *     }
- *     return `Performed: ${operation}. Current count: ${getState().count}`;
- *   })
+ * const innerWorkflow = createWorkflow(
+ *   tap((_, ctx) => useState<MyState>(ctx).setState(s => ({ ...s, count: s.count + 1 }))),
+ *   map((_, ctx) => useState<MyState>(ctx).getState().count)
  * );
  *
- * // Running the stateful task
- * // The 'start' value is passed to initialState and as the V to the inner task.
- * const outcome1 = await run(statefulCounter, 'increment');
- * // outcome1.result = "Performed: increment. Current count: 1"
- * // outcome1.state = { count: 1, history: ["start", "increment (count: 1)"] }
- * // (Assuming 'start' was the initialValue used if `run` calls initialState with workflow's input)
+ * const statefulWorkflow = withState(
+ *   () => ({ count: 0 }),
+ *   innerWorkflow
+ * );
  *
- * // If run again, it's a new stateful execution:
- * const outcome2 = await run(statefulCounter, 'init');
- * // outcome2.state.count would be 1 (from 'init' and one 'increment' if it was called with 'increment')
+ * const final = await run(statefulWorkflow, 'initial-input');
+ * // final.result is 1
+ * // final.state is { count: 1 }
  * ```
  */
 export function withState<C extends BaseContext, V, R, S>(
-  initialStateFn: (initialValue: V) => S, // Renamed for clarity
-  workflowFn: (tools: StateTools<S>) => Task<C, V, R>
+  initialState: S | ((initialValue: V) => S),
+  task: Task<C & { [STATE_TOOLS_KEY]: StateTools<S> }, V, R>
 ): Task<C, V, { result: R; state: S }> {
+  const statefulTaskLogic: Task<C, V, { result: R; state: S }> = async (context, value) => {
+    // 1. Initialize the state for this specific execution.
+    let state: S = typeof initialState === 'function'
+      ? (initialState as (initialValue: V) => S)(value)
+      : initialState;
 
-  // The task returned by workflowFn will be used to determine properties like name and __task_id
-  // We need to call workflowFn once (with dummy tools if necessary) to get this template task,
-  // but this is problematic as tools rely on `state` which isn't initialized yet without `initialValue`.
-  // So, we'll name the withState task generically or based on workflowFn's name if possible.
-
-  const statefulTaskLogic: Task<C, V, { result: R; state: S }> =
-    async (context: C, initialValue: V): Promise<{ result: R; state: S }> => {
-      let state: S = initialStateFn(initialValue); // Initialize state using the input to this task
-
-      const tools: StateTools<S> = {
-        getState: () => state,
-        setState: (updater: S | ((prevState: S) => S)) => {
-          if (typeof updater === 'function') {
-            // Type assertion for the updater function
-            state = (updater as (prevState: S) => S)(state);
-          } else {
-            state = updater;
-          }
-        },
-      };
-
-      // Get the actual task to execute from the workflowFn, providing the real tools
-      const taskToExecute = workflowFn(tools);
-
-      // Execute the workflow. It receives the same `context` and `initialValue`
-      // as the outer `withState` task.
-      const result = await taskToExecute(context, initialValue);
-
-      return { result, state };
+    // 2. Create the state management tools. They operate on the `state` variable in this closure.
+    const tools: StateTools<S> = {
+      getState: () => state,
+      setState: (updater) => {
+        state = typeof updater === 'function'
+          ? (updater as (prevState: S) => S)(state)
+          : updater;
+      },
     };
 
-  // Enhancer property propagation
-  let innerTaskName = 'anonymousWorkflow';
-  try {
-    // Attempt to get the name of the task returned by workflowFn.
-    // This requires a dummy call, which might not always be safe or desirable
-    // if workflowFn has side effects or relies on tools that need real state.
-    // A safer approach is to rely on workflowFn.name if available.
-    if (workflowFn.name && workflowFn.name !== 'workflowFn') {
-      innerTaskName = workflowFn.name;
-    } else {
-      // Fallback if workflowFn is anonymous or name is not useful
-      // This part is tricky without executing workflowFn.
-      // For now, we'll use a generic name or workflowFn's name.
-    }
-  } catch (e) { /* ignore if dummy call fails */ }
+    // 3. Use `provide` to inject the tools into the context for the inner task.
+    // The `provide` function is assumed to be available from './run' or a similar module.
+    // We need to import `provide` for this to work. Let's assume it's available.
+    // Since this is a utility, it should use the global smart `provide`.
+    const { provide } = await import('./run'); // Dynamic import to avoid circular dependency issues at module load time
 
+    const result = await provide(
+      { [STATE_TOOLS_KEY]: tools },
+      () => task(context as any, value) // The context for the task will be enhanced by `provide`
+    );
 
+    // 4. Return the final result and state.
+    return { result, state };
+  };
+
+  // Set a descriptive name for the enhanced task
   Object.defineProperty(statefulTaskLogic, 'name', {
-    value: `withState(${innerTaskName})`,
+    value: `withState(${task.name || 'anonymousTask'})`,
     configurable: true,
   });
 
-  // The __task_id should ideally be unique for the statefulTaskLogic itself,
-  // or it could try to propagate from the task returned by workflowFn,
-  // but that task instance is only known *during* execution of statefulTaskLogic.
-  // For simplicity, giving withState its own ID.
-  Object.defineProperty(statefulTaskLogic, '__task_id', {
-    value: Symbol(`withStateTask_${innerTaskName}`),
-    configurable: true, enumerable: false, writable: false,
-  });
-  // __steps would be from the task returned by workflowFn, not directly on statefulTaskLogic wrapper.
+  // Propagate the original task's ID for backtracking or identification.
+  if (task.__task_id) {
+    Object.defineProperty(statefulTaskLogic, '__task_id', {
+      value: task.__task_id,
+      configurable: true, enumerable: false, writable: false,
+    });
+  }
 
   return statefulTaskLogic;
 }

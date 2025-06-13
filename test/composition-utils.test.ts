@@ -35,7 +35,9 @@ import {
   type ThrottleOptions,
   type PollOptions,
   type BatchingOptions,
-  PollTimeoutError
+  PollTimeoutError,
+  TimeoutError,
+  useState,
 } from '../src/utils';
 import {
   createContext,
@@ -269,7 +271,7 @@ describe('Composition Utilities (utils.ts)', () => {
       it('should transform values in a workflow', async () => {
         const getData = defineTask(async () => ({ name: 'John', age: 30 }));
         const workflow = createWorkflow(getData, map(user => user.name));
-        const result = await run(workflow, undefined);
+        const result = await run(workflow, null);
         expect(result).toBe('John');
       });
 
@@ -282,7 +284,9 @@ describe('Composition Utilities (utils.ts)', () => {
             return str.toUpperCase();
           })
         );
-        const result = await run(workflow, undefined);
+        const promise = run(workflow, null);
+        await vi.advanceTimersByTimeAsync(10);
+        const result = await promise;
         expect(result).toBe('HELLO');
       });
 
@@ -292,7 +296,7 @@ describe('Composition Utilities (utils.ts)', () => {
           getData,
           map((value: string, context: TestContext) => `${value}-${context.userId}`)
         );
-        const result = await run(workflow, undefined);
+        const result = await run(workflow, null);
         expect(result).toBe('data-test-user');
       });
     });
@@ -301,12 +305,12 @@ describe('Composition Utilities (utils.ts)', () => {
       it('should transform values into new tasks', async () => {
         const getNumber = defineTask(async () => 5);
         const multiplyBy = (factor: number) => defineTask(async (x: number) => x * factor);
-        
+
         const workflow = createWorkflow(
           getNumber,
           flatMap((x: number) => multiplyBy(3))
         );
-        const result = await run(workflow, undefined);
+        const result = await run(workflow, null);
         expect(result).toBe(15);
       });
 
@@ -314,33 +318,33 @@ describe('Composition Utilities (utils.ts)', () => {
         const getData = defineTask(async () => 'prefix');
         const workflow = createWorkflow(
           getData,
-          flatMap((prefix: string, context: TestContext) => 
+          flatMap((prefix: string, context: TestContext) =>
             defineTask(async () => `${prefix}-${context.userId}`)
           )
         );
-        const result = await run(workflow, undefined);
+        const result = await run(workflow, null);
         expect(result).toBe('prefix-test-user');
       });
     });
 
     describe('pick', () => {
       it('should pick specified keys from object', async () => {
-        const getUser = defineTask(async () => ({ 
-          id: '123', 
-          name: 'John', 
-          email: 'john@example.com', 
-          age: 30 
+        const getUser = defineTask(async () => ({
+          id: '123',
+          name: 'John',
+          email: 'john@example.com',
+          age: 30
         }));
-        
+
         const workflow = createWorkflow(getUser, pick('id', 'name'));
-        const result = await run(workflow, undefined);
+        const result = await run(workflow, null);
         expect(result).toEqual({ id: '123', name: 'John' });
       });
 
       it('should handle missing keys gracefully', async () => {
         const getUser = defineTask(async () => ({ id: '123', name: 'John' }));
         const workflow = createWorkflow(getUser, pick('id', 'missing' as any));
-        const result = await run(workflow, undefined);
+        const result = await run(workflow, null);
         expect(result).toEqual({ id: '123' });
       });
     });
@@ -353,7 +357,7 @@ describe('Composition Utilities (utils.ts)', () => {
       it('should transform task output', async () => {
         const getNumber = defineTask(async () => 42);
         const mappedTask = mapTask(getNumber, (x: number) => x.toString());
-        const result = await run(mappedTask, undefined);
+        const result = await run(mappedTask, null);
         expect(result).toBe('42');
       });
 
@@ -363,7 +367,9 @@ describe('Composition Utilities (utils.ts)', () => {
           await new Promise(resolve => setTimeout(resolve, 10));
           return x * 2;
         });
-        const result = await run(mappedTask, undefined);
+        const promise = run(mappedTask, null);
+        await vi.advanceTimersByTimeAsync(10);
+        const result = await promise;
         expect(result).toBe(84);
       });
     });
@@ -371,9 +377,9 @@ describe('Composition Utilities (utils.ts)', () => {
     describe('andThenTask', () => {
       it('should chain tasks with direct composition', async () => {
         const getUser = defineTask(async (id: string) => ({ id, name: 'John' }));
-        const getProfile = (user: { id: string }) => 
+        const getProfile = (user: { id: string }) =>
           defineTask(async () => ({ userId: user.id, bio: 'Developer' }));
-        
+
         const composedTask = andThenTask(getUser, getProfile);
         const result = await run(composedTask, 'user-123');
         expect(result).toEqual({ userId: 'user-123', bio: 'Developer' });
@@ -391,7 +397,7 @@ describe('Composition Utilities (utils.ts)', () => {
           fromValue('hello'),
           when((str: string) => str.length > 3, addSuffix)
         );
-        const result = await run(workflow, undefined);
+        const result = await run(workflow, null);
         expect(result).toBe('hello-processed');
       });
 
@@ -401,7 +407,7 @@ describe('Composition Utilities (utils.ts)', () => {
           fromValue('hi'),
           when((str: string) => str.length > 3, addSuffix)
         );
-        const result = await run(workflow, undefined);
+        const result = await run(workflow, null);
         expect(result).toBe('hi');
       });
 
@@ -414,7 +420,9 @@ describe('Composition Utilities (utils.ts)', () => {
             return str.length > 3;
           }, addSuffix)
         );
-        const result = await run(workflow, undefined);
+        const promise = run(workflow, null);
+        await vi.advanceTimersByTimeAsync(10);
+        const result = await promise;
         expect(result).toBe('hello-processed');
       });
 
@@ -424,7 +432,7 @@ describe('Composition Utilities (utils.ts)', () => {
           fromValue('hello'),
           when((str: string, ctx: TestContext) => ctx.counter === 0, addSuffix)
         );
-        const result = await run(workflow, undefined);
+        const result = await run(workflow, null);
         expect(result).toBe('hello-processed');
       });
     });
@@ -436,7 +444,7 @@ describe('Composition Utilities (utils.ts)', () => {
           fromValue('hi'),
           unless((str: string) => str.length > 3, addSuffix)
         );
-        const result = await run(workflow, undefined);
+        const result = await run(workflow, null);
         expect(result).toBe('hi-processed');
       });
 
@@ -446,7 +454,7 @@ describe('Composition Utilities (utils.ts)', () => {
           fromValue('hello'),
           unless((str: string) => str.length > 3, addSuffix)
         );
-        const result = await run(workflow, undefined);
+        const result = await run(workflow, null);
         expect(result).toBe('hello');
       });
     });
@@ -477,12 +485,12 @@ describe('Composition Utilities (utils.ts)', () => {
           await new Promise(resolve => setTimeout(resolve, 100));
           return x + 1;
         });
-        
+
         const controller = new AbortController();
         const workflow = doWhile(incrementTask, () => true); // Infinite loop
-        
+
         setTimeout(() => controller.abort(), 50);
-        
+
         await expect(run(workflow, 1, { parentSignal: controller.signal }))
           .rejects.toThrow('Aborted');
       });
@@ -492,14 +500,14 @@ describe('Composition Utilities (utils.ts)', () => {
       it('should perform side effects without changing value', async () => {
         const logs: string[] = [];
         const sideEffect = (value: string) => { logs.push(value); };
-        
+
         const workflow = createWorkflow(
           fromValue('hello'),
           tap(sideEffect),
           map((str: string) => str.toUpperCase())
         );
-        
-        const result = await run(workflow, undefined);
+
+        const result = await run(workflow, null);
         expect(result).toBe('HELLO');
         expect(logs).toEqual(['hello']);
       });
@@ -510,13 +518,15 @@ describe('Composition Utilities (utils.ts)', () => {
           await new Promise(resolve => setTimeout(resolve, 10));
           logs.push(value);
         };
-        
+
         const workflow = createWorkflow(
           fromValue('hello'),
           tap(asyncSideEffect)
         );
-        
-        const result = await run(workflow, undefined);
+
+        const promise = run(workflow, null);
+        await vi.advanceTimersByTimeAsync(10);
+        const result = await promise;
         expect(result).toBe('hello');
         expect(logs).toEqual(['hello']);
       });
@@ -526,41 +536,39 @@ describe('Composition Utilities (utils.ts)', () => {
         const sideEffect = (value: string, context: TestContext) => {
           capturedUserId = context.userId;
         };
-        
+
         const workflow = createWorkflow(
           fromValue('hello'),
           tap(sideEffect)
         );
-        
-        await run(workflow, undefined);
+
+        await run(workflow, null);
         expect(capturedUserId).toBe('test-user');
       });
     });
 
     describe('sleep', () => {
       it('should pause workflow for specified duration', async () => {
-        const start = Date.now();
         const workflow = createWorkflow(
           fromValue('before'),
           sleep(100),
           map(() => 'after')
         );
-        
-        const promise = run(workflow, undefined);
-        vi.advanceTimersByTime(100);
+
+        const promise = run(workflow, null);
+        await vi.advanceTimersByTimeAsync(100);
         const result = await promise;
-        
+
         expect(result).toBe('after');
       });
 
       it('should respect abort signals', async () => {
         const controller = new AbortController();
         const workflow = sleep(1000);
-        
-        const promise = run(workflow, undefined, { parentSignal: controller.signal });
+
+        const promise = run(workflow, null, { parentSignal: controller.signal });
         setTimeout(() => controller.abort(), 50);
-        vi.advanceTimersByTime(50);
-        
+
         await expect(promise).rejects.toThrow('Aborted');
       });
     });
@@ -573,25 +581,25 @@ describe('Composition Utilities (utils.ts)', () => {
       it('should perform side effects on error without catching it', async () => {
         let errorLogged = false;
         const sideEffect = () => { errorLogged = true; };
-        
+
         const failingTask = defineTask(async () => {
           throw new Error('Task failed');
         });
-        
+
         const workflow = tapError(failingTask, sideEffect);
-        
-        await expect(run(workflow, undefined)).rejects.toThrow('Task failed');
+
+        await expect(run(workflow, null)).rejects.toThrow('Task failed');
         expect(errorLogged).toBe(true);
       });
 
       it('should not perform side effect on success', async () => {
         let errorLogged = false;
         const sideEffect = () => { errorLogged = true; };
-        
+
         const successTask = defineTask(async () => 'success');
         const workflow = tapError(successTask, sideEffect);
-        
-        const result = await run(workflow, undefined);
+
+        const result = await run(workflow, null);
         expect(result).toBe('success');
         expect(errorLogged).toBe(false);
       });
@@ -601,14 +609,14 @@ describe('Composition Utilities (utils.ts)', () => {
         const errorHandler = (error: unknown, context: TestContext) => {
           capturedUserId = context.userId;
         };
-        
+
         const failingTask = defineTask(async () => {
           throw new Error('Task failed');
         });
-        
+
         const workflow = tapError(failingTask, errorHandler);
-        
-        await expect(run(workflow, undefined)).rejects.toThrow('Task failed');
+
+        await expect(run(workflow, null)).rejects.toThrow('Task failed');
         expect(capturedUserId).toBe('test-user');
       });
     });
@@ -618,27 +626,27 @@ describe('Composition Utilities (utils.ts)', () => {
         const failingTask = defineTask(async () => {
           throw new Error('Task failed');
         });
-        
+
         const workflow = createWorkflow(
-          fromValue(undefined),
+          fromValue(null),
           attempt(failingTask),
           map(result => result.isErr() ? 'error' : 'success')
         );
-        
-        const result = await run(workflow, undefined);
+
+        const result = await run(workflow, null);
         expect(result).toBe('error');
       });
 
       it('should wrap successful results in Ok', async () => {
         const successTask = defineTask(async () => 'success');
-        
+
         const workflow = createWorkflow(
-          fromValue(undefined),
+          fromValue(null),
           attempt(successTask),
           map(result => result.isOk() ? result.value : 'error')
         );
-        
-        const result = await run(workflow, undefined);
+
+        const result = await run(workflow, null);
         expect(result).toBe('success');
       });
     });
@@ -651,22 +659,32 @@ describe('Composition Utilities (utils.ts)', () => {
           if (attempts < 3) throw new Error('Temporary failure');
           return 'success';
         });
-        
+
         const resilientTask = withRetry(flakyTask, { attempts: 3, delayMs: 10 });
-        const result = await run(resilientTask, undefined);
-        
+        const promise = run(resilientTask, null);
+
+        // Advance timers to cover all retry delays
+        await vi.advanceTimersByTimeAsync(20); // 10ms for first retry, 10ms for second
+
+        const result = await promise;
         expect(result).toBe('success');
         expect(attempts).toBe(3);
       });
 
       it('should fail after max attempts', async () => {
+        let attempts = 0;
         const alwaysFailingTask = defineTask(async () => {
+          attempts++;
           throw new Error('Always fails');
         });
-        
+
         const resilientTask = withRetry(alwaysFailingTask, { attempts: 2, delayMs: 10 });
-        
-        await expect(run(resilientTask, undefined)).rejects.toThrow('Always fails');
+
+        const promise = run(resilientTask, null);
+        await vi.advanceTimersByTimeAsync(10); // for the first retry delay
+
+        await expect(promise).rejects.toThrow('Always fails');
+        expect(attempts).toBe(2);
       });
 
       it('should use exponential backoff', async () => {
@@ -675,19 +693,20 @@ describe('Composition Utilities (utils.ts)', () => {
           attempts++;
           throw new Error('Temporary failure');
         });
-        
-        const resilientTask = withRetry(flakyTask, { 
-          attempts: 3, 
-          delayMs: 100, 
-          backoff: 'exponential' 
+
+        const resilientTask = withRetry(flakyTask, {
+          attempts: 3,
+          delayMs: 100,
+          backoff: 'exponential'
         });
-        
-        const promise = run(resilientTask, undefined).catch(() => {});
-        
-        // Should fail after exponential delays: 100ms, 200ms, 400ms
-        vi.advanceTimersByTime(700);
-        await promise;
-        
+
+        const promise = run(resilientTask, null).catch(() => { });
+
+        // Exponential backoff: delayMs, delayMs*2, ...
+        // After 1st failure, wait 100ms. After 2nd, wait 200ms. Total = 300ms
+        await vi.advanceTimersByTimeAsync(300);
+
+        await expect(promise).rejects.toThrow('Temporary failure');
         expect(attempts).toBe(3);
       });
 
@@ -697,13 +716,17 @@ describe('Composition Utilities (utils.ts)', () => {
           attempts++;
           throw new Error('Network error');
         });
-        
-        const resilientTask = withRetry(flakyTask, { 
+
+        const resilientTask = withRetry(flakyTask, {
           attempts: 3,
+          delayMs: 10,
           shouldRetry: (error) => (error as Error).message.includes('Network')
         });
-        
-        await expect(run(resilientTask, undefined)).rejects.toThrow('Network error');
+
+        const promise = run(resilientTask, null);
+        await vi.advanceTimersByTimeAsync(20); // for two retries
+
+        await expect(promise).rejects.toThrow('Network error');
         expect(attempts).toBe(3);
       });
 
@@ -713,13 +736,13 @@ describe('Composition Utilities (utils.ts)', () => {
           attempts++;
           throw new Error('Auth error');
         });
-        
-        const resilientTask = withRetry(flakyTask, { 
+
+        const resilientTask = withRetry(flakyTask, {
           attempts: 3,
           shouldRetry: (error) => (error as Error).message.includes('Network')
         });
-        
-        await expect(run(resilientTask, undefined)).rejects.toThrow('Auth error');
+
+        await expect(run(resilientTask, null)).rejects.toThrow('Auth error');
         expect(attempts).toBe(1);
       });
     });
@@ -732,9 +755,9 @@ describe('Composition Utilities (utils.ts)', () => {
       it('should attach name to task', async () => {
         const task = defineTask(async (x: number) => x * 2);
         const namedTask = withName(task, 'DoubleTask');
-        
+
         expect(namedTask.name).toBe('DoubleTask');
-        
+
         const result = await run(namedTask, 5);
         expect(result).toBe(10);
       });
@@ -742,7 +765,7 @@ describe('Composition Utilities (utils.ts)', () => {
       it('should preserve task functionality', async () => {
         const task = defineTask(async (x: number) => x + 1);
         const namedTask = withName(task, 'IncrementTask');
-        
+
         const result = await run(namedTask, 9);
         expect(result).toBe(10);
       });
@@ -756,17 +779,23 @@ describe('Composition Utilities (utils.ts)', () => {
           await new Promise(resolve => setTimeout(resolve, 10));
           return x * 2;
         });
-        
+
         const memoizedTask = memoize(expensiveTask);
-        
-        const result1 = await run(memoizedTask, 5);
+
+        const p1 = run(memoizedTask, 5);
+        await vi.advanceTimersByTimeAsync(10);
+
+        const result1 = await p1;
         const result2 = await run(memoizedTask, 5);
-        const result3 = await run(memoizedTask, 10);
-        
+
+        const p3 = run(memoizedTask, 10);
+        await vi.advanceTimersByTimeAsync(10);
+        const result3 = await p3;
+
         expect(result1).toBe(10);
         expect(result2).toBe(10);
         expect(result3).toBe(20);
-        expect(callCount).toBe(2); // Only called for 5 once and 10 once
+        expect(callCount).toBe(2);
       });
 
       it('should use deep equality for cache keys', async () => {
@@ -775,17 +804,17 @@ describe('Composition Utilities (utils.ts)', () => {
           callCount++;
           return `${obj.name}-${obj.id}`;
         });
-        
+
         const memoizedTask = memoize(taskWithObjectInput);
-        
+
         const input1 = { id: 1, name: 'test' };
         const input2 = { id: 1, name: 'test' };
         const input3 = { id: 2, name: 'test' };
-        
+
         const result1 = await run(memoizedTask, input1);
         const result2 = await run(memoizedTask, input2);
         const result3 = await run(memoizedTask, input3);
-        
+
         expect(result1).toBe('test-1');
         expect(result2).toBe('test-1');
         expect(result3).toBe('test-2');
@@ -800,13 +829,13 @@ describe('Composition Utilities (utils.ts)', () => {
           callCount++;
           return 'initialized';
         });
-        
+
         const onceTask = once(initTask);
-        
-        const result1 = await run(onceTask, undefined);
-        const result2 = await run(onceTask, undefined);
-        const result3 = await run(onceTask, undefined);
-        
+
+        const result1 = await run(onceTask, null);
+        const result2 = await run(onceTask, null);
+        const result3 = await run(onceTask, null);
+
         expect(result1).toBe('initialized');
         expect(result2).toBe('initialized');
         expect(result3).toBe('initialized');
@@ -820,16 +849,16 @@ describe('Composition Utilities (utils.ts)', () => {
           await new Promise(resolve => setTimeout(resolve, 100));
           return 'done';
         });
-        
+
         const onceTask = once(asyncTask);
-        
-        const promise1 = run(onceTask, undefined);
-        const promise2 = run(onceTask, undefined);
-        
-        vi.advanceTimersByTime(100);
-        
+
+        const promise1 = run(onceTask, null);
+        const promise2 = run(onceTask, null);
+
+        await vi.advanceTimersByTimeAsync(100);
+
         const [result1, result2] = await Promise.all([promise1, promise2]);
-        
+
         expect(result1).toBe('done');
         expect(result2).toBe('done');
         expect(callCount).toBe(1);
@@ -842,12 +871,12 @@ describe('Composition Utilities (utils.ts)', () => {
           await new Promise(resolve => setTimeout(resolve, 1000));
           return 'completed';
         });
-        
+
         const timedTask = withTimeout(longTask, 500);
-        const promise = run(timedTask, undefined);
-        
-        vi.advanceTimersByTime(500);
-        
+        const promise = run(timedTask, null);
+
+        await vi.advanceTimersByTimeAsync(500);
+
         await expect(promise).rejects.toThrow('timed out after 500ms');
       });
 
@@ -856,13 +885,13 @@ describe('Composition Utilities (utils.ts)', () => {
           await new Promise(resolve => setTimeout(resolve, 100));
           return 'completed';
         });
-        
+
         const timedTask = withTimeout(fastTask, 500);
-        const promise = run(timedTask, undefined);
-        
-        vi.advanceTimersByTime(100);
+        const promise = run(timedTask, null);
+
+        await vi.advanceTimersByTimeAsync(100);
         const result = await promise;
-        
+
         expect(result).toBe('completed');
       });
 
@@ -871,48 +900,87 @@ describe('Composition Utilities (utils.ts)', () => {
           await new Promise(resolve => setTimeout(resolve, 1000));
           return 'completed';
         });
-        
+
         const timedTask = withTimeout(longTask, 500);
         const controller = new AbortController();
-        
-        const promise = run(timedTask, undefined, { parentSignal: controller.signal });
-        
+
+        const promise = run(timedTask, null, { parentSignal: controller.signal });
+
         setTimeout(() => controller.abort(), 100);
-        vi.advanceTimersByTime(100);
-        
+        await vi.advanceTimersByTimeAsync(100);
+
         await expect(promise).rejects.toThrow('Aborted');
       });
     });
 
     describe('withState', () => {
-      it('should manage stateful workflows', async () => {
-        const workflow = withState(
-          () => ({ count: 0, items: [] as string[] }),
-          ({ setState, getState }) => createWorkflow(
-            fromValue('item1'),
-            tap(() => setState(s => ({ ...s, count: s.count + 1, items: [...s.items, 'item1'] }))),
-            fromValue('item2'),
-            tap(() => setState(s => ({ ...s, count: s.count + 1, items: [...s.items, 'item2'] }))),
-            map(() => getState().count)
-          )
+      it('should manage stateful workflows and provide tools via context', async () => {
+        type MyState = { count: number; items: string[] };
+
+        const innerWorkflow = createWorkflow(
+          tap<TestContext, string>((_, ctx) => {
+            const { setState } = useState<MyState>(ctx);
+            setState(s => ({ ...s, count: s.count + 1, items: [...s.items, 'item1'] }));
+          }),
+          tap<TestContext, string>((_, ctx) => {
+            const { setState } = useState<MyState>(ctx);
+            setState(s => ({ ...s, count: s.count + 1, items: [...s.items, 'item2'] }));
+          }),
+          map<TestContext, string, number>((_, ctx) => {
+            const { getState } = useState<MyState>(ctx);
+            return getState().count;
+          })
         );
-        
-        const result = await run(workflow, undefined);
+
+        const statefulWorkflow = withState(
+          (initialMsg: string) => ({ count: 0, items: [initialMsg] }),
+          innerWorkflow
+        );
+
+        const result = await run(statefulWorkflow, 'initial-input');
+
         expect(result.result).toBe(2);
-        expect(result.state).toEqual({ count: 2, items: ['item1', 'item2'] });
+        expect(result.state).toEqual({
+          count: 2,
+          items: ['initial-input', 'item1', 'item2']
+        });
       });
 
-      it('should initialize state with input value', async () => {
-        const workflow = withState(
-          (initialValue: number) => ({ count: initialValue }),
-          ({ getState }) => defineTask(async () => getState().count)
+      it('should initialize state with a static value', async () => {
+        const innerTask = defineTask(async () => {
+          // Use getContext() to get the context inside the task
+          const ctx = getContext();
+          const { getState } = useState<{ message: string }>(ctx);
+          return getState().message;
+        });
+
+        const statefulWorkflow = withState(
+          { message: 'Hello State' }, // Static initial state
+          innerTask
         );
-        
-        const result = await run(workflow, 10);
-        expect(result.result).toBe(10);
-        expect(result.state).toEqual({ count: 10 });
+
+        const result = await run(statefulWorkflow, null);
+
+        expect(result.result).toBe('Hello State');
+        expect(result.state).toEqual({ message: 'Hello State' });
       });
-    });
+
+      it('should throw if useState is used outside a withState context', async () => {
+        // FIX: The task function should only take one argument (value).
+        // The context is retrieved internally with getContext().
+        const taskWithoutState = defineTask(async (_) => {
+          const ctx = getContext();
+          // This call should fail because `withState` is not used to wrap this task,
+          // so the STATE_TOOLS_KEY will not be in the context.
+          useState(ctx);
+        });
+
+        await expect(run(taskWithoutState, null)).rejects.toThrow(
+          'useState() can only be used within a task wrapped by withState()'
+        );
+      });
+  });
+
   });
 
   describe('Advanced scheduling and batching', () => {
@@ -925,15 +993,13 @@ describe('Composition Utilities (utils.ts)', () => {
           callCount++;
           return x * 2;
         });
-        
+
         const throttledTask = withThrottle(task, { limit: 2, intervalMs: 100 });
-        
-        // Make 5 calls quickly
+
         const promises = [1, 2, 3, 4, 5].map(x => run(throttledTask, x));
-        
-        // Advance time to allow throttling to process
-        vi.advanceTimersByTime(200);
-        
+
+        await vi.advanceTimersByTimeAsync(200);
+
         const results = await Promise.all(promises);
         expect(results).toEqual([2, 4, 6, 8, 10]);
         expect(callCount).toBe(5);
@@ -942,20 +1008,18 @@ describe('Composition Utilities (utils.ts)', () => {
       it('should respect abort signals in throttle queue', async () => {
         const task = defineTask(async (x: number) => x * 2);
         const throttledTask = withThrottle(task, { limit: 1, intervalMs: 1000 });
-        
+
         const controller = new AbortController();
-        
-        // First call should go through, second should be queued
+
         const promise1 = run(throttledTask, 1);
         const promise2 = run(throttledTask, 2, { parentSignal: controller.signal });
-        
-        // Abort the second call
+
         controller.abort();
-        vi.advanceTimersByTime(100);
-        
+        await vi.advanceTimersByTimeAsync(100);
+
         const result1 = await promise1;
         expect(result1).toBe(2);
-        
+
         await expect(promise2).rejects.toThrow('Aborted');
       });
     });
@@ -967,18 +1031,17 @@ describe('Composition Utilities (utils.ts)', () => {
           attempts++;
           return { done: attempts >= 3, result: `attempt-${attempts}` };
         });
-        
+
         const pollingTask = withPoll(checkStatus, {
           intervalMs: 100,
           timeoutMs: 1000,
           until: (result) => result.done
         });
-        
-        const promise = run(pollingTask, undefined);
-        
-        // Advance time to allow polling
-        vi.advanceTimersByTime(300);
-        
+
+        const promise = run(pollingTask, null);
+
+        await vi.advanceTimersByTimeAsync(300);
+
         const result = await promise;
         expect(result.result).toBe('attempt-3');
         expect(attempts).toBe(3);
@@ -986,16 +1049,17 @@ describe('Composition Utilities (utils.ts)', () => {
 
       it('should timeout if condition is never met', async () => {
         const checkStatus = defineTask(async () => ({ done: false }));
-        
+
         const pollingTask = withPoll(checkStatus, {
           intervalMs: 100,
           timeoutMs: 250,
           until: (result) => result.done
         });
-        
-        const promise = run(pollingTask, undefined);
-        vi.advanceTimersByTime(250);
-        
+
+        const promise = run(pollingTask, null);
+        await vi.advanceTimersByTimeAsync(250);
+
+        await expect(promise).rejects.toThrow(PollTimeoutError);
         await expect(promise).rejects.toThrow('timed out after 250ms');
       });
     });
@@ -1007,30 +1071,30 @@ describe('Composition Utilities (utils.ts)', () => {
           batchCount++;
           return keys.map(key => `result-${key}`);
         };
-        
+
         const batchedTask = createBatchingTask(batchFn, { windowMs: 10 });
-        
+
         const promises = ['a', 'b', 'c'].map(key => run(batchedTask, key));
-        
-        vi.advanceTimersByTime(10);
+
+        await vi.advanceTimersByTimeAsync(10);
         const results = await Promise.all(promises);
-        
+
         expect(results).toEqual(['result-a', 'result-b', 'result-c']);
-        expect(batchCount).toBe(1); // All calls batched into one
+        expect(batchCount).toBe(1);
       });
 
       it('should handle batch function errors', async () => {
         const batchFn = async (keys: string[]) => {
           throw new Error('Batch failed');
         };
-        
-        const batchedTask = createBatchingTask(batchFn);
-        
+
+        const batchedTask = createBatchingTask(batchFn, { windowMs: 10 });
+
         const promises = ['a', 'b'].map(key => run(batchedTask, key));
-        
-        vi.advanceTimersByTime(10);
-        
-        await Promise.all(promises.map(p => 
+
+        await vi.advanceTimersByTimeAsync(10);
+
+        await Promise.all(promises.map(p =>
           expect(p).rejects.toThrow('Batch failed')
         ));
       });
@@ -1038,18 +1102,18 @@ describe('Composition Utilities (utils.ts)', () => {
       it('should respect abort signals in batch queue', async () => {
         const batchFn = async (keys: string[]) => keys.map(key => `result-${key}`);
         const batchedTask = createBatchingTask(batchFn, { windowMs: 100 });
-        
+
         const controller = new AbortController();
-        
+
         const promise1 = run(batchedTask, 'a');
         const promise2 = run(batchedTask, 'b', { parentSignal: controller.signal });
-        
+
         controller.abort();
-        vi.advanceTimersByTime(100);
-        
+        await vi.advanceTimersByTimeAsync(100);
+
         const result1 = await promise1;
         expect(result1).toBe('result-a');
-        
+
         await expect(promise2).rejects.toThrow('Aborted');
       });
     });
@@ -1061,19 +1125,17 @@ describe('Composition Utilities (utils.ts)', () => {
           callCount++;
           return `processed-${x}`;
         });
-        
+
         const debouncedTask = withDebounce(task, 100);
-        
-        // Make rapid calls
+
         const promise1 = run(debouncedTask, 'first');
         const promise2 = run(debouncedTask, 'second');
         const promise3 = run(debouncedTask, 'third');
-        
-        vi.advanceTimersByTime(100);
-        
+
+        await vi.advanceTimersByTimeAsync(100);
+
         const results = await Promise.all([promise1, promise2, promise3]);
-        
-        // All should get the same result from the single execution
+
         expect(results).toEqual(['processed-third', 'processed-third', 'processed-third']);
         expect(callCount).toBe(1);
       });
@@ -1084,24 +1146,20 @@ describe('Composition Utilities (utils.ts)', () => {
           callCount++;
           return `processed-${x}`;
         });
-        
+
         const debouncedTask = withDebounce(task, 50);
-        
-        // Make a call
+
         const promise1 = run(debouncedTask, 'first');
-        
-        // Wait for debounce period
-        vi.advanceTimersByTime(50);
-        
+        await vi.advanceTimersByTimeAsync(50);
         const result1 = await promise1;
+
         expect(result1).toBe('processed-first');
         expect(callCount).toBe(1);
-        
-        // Make another call after the first one completes
+
         const promise2 = run(debouncedTask, 'second');
-        vi.advanceTimersByTime(50);
-        
+        await vi.advanceTimersByTimeAsync(50);
         const result2 = await promise2;
+
         expect(result2).toBe('processed-second');
         expect(callCount).toBe(2);
       });
