@@ -384,7 +384,7 @@ This dual approach ensures:
 - **Runtime resilience** for unexpected failures
 - **Clear separation** between business logic and infrastructure concerns
 
-#### Traditional `try/catch` & `Promise.catch()` (Seamless Integration)
+### Traditional `try/catch` & `Promise.catch()` (Seamless Integration)
 
 **Effectively is designed to work beautifully with the error handling mechanisms you already know.** You don't need to abandon `try/catch` or `Promise.catch()`. In fact, they are often the simplest way to handle errors within the logic of a single task or when integrating with third-party libraries.
 
