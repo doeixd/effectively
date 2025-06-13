@@ -799,67 +799,38 @@ export function getContextOrUndefined<C extends BaseContext = DefaultGlobalConte
   return globalDefaultInstance as C;
 }
 
-// This is the centralized execution engine.
-// TaskContext: The context type the `workflow` itself is typed with (e.g., what getContext() inside it expects).
-// ExecutionContextType: The actual type of the context object being created and managed for this specific `run` call.
+/**
+ * The internal, core execution engine for all workflows.
+ * This function is the "dumb" engine: it receives a fully-formed context and
+ * simply executes the workflow logic within it. It orchestrates the sequential
+ * execution of tasks, manages context propagation via `unctx`, handles
+ * backtracking signals, and oversees cancellation.
+ *
+ * It is not exported publicly. Instead, public-facing `run` functions are
+ * responsible for intelligently *constructing* the final `executionContext`
+ * before calling this engine.
+ *
+ * @param unctxInstance The `unctx` instance responsible for managing context propagation.
+ * @param workflow The `Task` or composed workflow to execute.
+ * @param initialValue The initial value to pass to the first task.
+ * @param executionContext The complete, final context object for this run.
+ * @param options The `RunOptions` for this execution.
+ * @returns A Promise that resolves with the workflow's result or a `Result` object.
+ */
 async function runImpl<
   V,
   R,
-  TaskContext extends BaseContext, // The C from Task<C, V, R>
-  ExecutionContextType extends BaseContext // The context being established for THIS run
+  TaskContext extends BaseContext,
+  ExecutionContext extends BaseContext
 >(
-  unctxInstanceForThisRun: ReturnType<typeof createUnctx<ExecutionContextType>>,
-  workflow: Task<TaskContext, V, R>, // Workflow can be Task<any,...> or Task<Specific,...>
+  unctxInstance: ReturnType<typeof createUnctx<ExecutionContext>>,
+  workflow: Task<TaskContext, V, R>,
   initialValue: V,
-  baseContextDataForExecution: Omit<ExecutionContextType, 'scope'>, // Default data for this run's context
-  options: RunOptions<ExecutionContextType> = {}
-): Promise<R | Result<R, WorkflowError>> { // Return type matches public run
-  const { overrides, parentSignal, logger = noopLogger } = options;
+  executionContext: ExecutionContext,
+  options: RunOptions<ExecutionContext> = {}
+): Promise<R | Result<R, WorkflowError>> {
+  const logger = (executionContext as any)?.logger || options.logger || noopLogger;
   logger.debug(`[runImpl] Starting workflow: ${workflow.name || 'anonymousTask'}`);
-
-  const controller = new AbortController();
-  const onParentAbort = () => {
-    if (!controller.signal.aborted) {
-      logger.debug('[runImpl] Parent signal aborted, aborting current workflow scope.');
-      controller.abort(parentSignal?.reason);
-    }
-  };
-
-  if (parentSignal) {
-    if (parentSignal.aborted) {
-      logger.debug('[runImpl] Parent signal already aborted.');
-      controller.abort(parentSignal.reason);
-    } else {
-      parentSignal.addEventListener('abort', onParentAbort, { once: true });
-    }
-  }
-
-  const previousActiveUnctxInstance = _INTERNAL_getCurrentUnctxInstance();
-  _INTERNAL_setCurrentUnctxInstance(unctxInstanceForThisRun);
-
-  // Construct the actual executionContext for this run
-  // Start with base data, then apply overrides
-  const executionContextObject: ExecutionContextType = {
-    ...(baseContextDataForExecution as ExecutionContextType), // Base properties
-    ...(overrides as Partial<Omit<ExecutionContextType, 'scope'>>), // User overrides
-    scope: { signal: controller.signal }, // New scope for this run
-  } as ExecutionContextType; // Ensure all properties of ExecutionContextType are present
-
-  // Tag the context object with the unctx instance managing it.
-  // This allows nested smart `run` or `provide` to discover it.
-  Object.defineProperty(executionContextObject, UNCTX_INSTANCE_SYMBOL, {
-    value: unctxInstanceForThisRun,
-    enumerable: false,
-    writable: false,
-    configurable: false,
-  });
-
-  // Handle symbol properties from overrides if any
-  if (overrides) {
-    Object.getOwnPropertySymbols(overrides).forEach(symKey => {
-      (executionContextObject as any)[symKey] = (overrides as any)[symKey];
-    });
-  }
 
   const allSteps = (workflow as any).__steps || [workflow];
   let currentIndex = 0;
@@ -867,24 +838,24 @@ async function runImpl<
   let backtrackCount = 0;
   const maxBacktracks = 1000;
 
+  // Set the current unctx instance for the duration of this execution,
+  // allowing nested "smart" functions to find it.
+  const previousActiveUnctxInstance = _INTERNAL_getCurrentUnctxInstance();
+  _INTERNAL_setCurrentUnctxInstance(unctxInstance);
+
   try {
+    // Main execution loop
     while (currentIndex < allSteps.length) {
-      if (controller.signal.aborted) {
-        throw new WorkflowError('Workflow aborted', controller.signal.reason, allSteps[currentIndex]?.name, currentIndex);
+      if (executionContext.scope.signal.aborted) {
+        throw new WorkflowError('Workflow aborted', executionContext.scope.signal.reason, allSteps[currentIndex]?.name, currentIndex);
       }
+
       try {
         const currentTask = allSteps[currentIndex];
         logger.debug(`[runImpl] Executing task ${currentIndex}: ${currentTask.name || 'anonymousTask'}`);
-        // Each step is run within the `callAsync` of `unctxInstanceForThisRunScope`
-        // ensuring that `getContext()` calls within plain functions (lifted by createWorkflow)
-        // or within tasks defined by the global `defineTask` correctly resolve to `executionContextObject`.
-        currentValue = await unctxInstanceForThisRun.callAsync(executionContextObject, () =>
-          // The Task `currentTask` might be Task<any,_,_> or Task<SpecificContext,_,_>.
-          // We pass `executionContextObject` which is `ExecutionContextType`.
-          // TypeScript's structural typing handles compatibility.
-          // If `currentTask` expects a more specific context via its internal `getContext<Specific>()`
-          // calls, it's up to `executionContextObject` to satisfy that.
-          currentTask(executionContextObject as unknown as TaskContext, currentValue)
+
+        currentValue = await unctxInstance.callAsync(executionContext, () =>
+          currentTask(executionContext as unknown as TaskContext, currentValue)
         );
         logger.debug(`[runImpl] Task ${currentIndex} completed successfully`);
         currentIndex++;
@@ -894,14 +865,18 @@ async function runImpl<
           if (backtrackCount > maxBacktracks) {
             throw new WorkflowError(`Maximum backtrack limit (${maxBacktracks}) exceeded.`, error);
           }
+
           const targetIndex = allSteps.findIndex((step: { __task_id?: symbol }) => step.__task_id === error.target.__task_id);
+
           if (targetIndex === -1) throw new WorkflowError(`BacktrackSignal target not found.`, error);
-          if (targetIndex > currentIndex) throw new WorkflowError(`Cannot backtrack forward.`, error);
+          if (targetIndex >= currentIndex) throw new WorkflowError(`Cannot backtrack forward.`, error);
+
           logger.info(`[runImpl] Backtracking from step ${currentIndex} to ${targetIndex}`);
           currentIndex = targetIndex;
           currentValue = error.value;
           continue;
         }
+
         throw new WorkflowError(
           `Task failed: ${error instanceof Error ? error.message : String(error)}`,
           error,
@@ -910,9 +885,10 @@ async function runImpl<
         );
       }
     }
+
     logger.debug('[runImpl] Workflow completed successfully');
     const resultValue = currentValue as R;
-    // Handle return based on options.throw
+
     const shouldThrow = !('throw' in options) || options.throw !== false;
     if (shouldThrow) return resultValue;
     return ok(resultValue);
@@ -920,16 +896,22 @@ async function runImpl<
   } catch (error) {
     const workflowErrorInstance = error instanceof WorkflowError ? error : new WorkflowError('Unhandled error in workflow execution', error);
     logger.error(`[runImpl] Workflow failed: ${workflowErrorInstance.message}`, workflowErrorInstance);
-    if (!controller.signal.aborted) controller.abort(workflowErrorInstance);
+
+    const scopeController = (executionContext.scope as any).controller;
+    if (scopeController && !scopeController.signal.aborted) {
+      scopeController.abort(workflowErrorInstance);
+    }
 
     const shouldThrow = !('throw' in options) || options.throw !== false;
     if (shouldThrow) throw workflowErrorInstance;
     return err(workflowErrorInstance);
 
   } finally {
-    _INTERNAL_setCurrentUnctxInstance(previousActiveUnctxInstance); // CRITICAL: Restore
-    if (parentSignal) parentSignal.removeEventListener('abort', onParentAbort);
-    if (!controller.signal.aborted) controller.abort(); // Ensure scope is always cleaned up
+    _INTERNAL_setCurrentUnctxInstance(previousActiveUnctxInstance);
+    const scopeController = (executionContext.scope as any).controller;
+    if (scopeController && !scopeController.signal.aborted) {
+      scopeController.abort();
+    }
   }
 }
 
@@ -937,37 +919,48 @@ async function runImpl<
  * Executes a workflow (a Task or a chain of Tasks) with an initial value and options.
  *
  * This "smart" version of `run` intelligently manages context:
- * 1.  **Nested Execution:** If called from within an already active Effectively context
- *     (e.g., a task calling `run` for a sub-workflow), it creates a new nested scope
- *     that inherits properties from the parent context but has its own lifecycle
- *     (e.g., for cancellation). Overrides apply to this new nested context.
- * 2.  **Top-Level Execution:** If called outside any active Effectively context,
- *     it uses the global default context as the base for the new execution scope.
- *
- * The `workflow` can be a `Task<any, V, R>` (typically created by the global `defineTask`)
- * or a `Task<C, V, R>` (typically created by `createContext<C>().defineTask`).
- * The `run` function ensures the provided context is compatible.
- *
- * @template V The input value type for the workflow.
- * @template R The result type of the workflow.
- * @template WorkflowCtx The context type the *workflow itself* is typed with.
- *                     For tasks from global `defineTask`, this is `any`.
- *                     For tasks from `createContext<C>().defineTask`, this is `C`.
- * @template RunCtx The context type being established for *this specific run call*.
- *                  Inferred from `options.overrides` or defaults.
+ * 1.  **Inheritance:** It determines the parent context (either an active specific
+ *     context or the global default).
+ * 2.  **Construction:** It creates a new execution context for this run by merging
+ *     the parent's properties with any `overrides` provided in the options.
+ * 3.  **Scope Management:** It creates a new, unique `scope` for this run, linking
+ *     its cancellation to the parent's scope and any `parentSignal` in options.
  *
  * @param workflow The Task or composed workflow to execute.
  * @param initialValue The initial input value for the first task in the workflow.
- * @param options Optional `RunOptions` to control error handling (`throw`), logging,
- *                context overrides, and parent cancellation signal.
+ * @param options Optional `RunOptions` to control error handling, logging, context
+ *                overrides, and parent cancellation signal.
  *
- * @returns A Promise that resolves to the workflow's final result `R`, or, if
- *          `options.throw` is `false`, a `Promise<Result<R, WorkflowError>>`.
+ * @returns A Promise resolving to the workflow's result `R`, or a `Result<R, WorkflowError>`.
+ *
+ * @example
+ * ```typescript
+ * // Example 1: Simple top-level execution
+ * const myTask = defineTask(async (name: string) => `Hello, ${name}`);
+ * const greeting = await run(myTask, 'World'); // -> "Hello, World"
+ *
+ * // Example 2: With context overrides
+ * interface AppContext extends BaseContext { greeting: string; }
+ * const myTaskWithContext = defineTask<AppContext, string, string>(async (name) => {
+ *   const { greeting } = getContext<AppContext>();
+ *   return `${greeting}, ${name}!`;
+ * });
+ * const result = await run(myTaskWithContext, 'Again', {
+ *   overrides: { greeting: 'Hi there' }
+ * }); // -> "Hi there, Again!"
+ *
+ * // Example 3: Handling errors with a Result type
+ * const failingTask = defineTask(async () => { throw new Error('Failure'); });
+ * const errorResult = await run(failingTask, null, { throw: false });
+ * if (errorResult.isErr()) {
+ *   console.log(errorResult.error.message); // -> "Task failed: Failure"
+ * }
+ * ```
  */
 export function run<V, R>(
   workflow: Task<any, V, R>,
   initialValue: V,
-  options?: RunOptionsThrow<BaseContext> // BaseContext for options when workflow is Task<any,...>
+  options?: RunOptionsThrow<BaseContext>
 ): Promise<R>;
 export function run<V, R>(
   workflow: Task<any, V, R>,
@@ -985,39 +978,65 @@ export function run<C extends BaseContext, V, R>(
   options: RunOptionsResult<C>
 ): Promise<Result<R, WorkflowError>>;
 
-export function run<V, R, WorkflowCtx extends BaseContext, RunCtx extends BaseContext>(
+export function run<
+  V,
+  R,
+  WorkflowCtx extends BaseContext,
+  O extends BaseContext
+>(
   workflow: Task<WorkflowCtx, V, R>,
   initialValue: V,
-  options?: RunOptions<RunCtx> // RunOptions can have its own context type C via overrides
+  options: RunOptions<O> = {}
 ): Promise<R | Result<R, WorkflowError>> {
+  const { overrides, parentSignal } = options;
 
-  // 1. Determine the UNCTX instance to use for this run scope
-  const activeSpecificContext = getContextOrUndefinedFromActiveInstance<RunCtx>();
-  const activeSpecificUnctx =
-    activeSpecificContext && (activeSpecificContext as any)[UNCTX_INSTANCE_SYMBOL]
-      ? ((activeSpecificContext as any)[UNCTX_INSTANCE_SYMBOL] as ReturnType<typeof createUnctx<RunCtx>>)
-      : null;
+  // 1. Determine the parent context and the `unctx` instance to use for this run.
+  const activeSpecificContext = getContextOrUndefinedFromActiveInstance<BaseContext>();
+  const parentContext = activeSpecificContext || getGlobalDefaultContextObjectSingleton();
+  const unctxForThisRun = (activeSpecificContext && (activeSpecificContext as any)[UNCTX_INSTANCE_SYMBOL]) || getGlobalUnctx();
 
-  const unctxForThisRun = activeSpecificUnctx || getGlobalUnctx();
+  // 2. Create a new, cancellable scope for this specific run.
+  const controller = new AbortController();
+  const onParentAbort = () => controller.abort(parentSignal?.reason || parentContext.scope.signal.reason);
 
-  // 2. Determine the base context data for this run's executionContext
-  // If we're nesting, `activeSpecificContext` is the parent's data.
-  // If global, `getGlobalDefaultContextObjectSingleton()` is the base.
-  // The `options.overrides` will be applied on top of this base.
-  const baseContextData = (activeSpecificContext || getGlobalDefaultContextObjectSingleton()) as Omit<RunCtx, 'scope'>;
+  const signalsToWatch = [parentContext.scope.signal, parentSignal].filter(Boolean) as AbortSignal[];
+  signalsToWatch.forEach(sig => sig.aborted ? onParentAbort() : sig.addEventListener('abort', onParentAbort, { once: true }));
 
-  // 3. Call the internal run implementation
-  // The `WorkflowCtx` is what the `workflow` argument is typed with.
-  // The `RunCtx` is what `runImpl` will establish based on `baseContextData` + `overrides`.
-  // The cast `workflow as Task<any, V, R>` is because runImpl's TaskContext is generic,
-  // and this smart run handles various workflow context types.
-  return runImpl<V, R, any, RunCtx>( // TaskContext is effectively `any` for smart run
+  // Expose the controller on the scope for internal cleanup.
+  const newScope = { signal: controller.signal, controller };
+
+  // 3. Construct the final, type-safe context object for THIS execution.
+  //    It inherits from the parent, is layered with overrides, and gets a new scope.
+  const executionContext = {
+    ...parentContext,
+    ...overrides,
+    scope: newScope,
+  };
+
+  // Tag the context object with its managing unctx instance for discovery by nested calls.
+  Object.defineProperty(executionContext, UNCTX_INSTANCE_SYMBOL, {
+    value: unctxForThisRun,
+    enumerable: false, writable: false, configurable: true,
+  });
+
+  // Explicitly copy any symbol-keyed properties from overrides.
+  if (overrides) {
+    Object.getOwnPropertySymbols(overrides).forEach(symKey => {
+      (executionContext as any)[symKey] = (overrides as any)[symKey];
+    });
+  }
+
+  // 4. Call the internal run implementation with the fully constructed context.
+  return runImpl(
     unctxForThisRun,
-    workflow as Task<any, V, R>, // Workflow itself can be Task<any,...> or Task<Specific,...>
+    workflow as Task<any, V, R>,
     initialValue,
-    baseContextData,
+    executionContext,
     options
-  );
+  ).finally(() => {
+    // Clean up event listeners after the run is completely finished.
+    signalsToWatch.forEach(sig => sig.removeEventListener('abort', onParentAbort));
+  });
 }
 
 /**
@@ -2124,6 +2143,21 @@ export function createContext<C extends BaseContext, G extends BaseContext = Def
     );
   }
 
+  /**
+   * Executes a workflow exclusively within this specific context `C`.
+   *
+   * This function is bound to the context type `C` defined when `createContext<C>()`
+   * was called. It uses the `defaultContextDataForC` provided at creation time
+   * as its base, layers any `options.overrides` on top, and creates a new, unique
+   * `scope` for each execution.
+   *
+   * @param workflow The Task or workflow to execute. It should be compatible with context `C`.
+   * @param initialValue The initial input value for the workflow.
+   * @param options Optional `RunOptions<C>` to control error handling, logging,
+   *                context overrides, and parent cancellation signal.
+   *
+   * @returns A Promise resolving to `R` or `Result<R, WorkflowError>`.
+   */
   async function runSpecific<V, R>(
     workflow: Task<C, V, R> | Task<any, V, R>,
     initialValue: V,
@@ -2139,13 +2173,58 @@ export function createContext<C extends BaseContext, G extends BaseContext = Def
     initialValue: V,
     options: RunOptions<C> = {}
   ): Promise<R | Result<R, WorkflowError>> {
-    return runImpl<V, R, C, C>( // TaskContext and ExecutionContextType are both C
+    const { overrides, parentSignal } = options;
+
+    // 1. Create a new, cancellable scope for this specific run.
+    const controller = new AbortController();
+    const onParentAbort = () => controller.abort(parentSignal?.reason);
+
+    if (parentSignal) {
+      if (parentSignal.aborted) {
+        onParentAbort(); // Abort immediately if parent is already aborted
+      } else {
+        parentSignal.addEventListener('abort', onParentAbort, { once: true });
+      }
+    }
+
+    // Expose the controller on the scope for internal cleanup.
+    const newScope: Scope & { controller: AbortController } = { signal: controller.signal, controller };
+
+    // 2. Construct the final, complete context object for THIS execution.
+    // It starts with the defaults for this specific context instance,
+    // layers any runtime overrides, and adds the newly created scope.
+    const executionContext: C = {
+      ...(toolsDefaultContextData as C), // Base properties for this context type
+      ...(overrides as Partial<C>),     // Runtime overrides for this specific run
+      scope: newScope,                  // The new scope always overrides any default
+    };
+
+    // Tag the context object with its managing unctx instance for discovery by nested calls.
+    Object.defineProperty(executionContext, UNCTX_INSTANCE_SYMBOL, {
+      value: localUnctxInstance,
+      enumerable: false, writable: false, configurable: true,
+    });
+
+    // Explicitly copy any symbol-keyed properties from overrides.
+    if (overrides) {
+      Object.getOwnPropertySymbols(overrides).forEach(symKey => {
+        (executionContext as any)[symKey] = (overrides as any)[symKey];
+      });
+    }
+
+    // 3. Call the internal run implementation with the fully constructed context.
+    return runImpl<V, R, C, C>(
       localUnctxInstance,
-      workflow as Task<C, V, R>, // Cast: runSpecific ensures C is the context for workflow
+      workflow as Task<C, V, R>, // We can now safely assert the workflow is compatible with C
       initialValue,
-      toolsDefaultContextData, // Base data for this run is the defaults for these tools
+      executionContext, // Pass the final, constructed object.
       options
-    );
+    ).finally(() => {
+      // Clean up event listener after the run is completely finished.
+      if (parentSignal) {
+        parentSignal.removeEventListener('abort', onParentAbort);
+      }
+    });
   }
 
   const injectSpecific = <T>(token: InjectionToken<T>): T => {
