@@ -1,6 +1,22 @@
 # Changelog
 
 
+## v0.0.22
+
+[compare changes](https://github.com/doeixd/effectivly/compare/v0.0.21...v0.0.22)
+
+### 🚀 Enhancements
+
+- 🎨  renamed resource to withResource ([4633967](https://github.com/doeixd/effectivly/commit/4633967))
+
+### 🩹 Fixes
+
+- 🐛  fixed run types ([abb0dbb](https://github.com/doeixd/effectivly/commit/abb0dbb))
+
+### ❤️ Contributors
+
+- Patrick Glenn <doeixd@gmail.com>
+
 ## v0.0.21
 
 [compare changes](https://github.com/doeixd/effectivly/compare/v0.0.20...v0.0.21)
