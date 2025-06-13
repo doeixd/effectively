@@ -414,8 +414,6 @@ const taskWithInternalTryCatch = appDefineTask(async (path: string) => {
   return `Processed: ${fileContent}`;
 });
 
-
-
 // --- Using .catch() when running a Task or Workflow ---
 const potentiallyFailingTask = appDefineTask(async (shouldFail: boolean) => {
   if (shouldFail) {
