@@ -1,3 +1,4 @@
+// @ts-nocheck
 const { createContext, defineTask, createBracketTools, bracket: mainBracket } = require('../dist/index.cjs');
 
 const testContextDefaults = {

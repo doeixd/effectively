@@ -146,9 +146,11 @@ const enrichUser = defineTask(async (user: User) => {
   return { ...user, profile };
 });
 
-const formatUser = defineTask(async (enrichedUser: EnrichedUser) => {
+// A plain async function can also be a step in a workflow.
+// Effectively will automatically "lift" it into a Task for you.
+async function formatUser(enrichedUser: EnrichedUser): Promise<string> {
   return `${enrichedUser.name} (${enrichedUser.profile.title})`;
-});
+}
 
 // Chain them together into a workflow
 const getUserDisplay = createWorkflow(
@@ -450,7 +452,7 @@ executeAndHandle();
 Never leak resources again with the `bracket` pattern, which ensures a `release` function is always called, even if the `use` function throws an error. For detailed resource management patterns, see the [Bracket Resource Management Guide](docs/bracket-resource-management.md).
 
 ```typescript
-const processFile = bracket({
+const processFile = withResource({
   acquire: () => openFile('data.csv'),
   use: (file) => parseAndProcess(file),
   release: (file) => file.close() // Always runs!
@@ -1135,7 +1137,7 @@ export default {
 | Function | Description |
 |----------|-------------|
 | `bracket({ acquire, use, release })` | Guarantees resource cleanup with acquire-use-release pattern. |
-| `resource({ acquire, use, release })` | Alias for `bracket` - same guaranteed resource cleanup functionality. |
+| `withResource({ acquire, use, release })` | Alias for `bracket` - same guaranteed resource cleanup functionality. |
 | `bracketDisposable({ acquire, use })` | For resources with `Symbol.dispose` or `Symbol.asyncDispose`. |
 | `bracketMany(configs, use)` | Manages multiple resources, releases in reverse order. |
 

@@ -1,483 +1,209 @@
-# The Smart Context System
+# The Smart Context System: A Comprehensive Guide
 
-Effectively features a sophisticated, yet simple context system that adapts to how you use it. This guide explains the three types of context functions and when to use each.
+Effectively features a sophisticated yet simple context system designed to manage dependencies and state in your asynchronous workflows. This guide provides a comprehensive overview of its features, from the simple "smart" functions that work out-of-the-box to advanced patterns for type safety and performance.
 
-## Overview
+## Core Philosophy: Progressive Enhancement
 
-The context system provides multiple variants of each core function (`defineTask`, `getContext`, `run`, etc.):
+The context system is built on the principle of **progressive enhancement**. You can start with zero configuration and gradually introduce more structure and type safety as your application grows.
 
-1. **Smart Functions** - Adaptive behavior that uses current context or falls back to global
-2. **Local-Only Functions** - Strict mode that only works within an active context
-3. **Global-Only Functions** - Explicit mode that always uses the global default context
-4. **Context-Bound Functions** - Functions returned from `createContext` that are bound to a specific context type
+1.  **Start Simple:** Use global "smart" functions. They work immediately without any setup.
+2.  **Add Structure:** When you need specific dependencies (like a database client or logger), create a custom, typed context with `createContext`.
+3.  **Enforce Boundaries:** For library code or critical sections, use "local-only" functions to guarantee a specific context is present.
+4.  **Optimize:** For performance-critical code, use `provideWithProxy` to avoid overhead.
 
-## Smart Functions (Recommended for Most Use Cases)
+This guide will walk you through each of these layers.
 
-Smart functions are the default exports and provide the most convenient experience. They automatically detect and use the current context if available, falling back to a global default context when no context is active.
+## 1. Smart Functions: The Easiest Way to Start
 
-### Available Smart Functions
+Smart functions are the default exports and provide the most convenient experience. They automatically detect the current execution context. If one is active (from `createContext().run(...)`), they use it. If not, they seamlessly fall back to a minimal, shared **global context**.
 
-- `defineTask<V, R>(fn)` - Creates tasks that adapt to any context
-- `getContext<C>()` - Gets current context or global default
-- `getContextSafe<C>()` - Safe version that returns Result type
-- `getContextOrUndefined<C>()` - Never throws, returns undefined if no context
-- `run<V, R>(task, value, options?)` - Executes tasks in current or global context
-- `provide(overrides, fn)` - Temporarily modifies context
+This means your tasks will *just work*, whether run in isolation or within a complex application.
 
-### Usage Examples
+### API Reference: Smart Functions
 
-```typescript
-import { defineTask, getContext, run } from '@doeixd/effectively';
+| Function                        | Behavior                                                                                                                                     |
+| :------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------- |
+| `defineTask<C,V,R>(fn)`         | Defines a portable `Task` that can run in any context. Use the `C` generic for type-checking inside the task. See the note on type safety below. |
+| `getContext<C>()`               | Gets the current context if active, otherwise returns the global default. **Never throws.**                                                     |
+| `getContextSafe<C>()`           | Returns `Ok(context)`. **Never fails.**                                                                                                        |
+| `getContextOrUndefined<C>()`    | Returns the current or global context. **Always returns a context object.**                                                                    |
+| `run(...)`                      | Executes a task, creating a new scope that inherits from the current context or the global default.                                          |
+| `provide(...)`                  | Temporarily adds or overrides properties on the current (or global) context for the duration of a function's execution using object spreading.   |
+| `provideWithProxy(...)`         | A high-performance version of `provide` that uses a JavaScript `Proxy` to avoid creating new objects. (See Advanced section).                     |
 
-// Works at the top level (uses global context)
-const task1 = defineTask(async (input: string) => {
-  const context = getContext(); // Gets global default context
-  return `Hello ${input}`;
-});
-
-await run(task1, 'World'); // Uses global context
-
-// Also works within custom contexts
-const { run: customRun } = createContext({ userId: 'user123' });
-
-const task2 = defineTask(async (input: string) => {
-  const context = getContext(); // Gets custom context when run in custom context
-  return `Hello ${input} from ${(context as any).userId || 'unknown'}`;
-});
-
-await customRun(task2, 'World'); // Automatically uses custom context
-```
-
-### When to Use Smart Functions
-
-✅ **Use smart functions when:**
-- Building applications that may use multiple contexts
-- You want convenience and flexibility
-- You're starting a new project and want to begin simple
-- You want tasks that work in any context
-
-❌ **Avoid smart functions when:**
-- You need strict guarantees about which context is being used
-- You're building a library that should only work in specific contexts
-- You want to enforce that certain code only runs in custom contexts
-
-## Local-Only Functions (Strict Context Requirements)
-
-Local-only functions enforce that you're operating within a specific context. They throw errors if no current context is available, never falling back to global.
-
-### Available Local-Only Functions
-
-- `defineTaskLocal<C, V, R>(fn)` - Creates tasks that require active context
-- `getContextLocal<C>()` - Gets current context, throws if none
-- `getContextSafeLocal<C>()` - Returns error Result if no context
-- `getContextOrUndefinedLocal<C>()` - Returns undefined if no context
-- `runLocal<C, V, R>(task, value, options?)` - Executes only in current context
-- `provideLocal<C, R>(overrides, fn)` - Modifies only current context
-
-### Usage Examples
+### Example: From Zero to Structured
 
 ```typescript
-import { defineTaskLocal, getContextLocal, runLocal } from '@doeixd/effectively';
+import { defineTask, getContext, run, createContext } from '@doeixd/effectively';
 
-// This task ONLY works within a context
-const strictTask = defineTaskLocal<MyContext, string, string>(async (input) => {
-  const context = getContextLocal<MyContext>(); // Throws if no context
-  return `Processing ${input} for user ${context.userId}`;
+//--- Phase 1: No setup needed ---
+// This task uses smart functions and works immediately.
+const greetingTask = defineTask(async (name: string) => {
+  // `getContext` safely falls back to the global context here.
+  const context = getContext<{ greeting?: string }>();
+  const greeting = context.greeting || 'Hello';
+  return `${greeting}, ${name}!`;
 });
 
-// This will throw an error - no context available
-try {
-  await runLocal(strictTask, 'data'); // ❌ Throws ContextNotFoundError
-} catch (error) {
-  console.log('Expected error:', error.message);
-}
+// `run` uses the global context. No `createContext` was needed.
+const message = await run(greetingTask, 'World'); // -> "Hello, World!"
 
-// This works - we're providing a context
-const { run: contextRun } = createContext<MyContext>({ userId: 'user123' });
-await contextRun(strictTask, 'data'); // ✅ Works fine
+//--- Phase 2: Introducing a custom context ---
+// Create tools for a specific, typed context.
+const { run: customRun } = createContext({ greeting: 'Welcome' });
+
+// The exact same `greetingTask` can be run with the new context.
+// `getContext` inside the task will now detect and use this custom context.
+const customMessage = await customRun(greetingTask, 'developer'); // -> "Welcome, developer!"
 ```
 
-### When to Use Local-Only Functions
+## 2. Context-Bound Functions: For Maximum Type Safety
 
-✅ **Use local-only functions when:**
-- Building library code that requires specific contexts
-- You want to enforce that certain operations only happen in custom contexts
-- You need strict guarantees about context availability
-- You want to catch context misuse at runtime
+When you have a well-defined application with a consistent set of dependencies, using `createContext<C>()` gives you a set of **context-bound tools**. These tools are permanently tied to your specific context type `C`, providing maximum type safety and editor autocompletion.
 
-❌ **Avoid local-only functions when:**
-- You want flexibility to work with or without custom contexts
-- You're building application code that should work in any environment
-- You want the convenience of global fallback behavior
+### Characteristics
 
-## Global-Only Functions (Explicit Global Usage)
+-   **Type-Safe:** All tools know the exact shape of your context `C`.
+-   **Local & Strict:** The `getContext()` function from these tools **will throw a `ContextNotFoundError`** if called outside of its corresponding `run()` or `provide()` scope. It never falls back to the global context.
 
-Global-only functions always use the global default context, regardless of any current context. They provide predictable behavior when you specifically want global context.
+### API Reference: Context-Bound Tools from `createContext<C>()`
 
-### Available Global-Only Functions
+| Function                      | Behavior                                                                                                             |
+| :---------------------------- | :------------------------------------------------------------------------------------------------------------------- |
+| `run(...)`                    | Executes a task exclusively within the `C` context.                                                                  |
+| `defineTask(...)`             | Creates a `Task` that is strongly typed to expect context `C`.                                                       |
+| `getContext()`                | Gets the currently active context of type `C`. **Throws `ContextNotFoundError` if not in an active scope.**            |
+| `getContextSafe()`            | Returns `Ok(C)` if in a scope, otherwise `Err(ContextNotFoundError)`.                                                |
+| `getContextOrUndefined()`     | Returns the context `C` if in a scope, otherwise `undefined`.                                                        |
+| `provide(...)`                | Temporarily modifies the `C` context for a nested scope.                                                             |
+| `inject(token)`               | Injects a dependency from the `C` context using a type-safe token. **Throws if not found.**                            |
+| `injectOptional(token)`       | Safely injects a dependency from the `C` context, returning `undefined` if not found.                                |
 
-- `defineTaskGlobal<V, R>(fn)` - Creates tasks that always use global context
-- `getContextGlobal()` - Always gets global default context
-- `runGlobal<V, R>(task, value, options?)` - Always executes in global context
-- `provideGlobal<R>(overrides, fn)` - Always modifies global context
-
-### Usage Examples
-
-```typescript
-import { defineTaskGlobal, getContextGlobal, runGlobal } from '@doeixd/effectively';
-
-// This task ALWAYS uses global context
-const globalTask = defineTaskGlobal(async (input: string) => {
-  const context = getContextGlobal(); // Always gets global context
-  return `Global processing: ${input}`;
-});
-
-// Even within a custom context, this uses global
-const { run: customRun } = createContext({ userId: 'user123' });
-
-await customRun(async () => {
-  // Despite being in custom context, this uses global
-  const result = await runGlobal(globalTask, 'data');
-  console.log(result); // "Global processing: data"
-});
-```
-
-### When to Use Global-Only Functions
-
-✅ **Use global-only functions when:**
-- You need predictable, consistent behavior regardless of context
-- Building utility functions that should work the same everywhere
-- You want to explicitly ignore any current context
-- You're implementing global services or singleton patterns
-
-❌ **Avoid global-only functions when:**
-- You want context-aware behavior
-- You're building code that should adapt to different environments
-- You want to take advantage of dependency injection
-
-## Context-Bound Functions (from createContext)
-
-Context-bound functions are returned when you call `createContext<C>()`. These functions are **local and type-safe** - they're permanently bound to the specific context type you defined.
-
-### Characteristics of Context-Bound Functions
-
-- **Local**: Only work with the specific context type `C` passed to `createContext<C>()`
-- **Type-Safe**: Full TypeScript support with exact context type
-- **Context-Specific**: Tasks created will always expect the defined context type
-- **No Fallback**: Don't use global context - they're tied to their own context system
-
-### Available Context-Bound Functions
-
-When you call `createContext<MyContext>()`, you get:
-
-- `defineTask<V, R>(fn)` - Creates tasks bound to `MyContext`
-- `getContext()` - Gets the current `MyContext` (no fallback)
-- `getContextSafe()` - Safe version returning `Result<MyContext, Error>`
-- `getContextOrUndefined()` - Returns `MyContext | undefined`
-- `run<V, R>(task, value, options?)` - Executes tasks in `MyContext`
-- `provide<R>(overrides, fn)` - Modifies `MyContext` temporarily
-
-### Usage Examples
+### Usage Example
 
 ```typescript
 import { createContext, type Scope } from '@doeixd/effectively';
 
-interface MyAppContext {
+// 1. Define your application's context interface.
+interface AppContext extends BaseContext {
   scope: Scope;
-  userId: string;
-  apiUrl: string;
-  database: Database;
+  db: { query: (sql: string) => Promise<any> };
+  logger: Console;
 }
 
-// Create context-bound functions
-const { defineTask, getContext, run } = createContext<MyAppContext>({
-  userId: 'user123',
-  apiUrl: 'https://api.example.com',
-  database: myDatabase
+// 2. Create the context-bound tools with default dependencies.
+const { defineTask, getContext, run } = createContext<AppContext>({
+  db: myDatabaseClient,
+  logger: console,
 });
 
-// This defineTask is bound to MyAppContext specifically
-const fetchUserData = defineTask(async (userId: string) => {
-  const context = getContext(); // TypeScript knows this is MyAppContext
-  // Full type safety - context.userId, context.apiUrl, context.database all known
-  const response = await fetch(`${context.apiUrl}/users/${userId}`);
-  return response.json();
+// 3. Define a task using these tools.
+const fetchUserTask = defineTask(async (userId: string) => {
+  const ctx = getContext(); // TypeScript knows `ctx` is of type `AppContext`.
+  ctx.logger.info(`Fetching user: ${userId}`);
+  return await ctx.db.query(`SELECT * FROM users WHERE id = ${userId}`);
 });
 
-// This run only works with MyAppContext
-const userData = await run(fetchUserData, 'user456');
+// 4. Run the workflow.
+const user = await run(fetchUserTask, 'user-123');
 ```
 
-### Type Safety Comparison
+## 3. Local-Only and Global-Only Functions: For Explicit Control
+
+For advanced use cases or library authors, `Effectively` provides function variants that remove ambiguity by being either strictly local or strictly global.
+
+### Local-Only Functions
+
+These functions enforce that a specific context *must* be active. They are ideal for library code that has explicit context requirements.
+
+| Function                          | Behavior                                                                          |
+| :-------------------------------- | :-------------------------------------------------------------------------------- |
+| `defineTaskLocal<C,V,R>(fn)`      | Creates a `Task`. **Throws `ContextNotFoundError` if no specific context is active.** |
+| `getContextLocal<C>()`            | Gets the current specific context. **Throws `ContextNotFoundError` if none exists.** |
+| `getContextSafeLocal<C>()`        | Returns `Err(ContextNotFoundError)` if no specific context is active.               |
+| `getContextOrUndefinedLocal<C>()` | Returns `undefined` if no specific context is active.                               |
+| `runLocal(...)`                   | Executes a task only if a specific context is active. **Throws if not.**            |
+| `provideLocal(...)`               | Modifies only the active specific context. **Throws if none exists.**               |
+
+### Global-Only Functions
+
+These functions *always* operate on the global default context, ignoring any active specific context. They are useful for creating globally consistent utilities.
+
+| Function                     | Behavior                                                               |
+| :--------------------------- | :--------------------------------------------------------------------- |
+| `defineTaskGlobal<V,R>(fn)`  | Creates a `Task` that always uses the global context.                    |
+| `getContextGlobal()`         | Always gets the global default context.                                |
+| `runGlobal(...)`             | Always executes a task in the global default context.                    |
+| `provideGlobal(...)`         | Always modifies the global default context.                              |
+
+---
+
+## Advanced Patterns & Concepts
+
+### High-Performance Context Overrides with `provideWithProxy`
+
+The standard `provide` function works by creating a new context object for each call using object spreading (`{ ...parentContext, ...overrides }`). While simple and effective, this can create performance overhead in hot code paths or with very large context objects due to repeated object creation and garbage collection.
+
+For these high-performance scenarios, `Effectively` offers `provideWithProxy`.
 
 ```typescript
-// Context-bound (most type-safe)
-const { defineTask: boundDefineTask } = createContext<MyContext>({ /* ... */ });
-const task1 = boundDefineTask(async (input) => {
-  const ctx = getContext(); // TypeScript knows this is exactly MyContext
-  return ctx.userId; // ✅ Full intellisense and type checking
-});
+import { provideWithProxy } from 'effectively';
 
-// Smart function with generic (type-safe when specified)
-const task2 = defineTask<MyContext, string, string>(async (input) => {
-  const ctx = getContext<MyContext>(); // Need to specify type manually
-  return ctx.userId; // ✅ Type-safe but requires manual typing
-});
-
-// Smart function without generic (less type-safe)
-const task3 = defineTask(async (input) => {
-  const ctx = getContext(); // TypeScript doesn't know the exact type
-  return (ctx as any).userId; // ⚠️ Requires casting or type guards
-});
-```
-
-### When to Use Context-Bound Functions
-
-✅ **Use context-bound functions when:**
-- You have a well-defined application context with specific types
-- You want maximum type safety and intellisense
-- You're building a complete application with consistent context needs
-- You want to ensure all code uses the same context structure
-- You prefer explicit context creation over implicit behavior
-
-❌ **Avoid context-bound functions when:**
-- You want tasks that work across multiple different contexts
-- You're building library code that should be context-agnostic
-- You want the flexibility of smart context detection
-- You're prototyping and want minimal setup
-
-## The Global Default Context
-
-The global default context is automatically created the first time any smart or global function is used. It's stored in `globalThis` and provides a minimal context with just the required `scope` property.
-
-### Global Context Interface
-
-```typescript
-interface DefaultGlobalContext {
-  scope: Scope; // Required by all contexts
-}
-```
-
-### Extending the Global Context
-
-You can extend the global context using `provideGlobal`:
-
-```typescript
-import { provideGlobal, defineTask, getContext } from '@doeixd/effectively';
-
-// Add properties to global context
-await provideGlobal({ apiUrl: 'https://api.example.com' }, async () => {
-  const task = defineTask(async (input: string) => {
-    const context = getContext();
-    return `Data from ${(context as any).apiUrl}: ${input}`;
-  });
-  
-  return run(task, 'hello');
+await provideWithProxy({ logger: mockLogger }, async () => {
+  // Code here runs with the mocked logger, but no new context object was cloned.
 });
 ```
 
-## Migration Guide
+**How it Works:**
 
-### From Simple Usage
+Instead of creating a new object, `provideWithProxy` uses a JavaScript `Proxy` to wrap the parent context. This proxy intercepts property lookups, returning a value from the `overrides` if it exists, and otherwise forwarding the request to the parent context.
 
-If you're currently using basic `defineTask` and `getContext`:
+**Benefits:**
 
-```typescript
-// Before (still works!)
-import { defineTask, getContext, run } from '@doeixd/effectively';
+-   **Zero-Copy Overrides:** No new context object is created, drastically reducing memory allocation.
+-   **Faster Execution:** Bypassing object spread makes `provideWithProxy` significantly faster for frequent, nested calls.
 
-// After (same code, enhanced behavior)
-import { defineTask, getContext, run } from '@doeixd/effectively';
-// No changes needed - smart functions provide the same experience with more flexibility
-```
+**When to Use It:**
 
-### From createContext Usage
+-   Inside tight loops or recursive tasks that modify context.
+-   When your application context is very large.
+-   In any performance-critical section of your application where context switching is common.
 
-If you're currently creating contexts explicitly:
+For most general use cases, the standard `provide` is sufficient, but `provideWithProxy` is a powerful tool for optimization.
 
-```typescript
-// Before
-const { defineTask, getContext, run } = createContext({ apiUrl: 'https://api.com' });
+### A Note on Global `defineTask` and Type Safety
 
-// After - you have choices:
+When using the global `defineTask`, you can provide a context type hint like `defineTask<MyContext, ...>`. It's important to understand what this does:
 
-// Option 1: Keep using createContext (recommended for custom contexts)
-const { defineTask, getContext, run } = createContext({ apiUrl: 'https://api.com' });
+-   **It provides design-time type checking** for calls to `getContext<MyContext>()` *inside* your task's function body.
+-   **It does NOT change the returned Task's signature.** The global `defineTask` always returns a `Task<any, ...>`, making it portable enough to run in any context.
 
-// Option 2: Use smart functions that work in any context
-import { defineTask, getContext, run } from '@doeixd/effectively';
+This means the type hint is a contract *you* make with the compiler, asserting that this task is intended to be run in a context compatible with `MyContext`. It's a powerful feature for writing flexible, yet type-aware, tasks.
 
-// Option 3: Use local-only functions for strict context requirements
-import { defineTaskLocal, getContextLocal, runLocal } from '@doeixd/effectively';
-```
+---
 
-## Best Practices
+## Troubleshooting Guide
 
-### 1. Start Simple, Add Complexity When Needed
+### Understanding `ContextNotFoundError`
 
-Begin with smart functions and global context, then add custom contexts as your application grows:
+It is crucial to understand which context functions can fail.
 
-```typescript
-// Phase 1: Simple start
-import { defineTask, run } from '@doeixd/effectively';
+❌ **The following functions WILL throw a `ContextNotFoundError`** if called outside of an active `run` or `provide` scope:
+-   `getContextLocal()`
+-   The context-bound `getContext()` returned from `createContext<C>()`.
 
-// Phase 2: Add custom context when needed
-const { run: customRun } = createContext({ database: myDb });
+✅ **The following "smart" global functions WILL NOT throw `ContextNotFoundError`**. They are designed to always succeed by falling back to a minimal global default context if no specific context is active:
+-   `getContext()`
+-   `getContextSafe()` (will always return an `Ok` result)
+-   `getContextOrUndefined()` (will always return a context object)
 
-// Phase 3: Mix as needed - smart functions work in both contexts
-```
+This behavior makes the smart global functions safe to use at the top level, while the local-only functions provide a strict guarantee that a specific context must be present.
 
-### 2. Use Type Parameters for Safety
+### Final Comparison
 
-Always use type parameters when you know the context type:
-
-```typescript
-// Good - type safe
-const context = getContext<MyContext>();
-
-// Less good - requires casting
-const context = getContext() as MyContext;
-```
-
-### 3. Choose the Right Function Variant
-
-Use this decision tree:
-
-```
-Do you have a well-defined, application-specific context?
-├─ Yes → Do you want maximum type safety?
-│   ├─ Yes → Use context-bound functions (createContext<MyContext>()) ✅ Best type safety
-│   └─ No → Use smart functions with generics (defineTask<MyContext>())
-└─ No → Do you need strict context requirements?
-    ├─ Yes → Use local-only functions (defineTaskLocal, getContextLocal, etc.)
-    └─ No
-       └─ Do you need predictable global behavior?
-          ├─ Yes → Use global-only functions (defineTaskGlobal, getContextGlobal, etc.)
-          └─ No → Use smart functions (defineTask, getContext, etc.) ✅ Most flexible
-```
-
-### 4. Library vs Application Code
-
-```typescript
-// Library code - be explicit about context requirements
-export const libraryFunction = defineTaskLocal<RequiredContext, Input, Output>(
-  async (input) => {
-    const context = getContextLocal<RequiredContext>();
-    // Library logic here
-  }
-);
-
-// Application code - several good options:
-
-// Option 1: Context-bound (best type safety)
-const { defineTask, getContext } = createContext<AppContext>({ /* ... */ });
-const appFunction1 = defineTask(async (input) => {
-  const context = getContext(); // Full type safety for AppContext
-  // Application logic here
-});
-
-// Option 2: Smart functions with generics (flexible + type safe)
-const appFunction2 = defineTask<AppContext, Input, Output>(async (input) => {
-  const context = getContext<AppContext>();
-  // Application logic here
-});
-
-// Option 3: Smart functions (most flexible)
-const appFunction3 = defineTask(async (input) => {
-  const context = getContext(); // Works in any context
-  // Application logic here
-});
-```
-
-## Troubleshooting
-
-### ContextNotFoundError with Local Functions
-
-```typescript
-// ❌ This will throw
-const task = defineTaskLocal(async (input) => {
-  return getContextLocal(); // No context available
-});
-
-await runLocal(task, 'input'); // Throws ContextNotFoundError
-
-// ✅ Fix: Ensure you're in a context
-const { run } = createContext({});
-await run(task, 'input'); // Works
-```
-
-### Unexpected Context Behavior
-
-```typescript
-// If you're getting unexpected context, check which function you're using:
-
-const context1 = getContext(); // Smart: current context or global fallback
-const context2 = getContextLocal(); // Local: current context only, throws if none  
-const context3 = getContextGlobal(); // Global: always global context
-
-// For debugging, check what context you actually have:
-const context = getContextOrUndefined();
-if (context) {
-  console.log('Current context:', context);
-} else {
-  console.log('No current context, will use global');
-}
-```
-
-### Type Safety Issues
-
-```typescript
-// ❌ Not type safe
-const context = getContext();
-context.someProperty; // May not exist
-
-// ✅ Type safe options:
-
-// Option 1: Use generics
-const context = getContext<MyContext>();
-context.someProperty; // TypeScript knows this exists
-
-// Option 2: Use type guards
-const context = getContext();
-if ('someProperty' in context) {
-  context.someProperty; // Safe to access
-}
-
-// Option 3: Use safe access
-const context = getContext();
-const property = (context as any).someProperty || 'default';
-```
-
-## Complete Function Comparison
-
-Here's a comprehensive comparison of all context function variants:
-
-| Function Type | Source | Behavior | Type Safety | Use Case |
-|---------------|--------|----------|-------------|----------|
-| **Context-Bound** | `createContext<C>()` | Local to specific context `C` | ✅ **Excellent** - Bound to `C` | App development with defined context |
-| **Smart** | `import { defineTask }` | Current context or global fallback | ⚠️ **Good** - With generics `<C>` | Flexible app/library development |
-| **Local-Only** | `import { defineTaskLocal }` | Current context only, throws if none | ✅ **Excellent** - With generics `<C>` | Strict library development |
-| **Global-Only** | `import { defineTaskGlobal }` | Always global context | ✅ **Good** - With `DefaultGlobalContext` | Utilities, global services |
-
-### Quick Reference
-
-```typescript
-// Context-Bound: Maximum type safety, specific context
-const { defineTask } = createContext<MyContext>({ /* ... */ });
-const task1 = defineTask(async (input) => { /* fully typed */ });
-
-// Smart: Flexible, works anywhere
-import { defineTask } from '@doeixd/effectively';
-const task2 = defineTask<MyContext, Input, Output>(async (input) => { /* typed */ });
-const task3 = defineTask(async (input) => { /* flexible */ });
-
-// Local-Only: Strict context requirements
-import { defineTaskLocal } from '@doeixd/effectively';
-const task4 = defineTaskLocal<MyContext, Input, Output>(async (input) => { /* strict */ });
-
-// Global-Only: Always global
-import { defineTaskGlobal } from '@doeixd/effectively';
-const task5 = defineTaskGlobal(async (input) => { /* global */ });
-```
-
-This smart context system provides maximum flexibility while maintaining type safety and predictable behavior. Choose the right variant for your use case, and enjoy the progressive enhancement capabilities!
+| Function Family     | Source                 | Behavior                                   | When to Use                                    |
+| :------------------ | :--------------------- | :----------------------------------------- | :--------------------------------------------- |
+| **Smart**           | `import {...}`         | Current context or global fallback.        | General application code, maximum flexibility.   |
+| **Context-Bound**   | `createContext<C>()`   | Local to a specific context `C`. Throws if not active. | App development with a well-defined context. |
+| **Local-Only**      | `import {...Local}`    | Current context only. Throws if not active.      | Library code or enforcing strict boundaries.     |
+| **Global-Only**     | `import {...Global}`   | Always uses the global default context.    | Globally consistent utilities or services.       |

@@ -824,54 +824,38 @@ export function sleep(ms: number): Task<BaseContext, any, void> {
 /**
  * A higher-order task that performs a side effect if the wrapped `task` throws an error.
  * The original error is always re-thrown after the side effect function `onErrorFn` completes.
- * This utility is useful for logging errors, sending metrics, or performing other
- * observational side effects without altering the primary error handling flow.
+ * This utility is useful for logging, metrics, or other observational side effects.
  *
  * `BacktrackSignal`s are ignored by `onErrorFn` and re-thrown immediately.
  *
  * @template C The context type for the task and the error handler.
  * @template V The input value type of the task.
  * @template R The result type of the task if successful.
- * @template E The expected type of the error to be passed to `onErrorFn`. Defaults to `unknown`.
- *             If you expect a specific error type, you can specify it, but ensure
- *             your `onErrorFn` handles potential type mismatches if other errors occur.
+ * @template E The expected type of the error. If `errorConstructor` is provided,
+ *             `onErrorFn` will only be called for errors matching that constructor,
+ *             and the `error` parameter will be correctly typed as an instance of `E`.
  * @param task The `Task<C, V, R>` to wrap.
- * @param onErrorFn A synchronous or asynchronous function that will be called if `task` throws an error.
- *                  It receives the caught `error` (typed as `E`) and the current `context`.
- *                  This function's return value is ignored.
+ * @param onErrorFn A function that will be called if `task` throws a matching error.
+ *                  It receives the typed error instance and the current context.
+ * @param errorConstructor (Optional) The specific error class to catch. If provided,
+ *                         the handler will only run for instances of this error.
  * @returns A new `Task<C, V, R>` that incorporates the error tapping behavior.
  *
  * @example
  * ```typescript
- * const flakyFetch = defineTask(async (ctx, url: string) => {
- *   if (Math.random() < 0.5) throw new NetworkError('Connection failed');
- *   return fetch(url);
- * });
- *
- * // Log any NetworkError specifically, or any other error more generically
- * const loggedFlakyFetch = tapError<AppContext, string, Response, Error>( // Explicit E as Error
- *  flakyFetch,
- *  async (error, context) => {
- *     if (error instanceof NetworkError) {
- *       context.logger.error(`NetworkError during fetch: ${error.message}`, { url: error.url });
- *     } else {
- *       context.logger.error(`Generic error during fetch: ${error.message}`);
- *     }
- *     await context.metrics.increment('fetch_errors');
- *   }
+ * const resilientTask = tapError(
+ *   flakyTask,
+ *   (error, context) => { // `error` is a NetworkError instance here
+ *     context.logger.error('Network failure occurred', { cause: error });
+ *   },
+ *   NetworkError // Only tap into NetworkError instances
  * );
- *
- * try {
- *   await run(loggedFlakyFetch, 'https://api.example.com/data');
- * } catch (e) {
- *   // The error (NetworkError or other) is still caught here after logging.
- *   console.log('Caught error after tapError processed it:', e);
- * }
  * ```
  */
-export function tapError<C extends BaseContext, V, R, E = unknown>( // E defaults to unknown
+export function tapError<C extends BaseContext, V, R, E extends Error = Error>(
   task: Task<C, V, R>,
-  onErrorFn: (error: E, context: C) => void | Promise<void>
+  onErrorFn: (error: E, context: C) => void | Promise<void>,
+  errorConstructor?: new (...args: any[]) => E
 ): Task<C, V, R> {
   const tappedTaskLogic: Task<C, V, R> = async (context: C, value: V): Promise<R> => {
     try {
@@ -882,27 +866,19 @@ export function tapError<C extends BaseContext, V, R, E = unknown>( // E default
         throw error;
       }
 
-      // Perform the side effect.
-      // The `onErrorFn` is called with `error as E`. This cast is based on the
-      // generic type E provided by the caller. It's up to the caller to ensure
-      // that the `onErrorFn` can handle the types of errors `task` might throw,
-      // or to perform type checks within `onErrorFn`.
-      try {
-        await onErrorFn(error as E, context);
-      } catch (tapFnError) {
-        // If the onErrorFn itself throws an error, log it but prioritize the original error.
-        // This prevents the error tapping logic from masking the primary failure.
-        const logger = (context as C & { logger?: Logger }).logger; // Attempt to get logger
-        if (logger && logger.error) {
+      // Check if we should handle this error based on the constructor
+      const shouldHandle = !errorConstructor || (error instanceof errorConstructor);
+
+      if (shouldHandle) {
+        // Perform the side effect.
+        try {
+          await onErrorFn(error as E, context);
+        } catch (tapFnError) {
+          // If the onErrorFn itself throws, log it but prioritize the original error.
+          const logger = (context as C & { logger?: Logger }).logger || console;
           logger.error(
-            `[tapError] Error occurred within the onErrorFn itself while handling another error. Original error will be re-thrown. Error in tap function:`,
-            tapFnError,
-            { originalError: error }
-          );
-        } else {
-          console.error(
-            `[tapError] Error in onErrorFn (original error: ${error}):`,
-            tapFnError
+            `[tapError] An error occurred within the error-tapping function itself while handling another error. The original error will be re-thrown.`,
+            { tapFnError, originalError: error }
           );
         }
       }

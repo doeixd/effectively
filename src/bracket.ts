@@ -98,7 +98,7 @@ export function bracket<C extends { scope: Scope }, R, V, U>(
           // If we already have an error from the use phase, log the release error
           // but re-throw the original error
           if (error !== undefined) {
-            console.error('Error during resource release:', releaseError);
+            throw new AggregateError([error, releaseError], 'Error during use and subsequent release phases.', { cause: error });
           } else {
             // If no prior error, throw the release error
             throw releaseError;
@@ -516,7 +516,7 @@ export function createBracketTools<C extends BaseContext>(contextTools: {
  * @param config The resource configuration
  * @returns A task that manages the resource lifecycle
  */
-export const resource = bracket;
+export const withResource = bracket;
 
 /**
  * Example implementation of a disposable database connection.

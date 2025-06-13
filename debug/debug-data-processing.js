@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { createContext } from '../src/run.js';
 import { mapReduce } from '../src/data-processing.js';
 
