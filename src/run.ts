@@ -876,10 +876,6 @@ async function runImpl<
 ): Promise<R | Result<R, WorkflowError>> {
   const logger =
     (executionContext as any)?.logger || options.logger || noopLogger;
-  logger.debug(
-    `[runImpl] Starting workflow: ${workflow.name || "anonymousTask"}`,
-  );
-
   const allSteps = (workflow as any).__steps || [workflow];
   let currentIndex = 0;
   let currentValue: any = initialValue;
@@ -903,13 +899,9 @@ async function runImpl<
       }
       try {
         const currentTask = allSteps[currentIndex];
-        logger.debug(
-          `[runImpl] Executing task ${currentIndex}: ${currentTask.name || "anonymousTask"}`,
-        );
         currentValue = await unctxInstance.callAsync(executionContext, () =>
           currentTask(executionContext as unknown as TaskContext, currentValue),
         );
-        logger.debug(`[runImpl] Task ${currentIndex} completed successfully`);
         currentIndex++;
       } catch (error) {
         if (isBacktrackSignal(error)) {
@@ -927,9 +919,6 @@ async function runImpl<
             throw new WorkflowError(`BacktrackSignal target not found.`, error);
           if (targetIndex > currentIndex)
             throw new WorkflowError(`Cannot backtrack forward.`, error);
-          logger.info(
-            `[runImpl] Backtracking from step ${currentIndex} to ${targetIndex}`,
-          );
           currentIndex = targetIndex;
           currentValue = error.value;
           continue;
@@ -942,8 +931,7 @@ async function runImpl<
         );
       }
     }
-    logger.debug("[runImpl] Workflow completed successfully");
-    finalResult = currentValue as R; // Store the result
+    finalResult = currentValue as R;
 
     const shouldThrow = !("throw" in options) || options.throw !== false;
     if (shouldThrow) return finalResult;
@@ -971,7 +959,8 @@ async function runImpl<
     // ** THIS IS THE CRITICAL FIX **
     // Only abort the controller if the operation is truly finished.
     // If the result is an AsyncIterable, the operation is ongoing, and its
-    // lifecycle is now managed by the consumer of the iterable.
+    // lifecycle is now managed by the consumer of the iterable. The iterable's
+    // `finally` block is responsible for signaling the worker to stop.
     if (
       scopeController &&
       !scopeController.signal.aborted &&

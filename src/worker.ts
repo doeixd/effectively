@@ -12,20 +12,20 @@ import {
   type Stream as SerovalStream,
 } from "seroval";
 
-// --- Seroval Stream-to-Iterable Bridge (from documentation) ---
+// --- Seroval Stream-to-Iterable Bridge (from seroval documentation) ---
 interface Deferred {
   promise: Promise<any>;
   resolve(value: any): void;
   reject(value: any): void;
 }
 function createDeferred(): Deferred {
-  let resolve: (value: any) => void;
-  let reject: (value: any) => void;
+  let resolve!: (value: any) => void;
+  let reject!: (value: any) => void;
   const promise = new Promise<any>((res, rej) => {
     resolve = res;
     reject = rej;
   });
-  return { promise, resolve: resolve!, reject: reject! };
+  return { promise, resolve, reject };
 }
 
 function streamToAsyncIterable<T>(
@@ -206,6 +206,7 @@ export function createWorkerHandler(
         parentSignal: workerSideAbortController.signal,
       };
       const result = await run(tasks[taskId], deserialized.value, runOptions);
+      // **FIX:** Only send a final 'result' for non-streaming requests.
       if (requestType !== "stream_request") {
         const serializationResult = await toJSONAsync(result, {
           plugins: options.plugins,
@@ -356,7 +357,7 @@ export function runStreamOnWorker<C extends BaseContext, V, R>(
         const cancellationBuffer = new SharedArrayBuffer(4);
         const streamProxy = createStream<R>();
 
-        // This promise ONLY tracks if the worker sends back an immediate, one-off error.
+        // This promise *only* tracks if the worker sends back an immediate, one-off error.
         const setupErrorPromise = new Promise<void>((_, setupReject) => {
           const onMainThreadCancel = () => {
             const view = new Int32Array(cancellationBuffer);
@@ -381,6 +382,8 @@ export function runStreamOnWorker<C extends BaseContext, V, R>(
           scope.signal.addEventListener("abort", onMainThreadCancel, {
             once: true,
           });
+          // A stream request doesn't need a `resolve` function in the pending map for its final value,
+          // but it needs a `reject` to catch setup errors.
           workerPendingRequests
             .get(worker)!
             .set(id, { resolve: () => {}, reject: setupReject, cleanup });
@@ -402,12 +405,14 @@ export function runStreamOnWorker<C extends BaseContext, V, R>(
           cancellationBuffer,
         });
 
+        // Resolve immediately with the iterable, breaking the deadlock.
         resolve(iterable);
       } catch (e) {
         reject(e);
       }
     });
   };
+
   Object.defineProperty(streamWorkerTaskLogic, "name", {
     value: `runStreamOnWorker(${taskId})`,
   });

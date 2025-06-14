@@ -1,3 +1,4 @@
+// File: test/manual-worker-runner.ts
 import {
   createContext,
   run,
@@ -18,12 +19,11 @@ async function main() {
   const { run: testRun } = createContext<BaseContext>({});
   const serovalOptions: RunOnWorkerOptions = { plugins: [DOMExceptionPlugin] };
 
-  // Use the compiled JavaScript worker file
   const workerUrl = new URL("./manual-test.worker.js", import.meta.url);
   const worker = new Worker(workerUrl);
   console.log("✅ Main: Worker created.");
 
-  // --- SCENARIO 1: Successful Request-Response ---
+  // SCENARIO 1: Successful Request-Response
   console.log("\n--- SCENARIO 1: Testing successful `runOnWorker` ---");
   try {
     const remoteHeavyTask = runOnWorker(worker, "heavyTask", serovalOptions);
@@ -35,7 +35,7 @@ async function main() {
     console.error("❌ Main: Scenario 1 failed unexpectedly:", e);
   }
 
-  // --- SCENARIO 2: Error Propagation ---
+  // SCENARIO 2: Error Propagation
   console.log("\n--- SCENARIO 2: Testing error propagation from worker ---");
   try {
     const remoteFailingTask = runOnWorker(
@@ -45,7 +45,6 @@ async function main() {
     );
     await testRun(remoteFailingTask, null);
   } catch (e: any) {
-    // FINAL FIX: Assert against the final error message string.
     const errorMessage = e.message;
     console.log(
       `✅ Main: Correctly caught error from worker. Message: "${errorMessage}"`,
@@ -57,7 +56,7 @@ async function main() {
     }
   }
 
-  // --- SCENARIO 3: Cancellation ---
+  // SCENARIO 3: Cancellation
   console.log("\n--- SCENARIO 3: Testing cancellation of worker task ---");
   try {
     const controller = new AbortController();
@@ -77,7 +76,6 @@ async function main() {
     }, 80);
     await promise;
   } catch (e: any) {
-    // FINAL FIX: Assert against the final error message string for cancellations too.
     const errorMessage = e.message;
     console.log(
       `✅ Main: Correctly caught cancellation error. Message: "${errorMessage}"`,
@@ -89,7 +87,7 @@ async function main() {
     }
   }
 
-  // --- SCENARIO 4: Successful Streaming ---
+  // SCENARIO 4: Successful Streaming
   console.log("\n--- SCENARIO 4: Testing successful `runStreamOnWorker` ---");
   try {
     const remoteStream = runStreamOnWorker<any, number, string>(
@@ -97,7 +95,6 @@ async function main() {
       "streamingTask",
       serovalOptions,
     );
-    console.log("[Runner] created remote stream");
     const iterable = await testRun(remoteStream, 3);
     console.log(
       "✅ [Runner] Got iterable immediately, now starting 'for await' loop...",
@@ -119,7 +116,7 @@ async function main() {
     console.error("❌ Main: Scenario 4 failed unexpectedly:", e);
   }
 
-  // --- SCENARIO 5: Streaming with Error ---
+  // SCENARIO 5: Streaming with Error
   console.log("\n--- SCENARIO 5: Testing error propagation during stream ---");
   try {
     const remoteFailingStream = runStreamOnWorker(
