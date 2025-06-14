@@ -93,6 +93,7 @@
     "defu": "^6.1.4",
     "neverthrow": "^8.2.0",
     "seroval": "^1.3.2",
+    "seroval-plugins": "^1.3.2",
     "threads": "^1.7.0"
   },
   "publishConfig": {

@@ -6,6 +6,8 @@ export default unjs({
   ],
   rules: {
     // rule overrides
+    "*.?: (warn)": "warn",
+    "unicorn/no-null": "warn",
   },
   markdown: {
     rules: {

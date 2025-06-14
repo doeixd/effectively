@@ -1,5 +1,5 @@
-import type { Task, BaseContext, Scope } from './run';
-import { defineTask, getContext, provide } from './run';
+import type { Task, BaseContext, Scope } from "./run";
+import { defineTask, getContext, provide } from "./run";
 
 /**
  * A type representing a reusable resource definition, encapsulating the logic for
@@ -11,7 +11,12 @@ import { defineTask, getContext, provide } from './run';
  * @template V The input value type for the acquire task.
  * @template K The key under which the resource will be merged into the context.
  */
-export interface ResourceDefinition<C extends BaseContext, R, V, K extends string> {
+export interface ResourceDefinition<
+  C extends BaseContext,
+  R,
+  V,
+  K extends string,
+> {
   acquire: Task<C, V, R>;
   release: Task<C, R, void>;
   merge: (context: C, resource: R) => C & { [P in K]: R };
@@ -28,7 +33,7 @@ export interface ResourceDefinition<C extends BaseContext, R, V, K extends strin
 export function createResource<C extends BaseContext, R, V, K extends string>(
   key: K,
   acquire: Task<C, V, R>,
-  release: Task<C, R, void>
+  release: Task<C, R, void>,
 ): ResourceDefinition<C, R, V, K> {
   return {
     acquire,
@@ -68,7 +73,7 @@ export interface BracketConfig<C extends BaseContext, R, V, U> {
  * ```
  */
 export function withResource<C extends { scope: Scope }, R, V, U>(
-  config: BracketConfig<C, R, V, U>
+  config: BracketConfig<C, R, V, U>,
 ): Task<C, V, U> {
   const bracketTask = defineTask<C, V, U>(async (value) => {
     const context = getContext<C>();
@@ -79,12 +84,15 @@ export function withResource<C extends { scope: Scope }, R, V, U>(
       resource = await config.acquire(context, value);
       const enhancedContext = config.merge(context, resource);
 
+      // Separate the new properties from the core context to provide them.
       const { scope, ...overrides } = enhancedContext;
+
+      // Use `provide` to make the enhanced context available to the `use` task.
       return await provide(overrides, () => {
+        // `getContext` inside `config.use` will now resolve to the enhanced context.
         const currentContext = getContext<typeof enhancedContext>();
         return config.use(currentContext, value);
       });
-
     } catch (err) {
       useError = err;
       throw err;
@@ -94,7 +102,10 @@ export function withResource<C extends { scope: Scope }, R, V, U>(
           await config.release(context, resource);
         } catch (releaseError) {
           if (useError !== undefined) {
-            throw new AggregateError([useError, releaseError], 'An error occurred during the "use" phase, and a subsequent error occurred during the "release" phase.');
+            throw new AggregateError(
+              [useError, releaseError],
+              'An error occurred during the "use" phase, and a subsequent error occurred during the "release" phase.',
+            );
           }
           throw releaseError;
         }
@@ -102,8 +113,8 @@ export function withResource<C extends { scope: Scope }, R, V, U>(
     }
   });
 
-  Object.defineProperty(bracketTask, 'name', {
-    value: `withResource(${config.acquire.name || 'acquire'} -> ${config.use.name || 'use'})`,
+  Object.defineProperty(bracketTask, "name", {
+    value: `withResource(${config.acquire.name || "acquire"} -> ${config.use.name || "use"})`,
     configurable: true,
   });
 
@@ -113,18 +124,32 @@ export function withResource<C extends { scope: Scope }, R, V, U>(
 /** The raw `bracket` function. `withResource` is the recommended, more readable alias. */
 export const bracket = withResource;
 
-export const DisposeSymbol = Symbol.for('Symbol.dispose');
-export const AsyncDisposeSymbol = Symbol.for('Symbol.asyncDispose');
+export const DisposeSymbol = Symbol.for("Symbol.dispose");
+export const AsyncDisposeSymbol = Symbol.for("Symbol.asyncDispose");
 
-export interface Disposable { [DisposeSymbol](): void; }
-export interface AsyncDisposable { [AsyncDisposeSymbol](): Promise<void>; }
+export interface Disposable {
+  [DisposeSymbol](): void;
+}
+export interface AsyncDisposable {
+  [AsyncDisposeSymbol](): Promise<void>;
+}
 
 export function isDisposable(value: unknown): value is Disposable {
-  return !!value && typeof value === 'object' && DisposeSymbol in value && typeof (value as any)[DisposeSymbol] === 'function';
+  return (
+    !!value &&
+    typeof value === "object" &&
+    DisposeSymbol in value &&
+    typeof (value as any)[DisposeSymbol] === "function"
+  );
 }
 
 export function isAsyncDisposable(value: unknown): value is AsyncDisposable {
-  return !!value && typeof value === 'object' && AsyncDisposeSymbol in value && typeof (value as any)[AsyncDisposeSymbol] === 'function';
+  return (
+    !!value &&
+    typeof value === "object" &&
+    AsyncDisposeSymbol in value &&
+    typeof (value as any)[AsyncDisposeSymbol] === "function"
+  );
 }
 
 /**
@@ -135,7 +160,12 @@ export function isAsyncDisposable(value: unknown): value is AsyncDisposable {
  * @param config Configuration with `acquire`, `use`, and `merge`.
  * @returns A task that manages the disposable resource.
  */
-export function withDisposableResource<C extends { scope: Scope }, R extends Disposable | AsyncDisposable, V, U>(config: {
+export function withDisposableResource<
+  C extends { scope: Scope },
+  R extends Disposable | AsyncDisposable,
+  V,
+  U,
+>(config: {
   acquire: Task<C, V, R>;
   use: Task<C & Record<string, any>, V, U>;
   merge: (context: C, resource: R) => C & Record<string, any>;
@@ -146,7 +176,9 @@ export function withDisposableResource<C extends { scope: Scope }, R extends Dis
     } else if (isDisposable(resource)) {
       resource[DisposeSymbol]();
     } else {
-      throw new TypeError('Resource provided to withDisposableResource is not disposable.');
+      throw new TypeError(
+        "Resource provided to withDisposableResource is not disposable.",
+      );
     }
   });
 
@@ -167,7 +199,7 @@ export const bracketDisposable = withDisposableResource;
  */
 export function withResources<C extends { scope: Scope }, V, U>(
   resources: Array<ResourceDefinition<C, any, V, any>>,
-  use: Task<any, V, U>
+  use: Task<any, V, U>,
 ): Task<C, V, U> {
   return defineTask<C, V, U>(async (value) => {
     const context = getContext<C>();
@@ -181,7 +213,13 @@ export function withResources<C extends { scope: Scope }, V, U>(
         acquired.push({ resource, release: config.release });
         currentContext = config.merge(currentContext, resource);
       }
-      return await use(currentContext, value);
+
+      // Correctly provide the fully merged context to the `use` task.
+      const { scope, ...overrides } = currentContext;
+      return await provide(overrides, () => {
+        const finalContext = getContext<any>();
+        return use(finalContext, value);
+      });
     } catch (err) {
       useError = err;
       throw err;
@@ -198,11 +236,17 @@ export function withResources<C extends { scope: Scope }, V, U>(
 
       if (releaseErrors.length > 0) {
         if (useError !== undefined) {
-          throw new AggregateError([useError, ...releaseErrors], 'Multiple errors during use and resource cleanup.');
+          throw new AggregateError(
+            [useError, ...releaseErrors],
+            "Multiple errors during use and resource cleanup.",
+          );
         } else if (releaseErrors.length === 1) {
           throw releaseErrors[0];
         } else {
-          throw new AggregateError(releaseErrors, 'Multiple errors during resource cleanup');
+          throw new AggregateError(
+            releaseErrors,
+            "Multiple errors during resource cleanup",
+          );
         }
       }
     }
@@ -232,11 +276,14 @@ export const bracketMany = withResources;
  * })
  * ```
  */
-export function mergeIntoContext<C extends BaseContext, R, K extends string>(key: K): (context: C, resource: R) => C & { [P in K]: R } {
-  return (context, resource) => ({
-    ...context,
-    [key]: resource,
-  }) as C & { [P in K]: R };
+export function mergeIntoContext<C extends BaseContext, R, K extends string>(
+  key: K,
+): (context: C, resource: R) => C & { [P in K]: R } {
+  return (context, resource) =>
+    ({
+      ...context,
+      [key]: resource,
+    }) as C & { [P in K]: R };
 }
 
 /**
@@ -249,11 +296,13 @@ export function mergeIntoContext<C extends BaseContext, R, K extends string>(key
  */
 export function asAsyncDisposable<T extends object, K extends keyof T>(
   resource: T,
-  cleanupMethodName: K
+  cleanupMethodName: K,
 ): T & AsyncDisposable {
   const cleanupMethod = resource[cleanupMethodName];
-  if (typeof cleanupMethod !== 'function') {
-    throw new TypeError(`Method '${String(cleanupMethodName)}' not found or not a function on the provided resource.`);
+  if (typeof cleanupMethod !== "function") {
+    throw new TypeError(
+      `Method '${String(cleanupMethodName)}' not found or not a function on the provided resource.`,
+    );
   }
 
   return Object.assign(resource, {
@@ -276,11 +325,16 @@ export function asAsyncDisposable<T extends object, K extends keyof T>(
 export function createBracketTools<C extends BaseContext>(contextTools: {
   defineTask: <V, R>(fn: (value: V) => Promise<R>) => Task<C, V, R>;
   getContext: () => C;
-  provide: <R>(overrides: Partial<Omit<C, 'scope'>>, fn: () => Promise<R>) => Promise<R>;
+  provide: <R>(
+    overrides: Partial<Omit<C, "scope">>,
+    fn: () => Promise<R>,
+  ) => Promise<R>;
 }) {
   const { defineTask: define, getContext: get, provide: prov } = contextTools;
 
-  function localWithResource<R, V, U>(config: BracketConfig<C, R, V, U>): Task<C, V, U> {
+  function localWithResource<R, V, U>(
+    config: BracketConfig<C, R, V, U>,
+  ): Task<C, V, U> {
     return define(async (value) => {
       const context = get();
       let resource: R | undefined;
@@ -290,6 +344,7 @@ export function createBracketTools<C extends BaseContext>(contextTools: {
         resource = await config.acquire(context, value);
         const enhancedContext = config.merge(context, resource);
         const { scope, ...overrides } = enhancedContext;
+
         return await prov(overrides, () => {
           const currentContext = get() as typeof enhancedContext;
           return config.use(currentContext, value);
@@ -303,7 +358,10 @@ export function createBracketTools<C extends BaseContext>(contextTools: {
             await config.release(context, resource);
           } catch (releaseError) {
             if (useError !== undefined) {
-              throw new AggregateError([useError, releaseError], 'Error during both use and release phases.');
+              throw new AggregateError(
+                [useError, releaseError],
+                "Error during both use and release phases.",
+              );
             }
             throw releaseError;
           }
@@ -312,7 +370,11 @@ export function createBracketTools<C extends BaseContext>(contextTools: {
     });
   }
 
-  function localWithDisposableResource<R extends Disposable | AsyncDisposable, V, U>(config: {
+  function localWithDisposableResource<
+    R extends Disposable | AsyncDisposable,
+    V,
+    U,
+  >(config: {
     acquire: Task<C, V, R>;
     use: Task<C & Record<string, any>, V, U>;
     merge: (context: C, resource: R) => C & Record<string, any>;
@@ -320,18 +382,19 @@ export function createBracketTools<C extends BaseContext>(contextTools: {
     const release = define(async (resource: R) => {
       if (isAsyncDisposable(resource)) await resource[AsyncDisposeSymbol]();
       else if (isDisposable(resource)) resource[DisposeSymbol]();
-      else throw new Error('Resource is not disposable');
+      else throw new Error("Resource is not disposable");
     });
     return localWithResource({ ...config, release });
   }
 
   function localWithResources<V, U>(
     resources: Array<ResourceDefinition<C, any, V, any>>,
-    use: Task<any, V, U>
+    use: Task<any, V, U>,
   ): Task<C, V, U> {
     return define(async (value) => {
       const context = get();
-      const acquired: Array<{ resource: any; release: Task<C, any, void> }> = [];
+      const acquired: Array<{ resource: any; release: Task<C, any, void> }> =
+        [];
       let currentContext: any = context;
       let useError: unknown;
 
@@ -341,7 +404,12 @@ export function createBracketTools<C extends BaseContext>(contextTools: {
           acquired.push({ resource, release: config.release });
           currentContext = config.merge(currentContext, resource);
         }
-        return await use(currentContext, value);
+
+        const { scope, ...overrides } = currentContext;
+        return await prov(overrides, () => {
+          const finalContext = get() as any;
+          return use(finalContext, value);
+        });
       } catch (err) {
         useError = err;
         throw err;
@@ -357,11 +425,17 @@ export function createBracketTools<C extends BaseContext>(contextTools: {
         }
         if (releaseErrors.length > 0) {
           if (useError !== undefined) {
-            throw new AggregateError([useError, ...releaseErrors], 'Multiple errors during use and resource cleanup.');
+            throw new AggregateError(
+              [useError, ...releaseErrors],
+              "Multiple errors during use and resource cleanup.",
+            );
           } else if (releaseErrors.length === 1) {
             throw releaseErrors[0];
           } else {
-            throw new AggregateError(releaseErrors, 'Multiple errors during resource cleanup');
+            throw new AggregateError(
+              releaseErrors,
+              "Multiple errors during resource cleanup",
+            );
           }
         }
       }
@@ -375,8 +449,6 @@ export function createBracketTools<C extends BaseContext>(contextTools: {
   };
 }
 
-
-
 /**
  * An example implementation of a resource that can be managed by the bracket pattern.
  * It implements the `AsyncDisposable` interface for automatic cleanup with `withDisposableResource`.
@@ -384,7 +456,7 @@ export function createBracketTools<C extends BaseContext>(contextTools: {
 export class DatabaseConnection implements AsyncDisposable {
   private _connected = false;
 
-  constructor(public connectionString: string) { }
+  constructor(public connectionString: string) {}
 
   async connect(): Promise<this> {
     if (!this._connected) {
@@ -395,14 +467,14 @@ export class DatabaseConnection implements AsyncDisposable {
   }
 
   async query(sql: string, params?: any[]): Promise<any> {
-    if (!this._connected) throw new Error('Connection is closed');
+    if (!this._connected) throw new Error("Connection is closed");
     console.log(`Executing query: ${sql}`, params);
-    return { rows: [{ id: 1, name: 'Example' }] };
+    return { rows: [{ id: 1, name: "Example" }] };
   }
 
   async close(): Promise<void> {
     if (this._connected) {
-      console.log('Closing database connection');
+      console.log("Closing database connection");
       this._connected = false;
     }
   }

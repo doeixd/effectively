@@ -102,7 +102,7 @@ export function withCircuitBreaker<
   const {
     id,
     failureThreshold = 5,
-    openStateTimeoutMs = 30000,
+    openStateTimeoutMs = 30_000,
     isFailure = (err) => !isBacktrackSignal(err),
   } = options;
 
@@ -115,76 +115,69 @@ export function withCircuitBreaker<
     isTrialRequestInProgress: false,
   };
 
-  // This function itself becomes the new Task, directly receiving context.
   const circuitBreakerEnhancedTask: Task<C, V, R> = async (
     context: C,
     value: V,
   ): Promise<R> => {
-    // console.log(`[CB INTERNAL DEBUG - ${id}] Task context received. logger.warn function reference:`, context.logger?.warn?.toString().slice(0, 100)); // Log part of function string
-    // console.log(`[CB INTERNAL DEBUG - ${id}] Task context.someOtherProp:`, (context as any).someOtherProp);
-    // The `context` here is the one prepared by the `run` engine, including any overrides.
     const logger = context.logger || noopLogger;
 
     // --- State Machine Logic ---
 
-    // 1. Check if an OPEN breaker is ready to move to HALF-OPEN.
     if (state.status === "OPEN") {
       const timeSinceFailure = Date.now() - state.lastFailureTimestamp;
-      if (
-        timeSinceFailure > openStateTimeoutMs &&
-        !state.isTrialRequestInProgress
-      ) {
+      if (timeSinceFailure > openStateTimeoutMs) {
+        // The timeout has passed. The circuit is now ready for a trial.
+        // We change the state here to allow ONE request to attempt a trial.
         state.status = "HALF-OPEN";
-        state.isTrialRequestInProgress = true;
+        state.isTrialRequestInProgress = false; // Reset flag to allow a trial
         logger.warn(
-          `[Circuit Breaker: ${id}] State changed to HALF-OPEN. Attempting trial request.`,
+          `[Circuit Breaker: ${id}] State changed to HALF-OPEN. Ready for a trial request.`,
         );
+      } else {
+        // Still within the timeout period, fail fast.
+        throw new CircuitOpenError(id);
       }
     }
 
-    // 2. If the circuit is OPEN (and not the one actively attempting a trial), reject immediately.
-    if (state.status === "OPEN") {
-      throw new CircuitOpenError(id);
+    if (state.status === "HALF-OPEN") {
+      // If a trial is already in progress, reject subsequent concurrent requests.
+      if (state.isTrialRequestInProgress) {
+        throw new CircuitOpenError(id);
+      }
+      // This is the first request to arrive while in HALF-OPEN. Mark it as the trial.
+      state.isTrialRequestInProgress = true;
+      logger.debug(`[Circuit Breaker: ${id}] Attempting trial request.`);
     }
 
-    // --- Attempt the Operation (status is CLOSED or HALF-OPEN) ---
+    // --- Attempt the Operation (status is CLOSED or a trial in HALF-OPEN) ---
     try {
-      const result = await originalTask(context, value); // Pass the received context directly
+      const result = await originalTask(context, value);
 
       // --- Success Handling ---
       if (state.status === "HALF-OPEN") {
         logger.info(
           `[Circuit Breaker: ${id}] Trial request succeeded. State changed to CLOSED.`,
         );
-        state.isTrialRequestInProgress = false;
       }
-      // Reset the circuit to CLOSED on any success.
+      // On any success, the circuit becomes healthy.
       state.status = "CLOSED";
       state.failures = 0;
-      // lastFailureTimestamp is not reset here; it's relevant for OPEN -> HALF-OPEN timing.
+      state.isTrialRequestInProgress = false; // Ensure trial flag is reset on success.
 
       return result;
     } catch (error) {
       // --- Failure Handling ---
 
-      // If it was a trial request that failed due to a non-counted error,
-      // reset the trial flag as this attempt is over. The status remains HALF-OPEN.
-      if (
-        state.status === "HALF-OPEN" &&
-        state.isTrialRequestInProgress &&
-        !isFailure(error)
-      ) {
-        state.isTrialRequestInProgress = false;
-        // Potentially log that a trial attempt concluded without counting as a CB failure.
-        // logger.debug(`[Circuit Breaker: ${id}] Trial request encountered a non-counted error. Remaining HALF-OPEN.`);
-      }
-
-      // Only act further if the error is considered a primary failure by the predicate.
+      // If this was a non-counted error (like a backtrack signal), it should not affect the circuit state.
+      // However, if it was a trial request, we must reset the flag to allow another trial.
       if (!isFailure(error)) {
-        throw error; // Not a counted failure, so just re-throw.
+        if (state.status === "HALF-OPEN") {
+          state.isTrialRequestInProgress = false; // Reset for another attempt
+        }
+        throw error;
       }
 
-      // It's a counted failure
+      // It's a counted failure.
       state.failures++;
       state.lastFailureTimestamp = Date.now();
       logger.warn(
@@ -193,9 +186,8 @@ export function withCircuitBreaker<
       );
 
       if (state.status === "HALF-OPEN") {
-        // The trial request (which was in progress) failed with a counted error.
+        // The trial request failed. Re-open the circuit.
         state.status = "OPEN";
-        state.isTrialRequestInProgress = false; // Reset trial flag on counted failure during trial
         logger.error(
           `[Circuit Breaker: ${id}] Trial request failed. State changed back to OPEN.`,
         );
@@ -203,15 +195,19 @@ export function withCircuitBreaker<
         state.status === "CLOSED" &&
         state.failures >= failureThreshold
       ) {
-        // Failure threshold reached while in CLOSED state. Trip the circuit.
+        // The failure threshold has been reached. Trip the circuit.
         state.status = "OPEN";
-        // isTrialRequestInProgress is false by default when moving from CLOSED
         logger.error(
           `[Circuit Breaker: ${id}] Failure threshold reached. State changed to OPEN.`,
         );
       }
 
-      throw error; // Re-throw the original counted error.
+      // After any counted failure during a trial, the trial is over.
+      if (state.isTrialRequestInProgress) {
+        state.isTrialRequestInProgress = false;
+      }
+
+      throw error;
     }
   };
 

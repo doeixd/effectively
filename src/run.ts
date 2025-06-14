@@ -1,6 +1,6 @@
-import { createContext as createUnctx } from 'unctx';
-import { AsyncLocalStorage } from 'node:async_hooks';
-import { type Result, type Ok, type Err, ok, err } from 'neverthrow';
+import { createContext as createUnctx } from "unctx";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { type Result, type Ok, type Err, ok, err } from "neverthrow";
 
 // =================================================================
 // Section 1: Core Type Definitions
@@ -18,15 +18,19 @@ export type BaseContext = {
  * Utility type for merging two contexts safely.
  * Properties in B override properties in A.
  */
-export type MergeContexts<A extends BaseContext, B extends Record<string, unknown>> =
-  Omit<A, keyof B> & B & { scope: Scope };
+export type MergeContexts<
+  A extends BaseContext,
+  B extends Record<string, unknown>,
+> = Omit<A, keyof B> & B & { scope: Scope };
 
 /**
  * Utility type for context with optional extensions.
  * Useful for contexts that may or may not have certain dependencies.
  */
-export type WithOptionalContext<Base extends BaseContext, Extension extends Record<string, unknown>> =
-  Base & Partial<Extension>;
+export type WithOptionalContext<
+  Base extends BaseContext,
+  Extension extends Record<string, unknown>,
+> = Base & Partial<Extension>;
 
 /**
  * Type for context validation functions.
@@ -37,25 +41,23 @@ export type ContextValidator<T> = (value: unknown) => value is T;
  * Schema definition for runtime context validation.
  */
 export type ContextSchema<T extends BaseContext> = {
-  readonly [K in keyof Omit<T, 'scope'>]: ContextValidator<T[K]>;
+  readonly [K in keyof Omit<T, "scope">]: ContextValidator<T[K]>;
 };
 
 /**
  * Error thrown when context validation fails.
  */
 export class ContextValidationError extends Error {
-  public readonly _tag = 'ContextValidationError' as const;
+  public readonly _tag = "ContextValidationError" as const;
   public readonly field: string;
   public readonly expectedType: string;
   public readonly actualValue: unknown;
 
-  constructor(
-    field: string,
-    expectedType: string,
-    actualValue: unknown
-  ) {
-    super(`Context validation failed for field '${field}': expected ${expectedType}, got ${typeof actualValue}`);
-    this.name = 'ContextValidationError';
+  constructor(field: string, expectedType: string, actualValue: unknown) {
+    super(
+      `Context validation failed for field '${field}': expected ${expectedType}, got ${typeof actualValue}`,
+    );
+    this.name = "ContextValidationError";
     this.field = field;
     this.expectedType = expectedType;
     this.actualValue = actualValue;
@@ -98,10 +100,10 @@ export interface Logger {
  * A no-op logger that discards all log messages.
  */
 export const noopLogger: Logger = {
-  debug: () => { },
-  info: () => { },
-  warn: () => { },
-  error: () => { },
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
 };
 
 /**
@@ -115,7 +117,10 @@ export const noopLogger: Logger = {
  * @template V The input value type for the task.
  * @template R The resolved output value type of the task.
  */
-export type Task<C extends BaseContext, V, R> = ((context: C, value: V) => Promise<R>) & {
+export type Task<C extends BaseContext, V, R> = ((
+  context: C,
+  value: V,
+) => Promise<R>) & {
   /**
    * Internal property used to identify tasks for backtracking.
    * This is automatically set by `defineTask` and should not be manually modified.
@@ -137,17 +142,17 @@ export type Task<C extends BaseContext, V, R> = ((context: C, value: V) => Promi
  * the workflow from the specified target task with a new input value.
  * This enables powerful patterns like state machines and conditional flow control.
  */
-export class BacktrackSignal<C extends BaseContext = BaseContext, V = unknown> extends Error {
-  public readonly _tag = 'BacktrackSignal' as const;
+export class BacktrackSignal<
+  C extends BaseContext = BaseContext,
+  V = unknown,
+> extends Error {
+  public readonly _tag = "BacktrackSignal" as const;
   public readonly target: Task<C, V, unknown>;
   public readonly value: V;
 
-  constructor(
-    target: Task<C, V, unknown>,
-    value: V
-  ) {
-    super('Backtrack signal - this is not an error');
-    this.name = 'BacktrackSignal';
+  constructor(target: Task<C, V, unknown>, value: V) {
+    super("Backtrack signal - this is not an error");
+    this.name = "BacktrackSignal";
     this.target = target;
     this.value = value;
     Object.setPrototypeOf(this, BacktrackSignal.prototype);
@@ -158,7 +163,10 @@ export class BacktrackSignal<C extends BaseContext = BaseContext, V = unknown> e
  * Type guard to check if an error is a BacktrackSignal.
  */
 export function isBacktrackSignal(error: unknown): error is BacktrackSignal {
-  return error instanceof BacktrackSignal && (error as any)._tag === 'BacktrackSignal';
+  return (
+    error instanceof BacktrackSignal &&
+    (error as any)._tag === "BacktrackSignal"
+  );
 }
 
 /**
@@ -174,10 +182,10 @@ export class WorkflowError extends Error {
     message: string,
     cause?: unknown,
     taskName?: string,
-    taskIndex?: number
+    taskIndex?: number,
   ) {
     super(message);
-    this.name = 'WorkflowError';
+    this.name = "WorkflowError";
     this.cause = cause;
     this.taskName = taskName;
     this.taskIndex = taskIndex;
@@ -191,7 +199,7 @@ export class WorkflowError extends Error {
 export interface RunOptionsThrow<C extends BaseContext> {
   throw?: true;
   logger?: Logger;
-  overrides?: Partial<Omit<C, 'scope'>>;
+  overrides?: Partial<Omit<C, "scope">>;
   parentSignal?: AbortSignal;
 }
 
@@ -201,19 +209,24 @@ export interface RunOptionsThrow<C extends BaseContext> {
 export interface RunOptionsResult<C extends BaseContext> {
   throw: false;
   logger?: Logger;
-  overrides?: Partial<Omit<C, 'scope'>>;
+  overrides?: Partial<Omit<C, "scope">>;
   parentSignal?: AbortSignal;
 }
 
-export type RunOptions<C extends BaseContext> = RunOptionsThrow<C> | RunOptionsResult<C>;
+export type RunOptions<C extends BaseContext> =
+  | RunOptionsThrow<C>
+  | RunOptionsResult<C>;
 
 /**
  * Error thrown when `getContext` is called outside of a `run` execution.
  */
 export class ContextNotFoundError extends Error {
   constructor(message?: string) {
-    super(message || 'Context not found. Make sure you are calling getContext() within a run() execution.');
-    this.name = 'ContextNotFoundError';
+    super(
+      message ||
+        "Context not found. Make sure you are calling getContext() within a run() execution.",
+    );
+    this.name = "ContextNotFoundError";
   }
 }
 
@@ -227,7 +240,10 @@ export class ContextNotFoundError extends Error {
  *
  * @template C The specific `BaseContext` type this set of tools operates on.
  */
-export interface ContextTools<C extends BaseContext, G extends BaseContext = DefaultGlobalContext> {
+export interface ContextTools<
+  C extends BaseContext,
+  G extends BaseContext = DefaultGlobalContext,
+> {
   /**
    * Executes a workflow (a Task or a chain of Tasks) within this specific context.
    *
@@ -248,12 +264,12 @@ export interface ContextTools<C extends BaseContext, G extends BaseContext = Def
   run<V, R>(
     workflow: Task<C, V, R> | Task<any, V, R>, // Can run tasks defined globally or for this specific context
     initialValue: V,
-    options?: RunOptionsThrow<C>
+    options?: RunOptionsThrow<C>,
   ): Promise<R>;
   run<V, R>(
     workflow: Task<C, V, R> | Task<any, V, R>,
     initialValue: V,
-    options: RunOptionsResult<C>
+    options: RunOptionsResult<C>,
   ): Promise<Result<R, WorkflowError>>;
 
   /**
@@ -296,7 +312,7 @@ export interface ContextTools<C extends BaseContext, G extends BaseContext = Def
    */
   defineTask: <V, R>(
     fn: (value: V) => Promise<R>,
-    taskNameOrOptions?: string | DefineTaskOptions
+    taskNameOrOptions?: string | DefineTaskOptions,
   ) => Task<C, V, R>;
 
   /**
@@ -338,9 +354,12 @@ export interface ContextTools<C extends BaseContext, G extends BaseContext = Def
    * ```
    */
   provide<Pr>(
-    overrides: Partial<Omit<C, 'scope' | typeof UNCTX_INSTANCE_SYMBOL> & Record<string | symbol, any>>,
+    overrides: Partial<
+      Omit<C, "scope" | typeof UNCTX_INSTANCE_SYMBOL> &
+        Record<string | symbol, any>
+    >,
     fn: () => Promise<Pr>,
-    options?: ProvideImplOptions // Allow strategy selection
+    options?: ProvideImplOptions, // Allow strategy selection
   ): Promise<Pr>;
 
   /**
@@ -370,7 +389,6 @@ export interface ContextTools<C extends BaseContext, G extends BaseContext = Def
   getContextOrGlobal: () => C | G;
 }
 
-
 // =================================================================
 // Section 2: Global Context Functions and Task Definition
 // =================================================================
@@ -378,11 +396,12 @@ export interface ContextTools<C extends BaseContext, G extends BaseContext = Def
 /**
  * Symbol used to store the unctx instance on context objects for smart function detection
  */
-const UNCTX_INSTANCE_SYMBOL = Symbol('__unctx_instance__');
-
+const UNCTX_INSTANCE_SYMBOL = Symbol("__unctx_instance__");
 
 let globalUnctx: ReturnType<typeof createUnctx> | null = null;
-function getGlobalUnctx<C extends { scope: Scope }>(): ReturnType<typeof createUnctx<C>> {
+function getGlobalUnctx<C extends { scope: Scope }>(): ReturnType<
+  typeof createUnctx<C>
+> {
   if (!globalUnctx) {
     try {
       globalUnctx = createUnctx({ asyncContext: true, AsyncLocalStorage });
@@ -407,13 +426,17 @@ function getGlobalDefaultContextObjectSingleton(): DefaultGlobalContext {
     // Initialize the global unctx store with this default object ONCE.
     // This is crucial so that globalUnctx.use() can retrieve it.
     const globalUnctxInstance = getGlobalUnctx<DefaultGlobalContext>(); // Your existing function
-    globalUnctxInstance.callAsync(memoizedGlobalDefaultContextObject, () => Promise.resolve()).catch(e => {
-      console.error("[Effectively] Failed to initialize global unctx store with default object:", e);
-    });
+    globalUnctxInstance
+      .callAsync(memoizedGlobalDefaultContextObject, () => Promise.resolve())
+      .catch((e) => {
+        console.error(
+          "[Effectively] Failed to initialize global unctx store with default object:",
+          e,
+        );
+      });
   }
   return memoizedGlobalDefaultContextObject;
 }
-
 
 /**
  * Thread-local storage for tracking the current unctx instance
@@ -422,11 +445,15 @@ let currentUnctxInstance: ReturnType<typeof createUnctx> | null = null;
 // Setter for currentUnctxInstance - to be called by run/provide implementations
 // THIS IS A CRITICAL PART OF THE SYSTEM.
 // `run` and `provide` implementations MUST call this.
-export function _INTERNAL_setCurrentUnctxInstance(instance: ReturnType<typeof createUnctx<any>> | null): void {
+export function _INTERNAL_setCurrentUnctxInstance(
+  instance: ReturnType<typeof createUnctx<any>> | null,
+): void {
   currentUnctxInstance = instance;
 }
 // Getter for testing or very specific internal uses, not for general public API.
-export function _INTERNAL_getCurrentUnctxInstance(): ReturnType<typeof createUnctx<any>> | null {
+export function _INTERNAL_getCurrentUnctxInstance(): ReturnType<
+  typeof createUnctx<any>
+> | null {
   return currentUnctxInstance;
 }
 
@@ -449,7 +476,9 @@ export function _INTERNAL_getCurrentUnctxInstance(): ReturnType<typeof createUnc
  * @returns The active specific context object of type `C` if found and compatible,
  *          otherwise `undefined`.
  */
-export function getContextOrUndefinedFromActiveInstance<C extends BaseContext>(): C | undefined {
+export function getContextOrUndefinedFromActiveInstance<
+  C extends BaseContext,
+>(): C | undefined {
   if (currentUnctxInstance) {
     try {
       // Attempt to use the currently set specific unctx instance.
@@ -465,8 +494,8 @@ export function getContextOrUndefinedFromActiveInstance<C extends BaseContext>()
       // Log this, as it might indicate an issue with `unctx` setup or `AsyncLocalStorage`.
       console.warn(
         "[Effectively Internal] Error calling 'use()' on currentUnctxInstance. " +
-        "This might indicate an issue with AsyncLocalStorage or unctx setup. Returning undefined.",
-        error
+          "This might indicate an issue with AsyncLocalStorage or unctx setup. Returning undefined.",
+        error,
       );
       return undefined;
     }
@@ -486,17 +515,17 @@ export function getContextOrUndefinedFromActiveInstance<C extends BaseContext>()
  */
 interface DefaultGlobalContext extends BaseContext {}
 
-const DEFAULT_GLOBAL_CONTEXT_KEY = '__effectively_default_context__' as const;
+const DEFAULT_GLOBAL_CONTEXT_KEY = "__effectively_default_context__" as const;
 
 declare global {
-  var __effectively_default_context__: ContextTools<DefaultGlobalContext, DefaultGlobalContext> | undefined;
+  var __effectively_default_context__:
+    | ContextTools<DefaultGlobalContext, DefaultGlobalContext>
+    | undefined;
 }
-
 
 // =================================================================
 // Section 2.2: Smart Default Context Functions
 // =================================================================
-
 
 export interface DefineTaskOptions {
   name?: string;
@@ -511,11 +540,11 @@ export interface DefineTaskOptions {
 function createTaskFunction<
   V, // Input type of fn
   R, // Result type of fn
-  ActualContext extends BaseContext,   // Context type for the Task signature
-  ExpectedContextInFn extends BaseContext // Context type fn expects via getContext<ExpectedContextInFn>
+  ActualContext extends BaseContext, // Context type for the Task signature
+  ExpectedContextInFn extends BaseContext, // Context type fn expects via getContext<ExpectedContextInFn>
 >(
   fn: (value: V) => Promise<R>,
-  taskNameOrOptions?: string | DefineTaskOptions
+  taskNameOrOptions?: string | DefineTaskOptions,
 ): Task<ActualContext, V, R> {
   const taskFnExecutor = (context: ActualContext, value: V): Promise<R> => {
     // The user's `fn` uses getContext<ExpectedContextInFn>() internally.
@@ -526,20 +555,20 @@ function createTaskFunction<
   let taskName: string | undefined;
   let idSymbol: symbol | undefined;
 
-  if (typeof taskNameOrOptions === 'string') {
+  if (typeof taskNameOrOptions === "string") {
     taskName = taskNameOrOptions;
   } else if (taskNameOrOptions) {
     taskName = taskNameOrOptions.name;
     idSymbol = taskNameOrOptions.idSymbol;
   }
 
-  const finalName = taskName || fn.name || 'anonymousTask';
+  const finalName = taskName || fn.name || "anonymousTask";
 
-  Object.defineProperty(taskFnExecutor, 'name', {
+  Object.defineProperty(taskFnExecutor, "name", {
     value: finalName,
     configurable: true,
   });
-  Object.defineProperty(taskFnExecutor, '__task_id', {
+  Object.defineProperty(taskFnExecutor, "__task_id", {
     value: idSymbol || Symbol(finalName),
     configurable: false,
     enumerable: false,
@@ -549,7 +578,6 @@ function createTaskFunction<
   return taskFnExecutor as Task<ActualContext, V, R>;
 }
 
-
 /**
  * Defines a context-aware Task, inferring Input (V) and Result (R) types from `fn`.
  * The expected Context (C) for `getContext<C>()` calls within `fn` defaults to `DefaultGlobalContext`.
@@ -557,7 +585,7 @@ function createTaskFunction<
  */
 export function defineTask<V, R>(
   fn: (value: V) => Promise<R>,
-  taskNameOrOptions?: string | DefineTaskOptions
+  taskNameOrOptions?: string | DefineTaskOptions,
 ): Task<any, V, R>;
 /**
  * Defines a context-aware Task, specifying the expected Context type `C` for
@@ -567,7 +595,7 @@ export function defineTask<V, R>(
  */
 export function defineTask<C extends BaseContext, V = any, R = any>( // V, R default to any to allow inference if C is first
   fn: (value: V) => Promise<R>, // V and R will be inferred from this function
-  taskNameOrOptions?: string | DefineTaskOptions
+  taskNameOrOptions?: string | DefineTaskOptions,
 ): Task<any, V, R>;
 /**
  * Defines a context-aware Task, explicitly specifying Input (V), Result (R),
@@ -576,7 +604,7 @@ export function defineTask<C extends BaseContext, V = any, R = any>( // V, R def
  */
 export function defineTask<V, R, C extends BaseContext>(
   fn: (value: V) => Promise<R>,
-  taskNameOrOptions?: string | DefineTaskOptions
+  taskNameOrOptions?: string | DefineTaskOptions,
 ): Task<any, V, R>;
 /**
  * Defines a context-aware Task from a simple asynchronous function.
@@ -599,18 +627,20 @@ export function defineTask<V, R, C extends BaseContext>(
 export function defineTask<
   V_Inferred, // Will be inferred from fn if not specified in an overload
   R_Inferred, // Will be inferred from fn if not specified in an overload
-  C_Expected extends BaseContext = DefaultGlobalContext
+  C_Expected extends BaseContext = DefaultGlobalContext,
 >(
   fn: (value: V_Inferred) => Promise<R_Inferred>,
-  taskNameOrOptions?: string | DefineTaskOptions
+  taskNameOrOptions?: string | DefineTaskOptions,
 ): Task<any, V_Inferred, R_Inferred> {
   // C_Expected is the type hint for `getContext<C>()` calls inside `fn`.
   // The returned Task is `Task<any, ...>` because this smart defineTask
   // creates tasks runnable in any compatible context or the global default.
-  return createTaskFunction<V_Inferred, R_Inferred, /* ActualContext for Task signature */ any, /* ExpectedContextInFn */ C_Expected>(
-    fn,
-    taskNameOrOptions
-  );
+  return createTaskFunction<
+    V_Inferred,
+    R_Inferred,
+    /* ActualContext for Task signature */ any,
+    /* ExpectedContextInFn */ C_Expected
+  >(fn, taskNameOrOptions);
 }
 
 /**
@@ -735,9 +765,17 @@ export function getContext<C extends BaseContext = DefaultGlobalContext>(): C {
  * }
  * ```
  */
-export function getContextSafe(): Result<DefaultGlobalContext, ContextNotFoundError>;
-export function getContextSafe<C extends BaseContext>(): Result<C, ContextNotFoundError>;
-export function getContextSafe<C extends BaseContext = DefaultGlobalContext>(): Result<C, ContextNotFoundError> {
+export function getContextSafe(): Result<
+  DefaultGlobalContext,
+  ContextNotFoundError
+>;
+export function getContextSafe<C extends BaseContext>(): Result<
+  C,
+  ContextNotFoundError
+>;
+export function getContextSafe<
+  C extends BaseContext = DefaultGlobalContext,
+>(): Result<C, ContextNotFoundError> {
   // 1. Try to get the current specific (active) context
   const activeSpecificContext = getContextOrUndefinedFromActiveInstance<C>();
   if (activeSpecificContext) {
@@ -752,7 +790,6 @@ export function getContextSafe<C extends BaseContext = DefaultGlobalContext>(): 
   // See comments in the smart `getContext` about this cast's implications.
   return ok(globalDefaultInstance as C);
 }
-
 
 /**
  * Retrieves the currently active execution context, or the global default if no specific one is active.
@@ -785,7 +822,9 @@ export function getContextSafe<C extends BaseContext = DefaultGlobalContext>(): 
  */
 export function getContextOrUndefined(): DefaultGlobalContext; // No undefined for no-args
 export function getContextOrUndefined<C extends BaseContext>(): C; // No undefined here either for consistency
-export function getContextOrUndefined<C extends BaseContext = DefaultGlobalContext>(): C {
+export function getContextOrUndefined<
+  C extends BaseContext = DefaultGlobalContext,
+>(): C {
   // 1. Try to get the current specific (active) context
   const activeSpecificContext = getContextOrUndefinedFromActiveInstance<C>();
   if (activeSpecificContext) {
@@ -821,16 +860,19 @@ async function runImpl<
   V,
   R,
   TaskContext extends BaseContext,
-  ExecutionContext extends BaseContext
+  ExecutionContext extends BaseContext,
 >(
   unctxInstance: ReturnType<typeof createUnctx<ExecutionContext>>,
   workflow: Task<TaskContext, V, R>,
   initialValue: V,
   executionContext: ExecutionContext,
-  options: RunOptions<ExecutionContext> = {}
+  options: RunOptions<ExecutionContext> = {},
 ): Promise<R | Result<R, WorkflowError>> {
-  const logger = (executionContext as any)?.logger || options.logger || noopLogger;
-  logger.debug(`[runImpl] Starting workflow: ${workflow.name || 'anonymousTask'}`);
+  const logger =
+    (executionContext as any)?.logger || options.logger || noopLogger;
+  logger.debug(
+    `[runImpl] Starting workflow: ${workflow.name || "anonymousTask"}`,
+  );
 
   const allSteps = (workflow as any).__steps || [workflow];
   let currentIndex = 0;
@@ -847,15 +889,22 @@ async function runImpl<
     // Main execution loop
     while (currentIndex < allSteps.length) {
       if (executionContext.scope.signal.aborted) {
-        throw new WorkflowError('Workflow aborted', executionContext.scope.signal.reason, allSteps[currentIndex]?.name, currentIndex);
+        throw new WorkflowError(
+          "Workflow aborted",
+          executionContext.scope.signal.reason,
+          allSteps[currentIndex]?.name,
+          currentIndex,
+        );
       }
 
       try {
         const currentTask = allSteps[currentIndex];
-        logger.debug(`[runImpl] Executing task ${currentIndex}: ${currentTask.name || 'anonymousTask'}`);
+        logger.debug(
+          `[runImpl] Executing task ${currentIndex}: ${currentTask.name || "anonymousTask"}`,
+        );
 
         currentValue = await unctxInstance.callAsync(executionContext, () =>
-          currentTask(executionContext as unknown as TaskContext, currentValue)
+          currentTask(executionContext as unknown as TaskContext, currentValue),
         );
         logger.debug(`[runImpl] Task ${currentIndex} completed successfully`);
         currentIndex++;
@@ -863,15 +912,25 @@ async function runImpl<
         if (isBacktrackSignal(error)) {
           backtrackCount++;
           if (backtrackCount > maxBacktracks) {
-            throw new WorkflowError(`Maximum backtrack limit (${maxBacktracks}) exceeded.`, error);
+            throw new WorkflowError(
+              `Maximum backtrack limit (${maxBacktracks}) exceeded.`,
+              error,
+            );
           }
 
-          const targetIndex = allSteps.findIndex((step: { __task_id?: symbol }) => step.__task_id === error.target.__task_id);
+          const targetIndex = allSteps.findIndex(
+            (step: { __task_id?: symbol }) =>
+              step.__task_id === error.target.__task_id,
+          );
 
-          if (targetIndex === -1) throw new WorkflowError(`BacktrackSignal target not found.`, error);
-          if (targetIndex >= currentIndex) throw new WorkflowError(`Cannot backtrack forward.`, error);
+          if (targetIndex === -1)
+            throw new WorkflowError(`BacktrackSignal target not found.`, error);
+          if (targetIndex > currentIndex)
+            throw new WorkflowError(`Cannot backtrack forward.`, error);
 
-          logger.info(`[runImpl] Backtracking from step ${currentIndex} to ${targetIndex}`);
+          logger.info(
+            `[runImpl] Backtracking from step ${currentIndex} to ${targetIndex}`,
+          );
           currentIndex = targetIndex;
           currentValue = error.value;
           continue;
@@ -881,31 +940,35 @@ async function runImpl<
           `Task failed: ${error instanceof Error ? error.message : String(error)}`,
           error,
           allSteps[currentIndex]?.name,
-          currentIndex
+          currentIndex,
         );
       }
     }
 
-    logger.debug('[runImpl] Workflow completed successfully');
+    logger.debug("[runImpl] Workflow completed successfully");
     const resultValue = currentValue as R;
 
-    const shouldThrow = !('throw' in options) || options.throw !== false;
+    const shouldThrow = !("throw" in options) || options.throw !== false;
     if (shouldThrow) return resultValue;
     return ok(resultValue);
-
   } catch (error) {
-    const workflowErrorInstance = error instanceof WorkflowError ? error : new WorkflowError('Unhandled error in workflow execution', error);
-    logger.error(`[runImpl] Workflow failed: ${workflowErrorInstance.message}`, workflowErrorInstance);
+    const workflowErrorInstance =
+      error instanceof WorkflowError
+        ? error
+        : new WorkflowError("Unhandled error in workflow execution", error);
+    logger.error(
+      `[runImpl] Workflow failed: ${workflowErrorInstance.message}`,
+      workflowErrorInstance,
+    );
 
     const scopeController = (executionContext.scope as any).controller;
     if (scopeController && !scopeController.signal.aborted) {
       scopeController.abort(workflowErrorInstance);
     }
 
-    const shouldThrow = !('throw' in options) || options.throw !== false;
+    const shouldThrow = !("throw" in options) || options.throw !== false;
     if (shouldThrow) throw workflowErrorInstance;
     return err(workflowErrorInstance);
-
   } finally {
     _INTERNAL_setCurrentUnctxInstance(previousActiveUnctxInstance);
     const scopeController = (executionContext.scope as any).controller;
@@ -960,47 +1023,59 @@ async function runImpl<
 export function run<V, R>(
   workflow: Task<any, V, R>,
   initialValue: V,
-  options?: RunOptionsThrow<BaseContext>
+  options?: RunOptionsThrow<BaseContext>,
 ): Promise<R>;
 export function run<V, R>(
   workflow: Task<any, V, R>,
   initialValue: V,
-  options: RunOptionsResult<BaseContext>
+  options: RunOptionsResult<BaseContext>,
 ): Promise<Result<R, WorkflowError>>;
 export function run<C extends BaseContext, V, R>(
   workflow: Task<C, V, R>,
   initialValue: V,
-  options?: RunOptionsThrow<C>
+  options?: RunOptionsThrow<C>,
 ): Promise<R>;
 export function run<C extends BaseContext, V, R>(
   workflow: Task<C, V, R>,
   initialValue: V,
-  options: RunOptionsResult<C>
+  options: RunOptionsResult<C>,
 ): Promise<Result<R, WorkflowError>>;
 
 export function run<
   V,
   R,
   WorkflowCtx extends BaseContext,
-  O extends BaseContext
+  O extends BaseContext,
 >(
   workflow: Task<WorkflowCtx, V, R>,
   initialValue: V,
-  options: RunOptions<O> = {}
+  options: RunOptions<O> = {},
 ): Promise<R | Result<R, WorkflowError>> {
   const { overrides, parentSignal } = options;
 
   // 1. Determine the parent context and the `unctx` instance to use for this run.
-  const activeSpecificContext = getContextOrUndefinedFromActiveInstance<BaseContext>();
-  const parentContext = activeSpecificContext || getGlobalDefaultContextObjectSingleton();
-  const unctxForThisRun = (activeSpecificContext && (activeSpecificContext as any)[UNCTX_INSTANCE_SYMBOL]) || getGlobalUnctx();
+  const activeSpecificContext =
+    getContextOrUndefinedFromActiveInstance<BaseContext>();
+  const parentContext =
+    activeSpecificContext || getGlobalDefaultContextObjectSingleton();
+  const unctxForThisRun =
+    (activeSpecificContext &&
+      (activeSpecificContext as any)[UNCTX_INSTANCE_SYMBOL]) ||
+    getGlobalUnctx();
 
   // 2. Create a new, cancellable scope for this specific run.
   const controller = new AbortController();
-  const onParentAbort = () => controller.abort(parentSignal?.reason || parentContext.scope.signal.reason);
+  const onParentAbort = () =>
+    controller.abort(parentSignal?.reason || parentContext.scope.signal.reason);
 
-  const signalsToWatch = [parentContext.scope.signal, parentSignal].filter(Boolean) as AbortSignal[];
-  signalsToWatch.forEach(sig => sig.aborted ? onParentAbort() : sig.addEventListener('abort', onParentAbort, { once: true }));
+  const signalsToWatch = [parentContext.scope.signal, parentSignal].filter(
+    Boolean,
+  ) as AbortSignal[];
+  signalsToWatch.forEach((sig) =>
+    sig.aborted
+      ? onParentAbort()
+      : sig.addEventListener("abort", onParentAbort, { once: true }),
+  );
 
   // Expose the controller on the scope for internal cleanup.
   const newScope = { signal: controller.signal, controller };
@@ -1016,12 +1091,14 @@ export function run<
   // Tag the context object with its managing unctx instance for discovery by nested calls.
   Object.defineProperty(executionContext, UNCTX_INSTANCE_SYMBOL, {
     value: unctxForThisRun,
-    enumerable: false, writable: false, configurable: true,
+    enumerable: false,
+    writable: false,
+    configurable: true,
   });
 
   // Explicitly copy any symbol-keyed properties from overrides.
   if (overrides) {
-    Object.getOwnPropertySymbols(overrides).forEach(symKey => {
+    Object.getOwnPropertySymbols(overrides).forEach((symKey) => {
       (executionContext as any)[symKey] = (overrides as any)[symKey];
     });
   }
@@ -1032,10 +1109,12 @@ export function run<
     workflow as Task<any, V, R>,
     initialValue,
     executionContext,
-    options
+    options,
   ).finally(() => {
     // Clean up event listeners after the run is completely finished.
-    signalsToWatch.forEach(sig => sig.removeEventListener('abort', onParentAbort));
+    signalsToWatch.forEach((sig) =>
+      sig.removeEventListener("abort", onParentAbort),
+    );
   });
 }
 
@@ -1058,7 +1137,8 @@ export function run<
  *          Typed as `any` for internal flexibility, but concretely it will be
  *          either `C extends BaseContext` (if specific is active) or `DefaultGlobalContext`.
  */
-function getCurrentOrDefaultContext(): any { // Returning `any` is okay for this internal helper
+function getCurrentOrDefaultContext(): any {
+  // Returning `any` is okay for this internal helper
   // as consumer functions (like inject) will cast or use it cautiously.
   // Alternatively, return `BaseContext` or `DefaultGlobalContext | SpecificActiveContext`.
   // `BaseContext` is probably the safest common type.
@@ -1069,7 +1149,8 @@ function getCurrentOrDefaultContext(): any { // Returning `any` is okay for this
   // `getContextOrUndefinedFromActiveInstance` correctly uses `currentUnctxInstance`.
   // We don't need to specify a generic for C here if we are fine with it returning
   // whatever type is stored, which will be BaseContext or a subtype.
-  const activeSpecificContext = getContextOrUndefinedFromActiveInstance<BaseContext>(); // Use BaseContext as a safe minimum
+  const activeSpecificContext =
+    getContextOrUndefinedFromActiveInstance<BaseContext>(); // Use BaseContext as a safe minimum
 
   if (activeSpecificContext) {
     return activeSpecificContext;
@@ -1090,14 +1171,21 @@ function getCurrentOrDefaultContext(): any { // Returning `any` is okay for this
  * @param options Options, including the strategy ('spread' or 'proxy').
  * @returns The result of the function `fn`.
  */
-async function _INTERNAL_provideImpl<R, ParentCtx extends BaseContext, OverridesCtx extends BaseContext>(
+async function _INTERNAL_provideImpl<
+  R,
+  ParentCtx extends BaseContext,
+  OverridesCtx extends BaseContext,
+>(
   unctxInstanceForThisScope: ReturnType<typeof createUnctx<any>>,
   parentContextData: ParentCtx,
-  overrides: Partial<Omit<OverridesCtx, 'scope' | typeof UNCTX_INSTANCE_SYMBOL> & Record<string | symbol, any>>,
+  overrides: Partial<
+    Omit<OverridesCtx, "scope" | typeof UNCTX_INSTANCE_SYMBOL> &
+      Record<string | symbol, any>
+  >,
   fn: () => Promise<R>,
-  options: ProvideImplOptions = {}
+  options: ProvideImplOptions = {},
 ): Promise<R> {
-  const strategy = options.strategy || 'spread'; // Default to spread
+  const strategy = options.strategy || "spread"; // Default to spread
 
   const previousActiveUnctxInstance = _INTERNAL_getCurrentUnctxInstance();
   _INTERNAL_setCurrentUnctxInstance(unctxInstanceForThisScope);
@@ -1105,53 +1193,84 @@ async function _INTERNAL_provideImpl<R, ParentCtx extends BaseContext, Overrides
   let newExecutionContext: ParentCtx & Partial<OverridesCtx>; // Approximate combined type
 
   try {
-    if (strategy === 'proxy') {
+    if (strategy === "proxy") {
       // --- Proxy Strategy ---
       const currentOverrides = { ...overrides }; // Shallow copy for this scope's overrides
 
       const proxyHandler: ProxyHandler<BaseContext> = {
         get(target, prop, receiver) {
           if (prop === UNCTX_INSTANCE_SYMBOL) return unctxInstanceForThisScope;
-          if (prop === 'scope') return parentContextData.scope;
-          if (Reflect.has(currentOverrides, prop)) return Reflect.get(currentOverrides, prop, receiver);
+          if (prop === "scope") return parentContextData.scope;
+          if (Reflect.has(currentOverrides, prop))
+            return Reflect.get(currentOverrides, prop, receiver);
           return Reflect.get(parentContextData, prop, receiver);
         },
         has(target, prop) {
-          if (prop === UNCTX_INSTANCE_SYMBOL || prop === 'scope') return true;
-          return Reflect.has(currentOverrides, prop) || Reflect.has(parentContextData, prop);
+          if (prop === UNCTX_INSTANCE_SYMBOL || prop === "scope") return true;
+          return (
+            Reflect.has(currentOverrides, prop) ||
+            Reflect.has(parentContextData, prop)
+          );
         },
         set(target, prop, value, receiver) {
-          if (prop === 'scope' || prop === UNCTX_INSTANCE_SYMBOL) {
-            console.warn(`[Effectively.provideImpl] Attempted to set read-only property: ${String(prop)}`);
+          if (prop === "scope" || prop === UNCTX_INSTANCE_SYMBOL) {
+            console.warn(
+              `[Effectively.provideImpl] Attempted to set read-only property: ${String(prop)}`,
+            );
             return false;
           }
           Reflect.set(currentOverrides, prop, value, receiver);
           return true;
         },
         deleteProperty(target, prop) {
-          if (prop === 'scope' || prop === UNCTX_INSTANCE_SYMBOL) {
-            console.warn(`[Effectively.provideImpl] Attempted to delete read-only property: ${String(prop)}`);
+          if (prop === "scope" || prop === UNCTX_INSTANCE_SYMBOL) {
+            console.warn(
+              `[Effectively.provideImpl] Attempted to delete read-only property: ${String(prop)}`,
+            );
             return false;
           }
-          if (Reflect.has(currentOverrides, prop)) return Reflect.deleteProperty(currentOverrides, prop);
+          if (Reflect.has(currentOverrides, prop))
+            return Reflect.deleteProperty(currentOverrides, prop);
           return true; // Or Reflect.deleteProperty(parentContextData, prop) if desired
         },
         ownKeys(target) {
           const overrideKeys = Reflect.ownKeys(currentOverrides);
           const parentKeys = Reflect.ownKeys(parentContextData);
-          return Array.from(new Set([...overrideKeys, ...parentKeys, UNCTX_INSTANCE_SYMBOL, 'scope']));
+          return Array.from(
+            new Set([
+              ...overrideKeys,
+              ...parentKeys,
+              UNCTX_INSTANCE_SYMBOL,
+              "scope",
+            ]),
+          );
         },
         getOwnPropertyDescriptor(target, prop) {
-          if (prop === UNCTX_INSTANCE_SYMBOL) return { value: unctxInstanceForThisScope, writable: false, enumerable: false, configurable: true };
-          if (prop === 'scope') {
-            const parentDesc = Reflect.getOwnPropertyDescriptor(parentContextData, 'scope');
-            return parentDesc ? { ...parentDesc, writable: false, configurable: false } : undefined;
+          if (prop === UNCTX_INSTANCE_SYMBOL)
+            return {
+              value: unctxInstanceForThisScope,
+              writable: false,
+              enumerable: false,
+              configurable: true,
+            };
+          if (prop === "scope") {
+            const parentDesc = Reflect.getOwnPropertyDescriptor(
+              parentContextData,
+              "scope",
+            );
+            return parentDesc
+              ? { ...parentDesc, writable: false, configurable: false }
+              : undefined;
           }
-          if (Reflect.has(currentOverrides, prop)) return Reflect.getOwnPropertyDescriptor(currentOverrides, prop);
+          if (Reflect.has(currentOverrides, prop))
+            return Reflect.getOwnPropertyDescriptor(currentOverrides, prop);
           return Reflect.getOwnPropertyDescriptor(parentContextData, prop);
         },
       };
-      newExecutionContext = new Proxy(parentContextData, proxyHandler) as ParentCtx & Partial<OverridesCtx>;
+      newExecutionContext = new Proxy(
+        parentContextData,
+        proxyHandler,
+      ) as ParentCtx & Partial<OverridesCtx>;
     } else {
       // --- Spread Strategy (Default) ---
       newExecutionContext = {
@@ -1163,19 +1282,23 @@ async function _INTERNAL_provideImpl<R, ParentCtx extends BaseContext, Overrides
       // Tag with the unctx instance managing this scope.
       Object.defineProperty(newExecutionContext, UNCTX_INSTANCE_SYMBOL, {
         value: unctxInstanceForThisScope,
-        enumerable: false, writable: false, configurable: false,
+        enumerable: false,
+        writable: false,
+        configurable: false,
       });
 
       // Explicitly copy symbol-keyed properties from overrides for spread strategy
-      Object.getOwnPropertySymbols(overrides).forEach(symKey => {
-        if (symKey.toString() !== 'Symbol(scope)' && symKey !== UNCTX_INSTANCE_SYMBOL) {
+      Object.getOwnPropertySymbols(overrides).forEach((symKey) => {
+        if (
+          symKey.toString() !== "Symbol(scope)" &&
+          symKey !== UNCTX_INSTANCE_SYMBOL
+        ) {
           (newExecutionContext as any)[symKey] = (overrides as any)[symKey];
         }
       });
     }
 
     return unctxInstanceForThisScope.callAsync(newExecutionContext, fn);
-
   } finally {
     _INTERNAL_setCurrentUnctxInstance(previousActiveUnctxInstance);
   }
@@ -1208,7 +1331,7 @@ async function _INTERNAL_provideImpl<R, ParentCtx extends BaseContext, Overrides
  *                  The `scope` property cannot be overridden.
  * @param fn The asynchronous function to execute within the new, modified context.
  *           Calls to `getContext()` within this function will resolve to the new context.
- * @param options ParamImplOptions 
+ * @param options ParamImplOptions
  * @returns A Promise that resolves with the result of `fn`.
  *
  * @example
@@ -1230,28 +1353,37 @@ async function _INTERNAL_provideImpl<R, ParentCtx extends BaseContext, Overrides
  * ```
  */
 export function provide<R>(
-  overrides: Partial<Omit<DefaultGlobalContext, 'scope'> & Record<string | symbol | number, any>>,
-  fn: () => Promise<R>,
-  options?: ProvideImplOptions
-): Promise<R>;
-export function provide<C extends BaseContext, R>(
-  overrides: Partial<Omit<C, 'scope'> & Record<string | symbol | number, any>>, // `overrides` typed against `C`
+  overrides: Partial<
+    Omit<DefaultGlobalContext, "scope"> & Record<string | symbol | number, any>
+  >,
   fn: () => Promise<R>,
   options?: ProvideImplOptions,
 ): Promise<R>;
-
-export function provide<R, CtxForOverrides extends BaseContext = BaseContext>(
-  overrides: Partial<Omit<CtxForOverrides, 'scope'> & Record<string | symbol | number, any>>,
+export function provide<C extends BaseContext, R>(
+  overrides: Partial<Omit<C, "scope"> & Record<string | symbol | number, any>>, // `overrides` typed against `C`
   fn: () => Promise<R>,
-  options?: ProvideImplOptions
+  options?: ProvideImplOptions,
+): Promise<R>;
+export function provide<R, CtxForOverrides extends BaseContext = BaseContext>(
+  overrides: Partial<
+    Omit<CtxForOverrides, "scope"> & Record<string | symbol | number, any>
+  >,
+  fn: () => Promise<R>,
+  options?: ProvideImplOptions,
 ): Promise<R> {
-  const activeSpecificContext = getContextOrUndefinedFromActiveInstance<CtxForOverrides>();
+  const activeSpecificContext =
+    getContextOrUndefinedFromActiveInstance<CtxForOverrides>();
 
   let unctxInstanceForThisScope: ReturnType<typeof createUnctx<any>>;
   let parentContextData: BaseContext;
 
-  if (activeSpecificContext && UNCTX_INSTANCE_SYMBOL in activeSpecificContext) {
-    unctxInstanceForThisScope = (activeSpecificContext as any)[UNCTX_INSTANCE_SYMBOL];
+  if (
+    activeSpecificContext &&
+    (activeSpecificContext as any)[UNCTX_INSTANCE_SYMBOL]
+  ) {
+    unctxInstanceForThisScope = (activeSpecificContext as any)[
+      UNCTX_INSTANCE_SYMBOL
+    ];
     parentContextData = activeSpecificContext;
   } else {
     unctxInstanceForThisScope = getGlobalUnctx();
@@ -1263,7 +1395,7 @@ export function provide<R, CtxForOverrides extends BaseContext = BaseContext>(
     parentContextData,
     overrides,
     fn,
-    options || { strategy: 'spread' }
+    options || { strategy: "spread" },
   );
 }
 
@@ -1288,17 +1420,26 @@ export function provide<R, CtxForOverrides extends BaseContext = BaseContext>(
  *
  * @returns A Promise that resolves with the result of `fn`.
  */
-export function provideWithProxy<R, CtxForOverrides extends BaseContext = BaseContext>(
-  overrides: Partial<Omit<CtxForOverrides, 'scope' | typeof UNCTX_INSTANCE_SYMBOL> & Record<string | symbol, any>>,
-  fn: () => Promise<R>
+export function provideWithProxy<
+  R,
+  CtxForOverrides extends BaseContext = BaseContext,
+>(
+  overrides: Partial<
+    Omit<CtxForOverrides, "scope" | typeof UNCTX_INSTANCE_SYMBOL> &
+      Record<string | symbol, any>
+  >,
+  fn: () => Promise<R>,
 ): Promise<R> {
-  const activeSpecificContext = getContextOrUndefinedFromActiveInstance<CtxForOverrides>();
+  const activeSpecificContext =
+    getContextOrUndefinedFromActiveInstance<CtxForOverrides>();
 
   let unctxInstanceForThisScope: ReturnType<typeof createUnctx<any>>;
   let parentContextData: BaseContext;
 
   if (activeSpecificContext && UNCTX_INSTANCE_SYMBOL in activeSpecificContext) {
-    unctxInstanceForThisScope = (activeSpecificContext as any)[UNCTX_INSTANCE_SYMBOL];
+    unctxInstanceForThisScope = (activeSpecificContext as any)[
+      UNCTX_INSTANCE_SYMBOL
+    ];
     parentContextData = activeSpecificContext;
   } else {
     unctxInstanceForThisScope = getGlobalUnctx();
@@ -1310,7 +1451,7 @@ export function provideWithProxy<R, CtxForOverrides extends BaseContext = BaseCo
     parentContextData,
     overrides,
     fn,
-    { strategy: 'proxy' } // Explicitly use proxy
+    { strategy: "proxy" }, // Explicitly use proxy
   );
 }
 
@@ -1341,14 +1482,14 @@ export function provideWithProxy<R, CtxForOverrides extends BaseContext = BaseCo
  */
 export function defineTaskLocal<C extends BaseContext, V, R>(
   fn: (value: V) => Promise<R>,
-  taskNameOrOptions?: string | DefineTaskOptions
+  taskNameOrOptions?: string | DefineTaskOptions,
 ): Task<C, V, R> {
   // Check for an active context first. This check is at defineTaskLocal call time.
   const activeContext = getContextOrUndefinedFromActiveInstance<C>();
   if (!activeContext) {
     throw new ContextNotFoundError(
-      'defineTaskLocal requires an active specific context. It cannot be called at the top level ' +
-      'without an established context from run() or provide().'
+      "defineTaskLocal requires an active specific context. It cannot be called at the top level " +
+        "without an established context from run() or provide().",
     );
   }
   // If an active context exists, we create a task. The `C` generic here is an assertion
@@ -1370,7 +1511,7 @@ export function getContextLocal<C extends BaseContext>(): C {
   const activeContext = getContextOrUndefinedFromActiveInstance<C>();
   if (!activeContext) {
     throw new ContextNotFoundError(
-      'getContextLocal requires an active specific context. No global fallback is used.'
+      "getContextLocal requires an active specific context. No global fallback is used.",
     );
   }
   return activeContext;
@@ -1384,12 +1525,17 @@ export function getContextLocal<C extends BaseContext>(): C {
  * @template C The expected type of the active specific context.
  * @returns `Ok(context)` if an active specific context is found, otherwise `Err(ContextNotFoundError)`.
  */
-export function getContextSafeLocal<C extends BaseContext>(): Result<C, ContextNotFoundError> {
+export function getContextSafeLocal<C extends BaseContext>(): Result<
+  C,
+  ContextNotFoundError
+> {
   const activeContext = getContextOrUndefinedFromActiveInstance<C>();
   if (!activeContext) {
-    return err(new ContextNotFoundError(
-      'getContextSafeLocal requires an active specific context. No global fallback is used.'
-    ));
+    return err(
+      new ContextNotFoundError(
+        "getContextSafeLocal requires an active specific context. No global fallback is used.",
+      ),
+    );
   }
   return ok(activeContext);
 }
@@ -1401,7 +1547,9 @@ export function getContextSafeLocal<C extends BaseContext>(): Result<C, ContextN
  * @template C The expected type of the active specific context.
  * @returns The active specific context typed as `C`, or `undefined`.
  */
-export function getContextOrUndefinedLocal<C extends BaseContext>(): C | undefined {
+export function getContextOrUndefinedLocal<C extends BaseContext>():
+  | C
+  | undefined {
   return getContextOrUndefinedFromActiveInstance<C>();
 }
 
@@ -1431,49 +1579,55 @@ export function getContextOrUndefinedLocal<C extends BaseContext>(): C | undefin
 export function runLocal<C extends BaseContext, V, R>(
   workflow: Task<C, V, R>,
   initialValue: V,
-  options?: RunOptionsThrow<C>
+  options?: RunOptionsThrow<C>,
 ): Promise<R>;
 export function runLocal<C extends BaseContext, V, R>(
   workflow: Task<C, V, R>,
   initialValue: V,
-  options: RunOptionsResult<C>
+  options: RunOptionsResult<C>,
 ): Promise<Result<R, WorkflowError>>;
 export function runLocal<C extends BaseContext, V, R>(
   workflow: Task<C, V, R>,
   initialValue: V,
-  options: RunOptions<C> = {}
+  options: RunOptions<C> = {},
 ): Promise<R | Result<R, WorkflowError>> {
   const activeContext = getContextOrUndefinedFromActiveInstance<C>();
 
   if (!activeContext) {
     const error = new ContextNotFoundError(
-      'runLocal requires an active specific context. No global fallback is used.'
+      "runLocal requires an active specific context. No global fallback is used.",
     );
-    const shouldThrow = !('throw' in options) || options.throw !== false;
+    const shouldThrow = !("throw" in options) || options.throw !== false;
     if (shouldThrow) {
       throw error;
     }
-    return Promise.resolve(err(new WorkflowError('Context not found for runLocal', error)));
+    return Promise.resolve(
+      err(new WorkflowError("Context not found for runLocal", error)),
+    );
   }
 
   // Retrieve the unctx instance that manages the activeContext.
   // This is crucial for correct nesting and async propagation.
-  const unctxInstanceForThisRun = (activeContext as any)[UNCTX_INSTANCE_SYMBOL] as ReturnType<typeof createUnctx<C>> | undefined;
+  const unctxInstanceForThisRun = (activeContext as any)[
+    UNCTX_INSTANCE_SYMBOL
+  ] as ReturnType<typeof createUnctx<C>> | undefined;
 
   if (!unctxInstanceForThisRun) {
     // This is an unexpected state: an active context was found but it's not tagged
     // with its managing unctx instance. This indicates an internal library issue or
     // that activeContext came from a source not managed by Effectively's createContext.
     const internalError = new Error(
-      '[Effectively Internal Error] runLocal found an active context that is not tagged ' +
-      'with its UNCTX_INSTANCE_SYMBOL. Cannot proceed with proper context management.'
+      "[Effectively Internal Error] runLocal found an active context that is not tagged " +
+        "with its UNCTX_INSTANCE_SYMBOL. Cannot proceed with proper context management.",
     );
     console.error(internalError, { activeContext });
-    const shouldThrow = !('throw' in options) || options.throw !== false;
+    const shouldThrow = !("throw" in options) || options.throw !== false;
     if (shouldThrow) {
       throw internalError;
     }
-    return Promise.resolve(err(new WorkflowError(internalError.message, internalError)));
+    return Promise.resolve(
+      err(new WorkflowError(internalError.message, internalError)),
+    );
   }
 
   // `activeContext` (which is `Omit<C, 'scope'> & { scope: Scope }`) serves as the
@@ -1486,7 +1640,7 @@ export function runLocal<C extends BaseContext, V, R>(
     workflow,
     initialValue,
     activeContext, // The active context itself is the base (already includes its own defaults + previous overrides)
-    options
+    options,
   );
 }
 
@@ -1511,24 +1665,29 @@ export function runLocal<C extends BaseContext, V, R>(
  * @throws {ContextNotFoundError} If no active specific context is found.
  */
 export function provideLocal<C extends BaseContext, R>(
-  overrides: Partial<Omit<C, 'scope' | typeof UNCTX_INSTANCE_SYMBOL> & Record<string | symbol, any>>,
+  overrides: Partial<
+    Omit<C, "scope" | typeof UNCTX_INSTANCE_SYMBOL> &
+      Record<string | symbol, any>
+  >,
   fn: () => Promise<R>,
-  options?: ProvideImplOptions
+  options?: ProvideImplOptions,
 ): Promise<R> {
   const activeContext = getContextOrUndefinedFromActiveInstance<C>();
 
   if (!activeContext) {
     throw new ContextNotFoundError(
-      'provideLocal requires an active specific context. No global fallback is used.'
+      "provideLocal requires an active specific context. No global fallback is used.",
     );
   }
 
-  const unctxInstanceForThisScope = (activeContext as any)[UNCTX_INSTANCE_SYMBOL] as ReturnType<typeof createUnctx<C>> | undefined;
+  const unctxInstanceForThisScope = (activeContext as any)[
+    UNCTX_INSTANCE_SYMBOL
+  ] as ReturnType<typeof createUnctx<C>> | undefined;
 
   if (!unctxInstanceForThisScope) {
     throw new Error( // This should be a more severe internal error
-      '[Effectively Internal Error] provideLocal found an active context that is not tagged ' +
-      'with its UNCTX_INSTANCE_SYMBOL. Cannot create nested scope correctly.'
+      "[Effectively Internal Error] provideLocal found an active context that is not tagged " +
+        "with its UNCTX_INSTANCE_SYMBOL. Cannot create nested scope correctly.",
     );
   }
 
@@ -1539,7 +1698,7 @@ export function provideLocal<C extends BaseContext, R>(
     activeContext, // The current active context is the parent
     overrides,
     fn,
-    options
+    options,
   );
 }
 
@@ -1569,12 +1728,15 @@ export function provideLocal<C extends BaseContext, R>(
  */
 export const defineTaskGlobal = <V, R>(
   fn: (value: V) => Promise<R>,
-  taskNameOrOptions?: string | DefineTaskOptions
+  taskNameOrOptions?: string | DefineTaskOptions,
 ): Task<DefaultGlobalContext, V, R> => {
   // `createTaskFunction` is called with DefaultGlobalContext for both ActualContext and ExpectedContextInFn.
   // This ensures the task signature is Task<DefaultGlobalContext, V, R> and internal
   // getContext() calls are type-checked against DefaultGlobalContext.
-  return createTaskFunction<V, R, DefaultGlobalContext, DefaultGlobalContext>(fn, taskNameOrOptions);
+  return createTaskFunction<V, R, DefaultGlobalContext, DefaultGlobalContext>(
+    fn,
+    taskNameOrOptions,
+  );
 };
 
 /**
@@ -1609,17 +1771,17 @@ export const getContextGlobal = (): DefaultGlobalContext => {
 export function runGlobal<V, R>(
   workflow: Task<DefaultGlobalContext, V, R> | Task<any, V, R>, // Accepts globally or specifically (any) defined tasks
   initialValue: V,
-  options?: RunOptionsThrow<DefaultGlobalContext>
+  options?: RunOptionsThrow<DefaultGlobalContext>,
 ): Promise<R>;
 export function runGlobal<V, R>(
   workflow: Task<DefaultGlobalContext, V, R> | Task<any, V, R>,
   initialValue: V,
-  options: RunOptionsResult<DefaultGlobalContext>
+  options: RunOptionsResult<DefaultGlobalContext>,
 ): Promise<Result<R, WorkflowError>>;
 export function runGlobal<V, R>(
   workflow: Task<DefaultGlobalContext, V, R> | Task<any, V, R>,
   initialValue: V,
-  options: RunOptions<DefaultGlobalContext> = {}
+  options: RunOptions<DefaultGlobalContext> = {},
 ): Promise<R | Result<R, WorkflowError>> {
   const globalUnctx = getGlobalUnctx();
   const globalDefaults = getGlobalDefaultContextObjectSingleton();
@@ -1633,7 +1795,7 @@ export function runGlobal<V, R>(
     workflow as Task<any, V, R>,
     initialValue,
     globalDefaults, // Base data for this run is the global defaults
-    options
+    options,
   );
 }
 
@@ -1655,9 +1817,12 @@ export function runGlobal<V, R>(
  * @returns A Promise that resolves with the result of `fn`.
  */
 export const provideGlobal = <R>(
-  overrides: Partial<Omit<DefaultGlobalContext, 'scope' | typeof UNCTX_INSTANCE_SYMBOL> & Record<string | symbol, any>>,
+  overrides: Partial<
+    Omit<DefaultGlobalContext, "scope" | typeof UNCTX_INSTANCE_SYMBOL> &
+      Record<string | symbol, any>
+  >,
   fn: () => Promise<R>,
-  options?: ProvideImplOptions // Allow strategy selection
+  options?: ProvideImplOptions, // Allow strategy selection
 ): Promise<R> => {
   const globalUnctx = getGlobalUnctx();
   const globalDefaults = getGlobalDefaultContextObjectSingleton();
@@ -1668,7 +1833,7 @@ export const provideGlobal = <R>(
     globalDefaults, // Parent data is the global default object
     overrides,
     fn,
-    options // Pass along strategy options
+    options, // Pass along strategy options
   );
 };
 
@@ -1682,26 +1847,28 @@ export const provideGlobal = <R>(
  */
 export function validateContext<C extends BaseContext>(
   schema: ContextSchema<C>,
-  context: unknown
+  context: unknown,
 ): Result<C, ContextValidationError> {
-  if (!context || typeof context !== 'object') {
+  if (!context || typeof context !== "object") {
     return {
       isOk: () => false,
       isErr: () => true,
-      error: new ContextValidationError('root', 'object', context)
+      error: new ContextValidationError("root", "object", context),
     } as Err<C, ContextValidationError>;
   }
 
   const ctx = context as Record<string, unknown>;
 
   // Validate each field in the schema
-  for (const [field, validator] of Object.entries(schema) as Array<[string, ContextValidator<unknown>]>) {
+  for (const [field, validator] of Object.entries(schema) as Array<
+    [string, ContextValidator<unknown>]
+  >) {
     const value = ctx[field];
     if (!validator(value)) {
       return {
         isOk: () => false,
         isErr: () => true,
-        error: new ContextValidationError(field, 'valid type', value)
+        error: new ContextValidationError(field, "valid type", value),
       } as Err<C, ContextValidationError>;
     }
   }
@@ -1709,7 +1876,7 @@ export function validateContext<C extends BaseContext>(
   return {
     isOk: () => true,
     isErr: () => false,
-    value: context as C
+    value: context as C,
   } as Ok<C, ContextValidationError>;
 }
 
@@ -1717,28 +1884,29 @@ export function validateContext<C extends BaseContext>(
  * Type-safe context merging function.
  * Combines two contexts, with properties in the second context taking precedence.
  */
-export function mergeContexts<A extends BaseContext, B extends Record<string, unknown>>(
-  contextA: A,
-  contextB: B
-): MergeContexts<A, B> {
+export function mergeContexts<
+  A extends BaseContext,
+  B extends Record<string, unknown>,
+>(contextA: A, contextB: B): MergeContexts<A, B> {
   return {
     ...contextA,
     ...contextB,
-    scope: contextA.scope // Always preserve the original scope
+    scope: contextA.scope, // Always preserve the original scope
   } as MergeContexts<A, B>;
 }
 
 /**
  * Creates a context transformer function that can be used to modify contexts.
  */
-export function createContextTransformer<C1 extends BaseContext, C2 extends BaseContext>(
-  transformer: (ctx: C1) => Omit<C2, 'scope'>
-): (ctx: C1) => C2 {
+export function createContextTransformer<
+  C1 extends BaseContext,
+  C2 extends BaseContext,
+>(transformer: (ctx: C1) => Omit<C2, "scope">): (ctx: C1) => C2 {
   return (ctx: C1): C2 => {
     const transformed = transformer(ctx);
     return {
       ...transformed,
-      scope: ctx.scope // Always preserve the scope
+      scope: ctx.scope, // Always preserve the scope
     } as C2;
   };
 }
@@ -1748,13 +1916,13 @@ export function createContextTransformer<C1 extends BaseContext, C2 extends Base
  * Provides compile-time safety when accessing context properties.
  */
 export function useContextProperty<K extends keyof DefaultGlobalContext>(
-  key: K
+  key: K,
 ): DefaultGlobalContext[K];
 export function useContextProperty<C extends BaseContext, K extends keyof C>(
-  key: K
+  key: K,
 ): C[K];
 export function useContextProperty<K extends string | number | symbol>(
-  key: K
+  key: K,
 ): any {
   const context = getContext();
   return context[key as keyof typeof context];
@@ -1764,23 +1932,26 @@ export function useContextProperty<K extends string | number | symbol>(
  * Requires specific properties to be present in the context.
  * Throws a descriptive error if any required property is missing.
  */
-export function requireContextProperties<C extends BaseContext = DefaultGlobalContext>(
-  ...requirements: (keyof C)[]
-): C {
+export function requireContextProperties<
+  C extends BaseContext = DefaultGlobalContext,
+>(...requirements: (keyof C)[]): C {
   const context = getContext<C>();
   const missing: string[] = [];
 
   for (const requirement of requirements) {
-    if (!(requirement in context) || context[requirement as keyof C] === undefined) {
+    if (
+      !(requirement in context) ||
+      context[requirement as keyof C] === undefined
+    ) {
       missing.push(String(requirement));
     }
   }
 
   if (missing.length > 0) {
     throw new ContextValidationError(
-      missing.join(', '),
-      'defined properties',
-      'undefined'
+      missing.join(", "),
+      "defined properties",
+      "undefined",
     );
   }
 
@@ -1790,9 +1961,14 @@ export function requireContextProperties<C extends BaseContext = DefaultGlobalCo
 /**
  * Creates a task that provides additional context to its child task.
  */
-export function withContextEnhancement<C extends BaseContext, Enhancement extends Record<string, unknown>, V, R>(
+export function withContextEnhancement<
+  C extends BaseContext,
+  Enhancement extends Record<string, unknown>,
+  V,
+  R,
+>(
   enhancement: Enhancement,
-  task: Task<MergeContexts<C, Enhancement>, V, R>
+  task: Task<MergeContexts<C, Enhancement>, V, R>,
 ): Task<C, V, R> {
   return async (context: C, value: V): Promise<R> => {
     const enhancedContext = mergeContexts(context, enhancement);
@@ -1813,7 +1989,9 @@ export type InjectionToken<T> = symbol & { __type?: T };
 /**
  * Creates a new injection token with type information.
  */
-export function createInjectionToken<T>(description: string): InjectionToken<T> {
+export function createInjectionToken<T>(
+  description: string,
+): InjectionToken<T> {
   return Symbol(description) as InjectionToken<T>;
 }
 
@@ -1839,7 +2017,8 @@ export interface ContextProvider<T> {
  * Throws an error if the dependency is not found.
  */
 export function inject<T>(token: InjectionToken<T>): T {
-  const context = getCurrentOrDefaultContext() as BaseContext & Record<symbol, unknown>;
+  const context = getCurrentOrDefaultContext() as BaseContext &
+    Record<symbol, unknown>;
   const value = context[token as symbol];
 
   if (value === undefined) {
@@ -1853,30 +2032,29 @@ export function inject<T>(token: InjectionToken<T>): T {
  * Safely injects a dependency, returning undefined if not found.
  */
 export function injectOptional<T>(token: InjectionToken<T>): T | undefined {
-  const context = getCurrentOrDefaultContext() as BaseContext & Record<symbol, unknown>;
+  const context = getCurrentOrDefaultContext() as BaseContext &
+    Record<symbol, unknown>;
   return context[token as symbol] as T | undefined;
 }
 
 /**
  * Creates a context provider that supplies a value for a specific token.
  */
-export function createContextProvider<T>(
-  token: InjectionToken<T>
-): {
+export function createContextProvider<T>(token: InjectionToken<T>): {
   Provider: <C extends BaseContext, V, R>(
     value: T,
-    task: Task<C & Record<symbol, T>, V, R>
+    task: Task<C & Record<symbol, T>, V, R>,
   ) => Task<C, V, R>;
   useValue: () => T;
 } {
   const Provider = <C extends BaseContext, V, R>(
     value: T,
-    task: Task<C & Record<symbol, T>, V, R>
+    task: Task<C & Record<symbol, T>, V, R>,
   ): Task<C, V, R> => {
     return async (context: C, input: V): Promise<R> => {
       const enhancedContext = {
         ...context,
-        [token]: value
+        [token]: value,
       } as C & Record<symbol, T>;
 
       return task(enhancedContext, input);
@@ -1893,7 +2071,7 @@ export function createContextProvider<T>(
  */
 export function withScope<C extends BaseContext, V, R>(
   providers: ContextProvider<unknown>[],
-  task: Task<C, V, R>
+  task: Task<C, V, R>,
 ): Task<C, V, R> {
   return async (context: C, value: V): Promise<R> => {
     let enhancedContext = { ...context };
@@ -1901,7 +2079,7 @@ export function withScope<C extends BaseContext, V, R>(
     for (const provider of providers) {
       enhancedContext = {
         ...enhancedContext,
-        [provider.provide]: provider.value
+        [provider.provide]: provider.value,
       };
     }
 
@@ -1912,11 +2090,12 @@ export function withScope<C extends BaseContext, V, R>(
 /**
  * Higher-order function that creates a task with pre-configured dependencies.
  */
-export function withDependencies<C extends BaseContext, Deps extends Record<string, unknown>>(
-  dependencies: Deps
-) {
+export function withDependencies<
+  C extends BaseContext,
+  Deps extends Record<string, unknown>,
+>(dependencies: Deps) {
   return function configureDependencies<V, R>(
-    taskFactory: (deps: Deps) => Task<C, V, R>
+    taskFactory: (deps: Deps) => Task<C, V, R>,
   ): Task<C, V, R> {
     const task = taskFactory(dependencies);
     return task;
@@ -1927,7 +2106,7 @@ export function withDependencies<C extends BaseContext, Deps extends Record<stri
  * Creates a lazy-loaded dependency that is only instantiated when first accessed.
  */
 export function createLazyDependency<T>(
-  factory: () => T | Promise<T>
+  factory: () => T | Promise<T>,
 ): () => Promise<T> {
   let instance: T | undefined;
   let loading: Promise<T> | undefined;
@@ -1941,7 +2120,7 @@ export function createLazyDependency<T>(
       return loading;
     }
 
-    loading = Promise.resolve(factory()).then(result => {
+    loading = Promise.resolve(factory()).then((result) => {
       instance = result;
       loading = undefined;
       return result;
@@ -1951,7 +2130,7 @@ export function createLazyDependency<T>(
   };
 }
 
-export type ProvideStrategy = 'spread' | 'proxy';
+export type ProvideStrategy = "spread" | "proxy";
 
 export interface ProvideImplOptions {
   strategy?: ProvideStrategy;
@@ -2034,16 +2213,24 @@ export interface ProvideImplOptions {
  * main();
  * ```
  */
-export function createContext<C extends BaseContext, G extends BaseContext = DefaultGlobalContext>(
-  defaultContextDataForC: Omit<C, 'scope'>, // Initial default data for this specific context type
-  asyncLocalStorage: typeof AsyncLocalStorage = AsyncLocalStorage
+export function createContext<
+  C extends BaseContext,
+  G extends BaseContext = DefaultGlobalContext,
+>(
+  defaultContextDataForC: Omit<C, "scope">, // Initial default data for this specific context type
+  asyncLocalStorage: typeof AsyncLocalStorage = AsyncLocalStorage,
 ): ContextTools<C> {
   // Each call to createContext gets its own unique unctx instance.
   let localUnctxInstance: ReturnType<typeof createUnctx<C>>;
   try {
-    localUnctxInstance = createUnctx<C>({ asyncContext: true, AsyncLocalStorage: asyncLocalStorage });
+    localUnctxInstance = createUnctx<C>({
+      asyncContext: true,
+      AsyncLocalStorage: asyncLocalStorage,
+    });
   } catch (e) {
-    console.warn(`[Effectively createContext for ${defaultContextDataForC?.constructor?.name || 'C'}] AsyncLocalStorage not available or failed. Falling back to synchronous unctx. Context might not propagate as expected across all async boundaries for this instance.`);
+    console.warn(
+      `[Effectively createContext for ${defaultContextDataForC?.constructor?.name || "C"}] AsyncLocalStorage not available or failed. Falling back to synchronous unctx. Context might not propagate as expected across all async boundaries for this instance.`,
+    );
     localUnctxInstance = createUnctx<C>({ asyncContext: false });
   }
 
@@ -2060,15 +2247,15 @@ export function createContext<C extends BaseContext, G extends BaseContext = Def
       const ctx = localUnctxInstance.use();
       if (!ctx) {
         throw new ContextNotFoundError(
-          `Specific context (type: ${(toolsDefaultContextData as any)?.constructor?.name || 'C'}) not found. ` +
-          `Ensure getContext() is called within a run() or provide() scope managed by these specific tools.`
+          `Specific context (type: ${(toolsDefaultContextData as any)?.constructor?.name || "C"}) not found. ` +
+            `Ensure getContext() is called within a run() or provide() scope managed by these specific tools.`,
         );
       }
-      return ctx 
+      return ctx;
     } catch (error) {
       if (error instanceof ContextNotFoundError) throw error;
       throw new ContextNotFoundError(
-        `Error retrieving specific context: ${error instanceof Error ? error.message : String(error)}`
+        `Error retrieving specific context: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   };
@@ -2090,7 +2277,7 @@ export function createContext<C extends BaseContext, G extends BaseContext = Def
       return undefined;
     }
   };
-  
+
   const getContextOrGlobalSpecific = (): C | G => {
     const activeLocalContext = localUnctxInstance.use(); // Tries to get C_Specific
 
@@ -2104,19 +2291,22 @@ export function createContext<C extends BaseContext, G extends BaseContext = Def
     // For simplicity, let's stick to the singleton global for now.
     return getGlobalDefaultContextObjectSingleton() as G; // Cast might be needed if G_AppGlobal is more specific than DefaultGlobalContext
     // but if G_AppGlobal is DefaultGlobalContext, it's fine.
-  }; 
+  };
 
   const defineTaskSpecific = <V, R>(
     fn: (value: V) => Promise<R>,
-    taskNameOrOptions?: string | DefineTaskOptions
+    taskNameOrOptions?: string | DefineTaskOptions,
   ): Task<C, V, R> => {
     return createTaskFunction<V, R, C, C>(fn, taskNameOrOptions);
   };
 
   async function provideSpecific<Pr>( // Renamed R to Pr for clarity
-    overrides: Partial<Omit<C, 'scope' | typeof UNCTX_INSTANCE_SYMBOL> & Record<string | symbol, any>>,
+    overrides: Partial<
+      Omit<C, "scope" | typeof UNCTX_INSTANCE_SYMBOL> &
+        Record<string | symbol, any>
+    >,
     fn: () => Promise<Pr>,
-    options?: ProvideImplOptions
+    options?: ProvideImplOptions,
   ): Promise<Pr> {
     let parentDataForProvide: C;
     const activeCtxForThisInstance = localUnctxInstance.use();
@@ -2128,8 +2318,11 @@ export function createContext<C extends BaseContext, G extends BaseContext = Def
       // The base is `toolsDefaultContextData`. A scope is needed.
       // This scope should ideally be from an outer Effectively context if `tools.provide`
       // is called from within one (even a global one).
-      const outerAmbientContext = getContextOrUndefinedFromActiveInstance<BaseContext>(); // Check if *any* Effectively context is active
-      const inheritedScope = outerAmbientContext?.scope || { signal: new AbortController().signal };
+      const outerAmbientContext =
+        getContextOrUndefinedFromActiveInstance<BaseContext>(); // Check if *any* Effectively context is active
+      const inheritedScope = outerAmbientContext?.scope || {
+        signal: new AbortController().signal,
+      };
 
       parentDataForProvide = {
         ...(toolsDefaultContextData as C), // Defaults for this specific context instance
@@ -2142,7 +2335,7 @@ export function createContext<C extends BaseContext, G extends BaseContext = Def
       parentDataForProvide,
       overrides,
       fn,
-      options // User can specify strategy, or _INTERNAL_provideImpl defaults
+      options, // User can specify strategy, or _INTERNAL_provideImpl defaults
     );
   }
 
@@ -2164,17 +2357,17 @@ export function createContext<C extends BaseContext, G extends BaseContext = Def
   async function runSpecific<V, R>(
     workflow: Task<C, V, R> | Task<any, V, R>,
     initialValue: V,
-    options?: RunOptionsThrow<C>
+    options?: RunOptionsThrow<C>,
   ): Promise<R>;
   async function runSpecific<V, R>(
     workflow: Task<C, V, R> | Task<any, V, R>,
     initialValue: V,
-    options: RunOptionsResult<C>
+    options: RunOptionsResult<C>,
   ): Promise<Result<R, WorkflowError>>;
   async function runSpecific<V, R>(
     workflow: Task<C, V, R> | Task<any, V, R>,
     initialValue: V,
-    options: RunOptions<C> = {}
+    options: RunOptions<C> = {},
   ): Promise<R | Result<R, WorkflowError>> {
     const { overrides, parentSignal } = options;
 
@@ -2186,31 +2379,36 @@ export function createContext<C extends BaseContext, G extends BaseContext = Def
       if (parentSignal.aborted) {
         onParentAbort(); // Abort immediately if parent is already aborted
       } else {
-        parentSignal.addEventListener('abort', onParentAbort, { once: true });
+        parentSignal.addEventListener("abort", onParentAbort, { once: true });
       }
     }
 
     // Expose the controller on the scope for internal cleanup.
-    const newScope: Scope & { controller: AbortController } = { signal: controller.signal, controller };
+    const newScope: Scope & { controller: AbortController } = {
+      signal: controller.signal,
+      controller,
+    };
 
     // 2. Construct the final, complete context object for THIS execution.
     // It starts with the defaults for this specific context instance,
     // layers any runtime overrides, and adds the newly created scope.
     const executionContext: C = {
       ...(toolsDefaultContextData as C), // Base properties for this context type
-      ...(overrides as Partial<C>),     // Runtime overrides for this specific run
-      scope: newScope,                  // The new scope always overrides any default
+      ...(overrides as Partial<C>), // Runtime overrides for this specific run
+      scope: newScope, // The new scope always overrides any default
     };
 
     // Tag the context object with its managing unctx instance for discovery by nested calls.
     Object.defineProperty(executionContext, UNCTX_INSTANCE_SYMBOL, {
       value: localUnctxInstance,
-      enumerable: false, writable: false, configurable: true,
+      enumerable: false,
+      writable: false,
+      configurable: true,
     });
 
     // Explicitly copy any symbol-keyed properties from overrides.
     if (overrides) {
-      Object.getOwnPropertySymbols(overrides).forEach(symKey => {
+      Object.getOwnPropertySymbols(overrides).forEach((symKey) => {
         (executionContext as any)[symKey] = (overrides as any)[symKey];
       });
     }
@@ -2221,11 +2419,11 @@ export function createContext<C extends BaseContext, G extends BaseContext = Def
       workflow as Task<C, V, R>, // We can now safely assert the workflow is compatible with C
       initialValue,
       executionContext, // Pass the final, constructed object.
-      options
+      options,
     ).finally(() => {
       // Clean up event listener after the run is completely finished.
       if (parentSignal) {
-        parentSignal.removeEventListener('abort', onParentAbort);
+        parentSignal.removeEventListener("abort", onParentAbort);
       }
     });
   }
@@ -2235,12 +2433,16 @@ export function createContext<C extends BaseContext, G extends BaseContext = Def
     const context = getContextSpecific();
     const value = (context as any)[token as symbol];
     if (value === undefined) {
-      throw new Error(`[ContextTools(${(toolsDefaultContextData as any)?.constructor?.name || 'C'})] Injection token ${token.toString()} not found.`);
+      throw new Error(
+        `[ContextTools(${(toolsDefaultContextData as any)?.constructor?.name || "C"})] Injection token ${token.toString()} not found.`,
+      );
     }
     return value as T;
   };
 
-  const injectOptionalSpecific = <T>(token: InjectionToken<T>): T | undefined => {
+  const injectOptionalSpecific = <T>(
+    token: InjectionToken<T>,
+  ): T | undefined => {
     // ... (implementation as before, using getContextSpecific)
     try {
       const context = getContextSpecific();
@@ -2260,5 +2462,5 @@ export function createContext<C extends BaseContext, G extends BaseContext = Def
     provide: provideSpecific,
     inject: injectSpecific,
     injectOptional: injectOptionalSpecific,
-  } as ContextTools<C, G>
+  } as ContextTools<C, G>;
 }
