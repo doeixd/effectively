@@ -1,3 +1,4 @@
+import "@vitest/web-worker";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createContext, run, type BaseContext } from "../src/run";
 import {
@@ -8,6 +9,7 @@ import {
 import { DOMExceptionPlugin } from "seroval-plugins/web";
 import { Worker } from "node:worker_threads";
 import { URL } from "node:url";
+// import MyWorker from "./test.worker?worker";
 
 describe("Web Worker Utilities (worker.ts)", () => {
   let worker: Worker;
@@ -15,8 +17,9 @@ describe("Web Worker Utilities (worker.ts)", () => {
   const serovalOptions: RunOnWorkerOptions = { plugins: [DOMExceptionPlugin] };
 
   beforeEach(() => {
-    const workerUrl = new URL("./test.worker.js", import.meta.url);
-    worker = new Worker(workerUrl);
+    worker = new Worker(new URL("./test.worker.js?worker", import.meta.url));
+    console.log(worker);
+    // worker = new MyWorker();
   });
 
   afterEach(async () => {

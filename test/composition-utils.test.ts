@@ -86,11 +86,11 @@ const testContextDefaults: Omit<TestContext, "scope"> = {
 describe("Composition Utilities (utils.ts)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.useFakeTimers();
+    // vi.useFakeTimers();
   });
 
   afterEach(() => {
-    vi.useRealTimers();
+    // vi.useRealTimers();
   });
 
   describe("Core composition functions", () => {
@@ -302,7 +302,7 @@ describe("Composition Utilities (utils.ts)", () => {
           }),
         );
         const promise = run(workflow, null);
-        await vi.advanceTimersByTimeAsync(10);
+        // await vi.advanceTimersByTimeAsync(10);
         const result = await promise;
         expect(result).toBe("HELLO");
       });
@@ -389,7 +389,7 @@ describe("Composition Utilities (utils.ts)", () => {
           return x * 2;
         });
         const promise = run(mappedTask, null);
-        await vi.advanceTimersByTimeAsync(10);
+        // await vi.advanceTimersByTimeAsync(10);
         const result = await promise;
         expect(result).toBe(84);
       });
@@ -445,7 +445,7 @@ describe("Composition Utilities (utils.ts)", () => {
           }, addSuffix),
         );
         const promise = run(workflow, null);
-        await vi.advanceTimersByTimeAsync(10);
+        // await vi.advanceTimersByTimeAsync(10);
         const result = await promise;
         expect(result).toBe("hello-processed");
       });
@@ -509,7 +509,7 @@ describe("Composition Utilities (utils.ts)", () => {
         const promise = run(workflow, 1, { parentSignal: controller.signal });
 
         setTimeout(() => controller.abort(), 15);
-        await vi.advanceTimersByTimeAsync(20);
+        // await vi.advanceTimersByTimeAsync(20);
 
         await expect(promise).rejects.toSatisfy(
           (e: any) =>
@@ -553,7 +553,7 @@ describe("Composition Utilities (utils.ts)", () => {
         );
 
         const promise = run(workflow, null);
-        await vi.advanceTimersByTimeAsync(10);
+        // await vi.advanceTimersByTimeAsync(10);
         const result = await promise;
         expect(result).toBe("hello");
         expect(logs).toEqual(["hello"]);
@@ -581,7 +581,7 @@ describe("Composition Utilities (utils.ts)", () => {
         );
 
         const promise = run(workflow, null);
-        await vi.advanceTimersByTimeAsync(100);
+        // await vi.advanceTimersByTimeAsync(100);
         const result = await promise;
 
         expect(result).toBe("after");
@@ -700,8 +700,8 @@ describe("Composition Utilities (utils.ts)", () => {
 
         // Manually advance timers for each retry
         const promise = run(resilientTask, null);
-        await vi.advanceTimersByTimeAsync(10); // 1st retry
-        await vi.advanceTimersByTimeAsync(10); // 2nd retry
+        // await vi.advanceTimersByTimeAsync(10); // 1st retry
+        // await vi.advanceTimersByTimeAsync(10); // 2nd retry
 
         const result = await promise;
         expect(result).toBe("success");
@@ -721,7 +721,7 @@ describe("Composition Utilities (utils.ts)", () => {
         });
 
         const promise = run(resilientTask, null);
-        await vi.advanceTimersByTimeAsync(10); // for the first retry delay
+        // await vi.advanceTimersByTimeAsync(10); // for the first retry delay
 
         await expect(promise).rejects.toThrow("Always fails");
         expect(attempts).toBe(2);
@@ -741,8 +741,8 @@ describe("Composition Utilities (utils.ts)", () => {
         });
         const promise = run(resilientTask, null);
 
-        await vi.advanceTimersByTimeAsync(100); // Wait for 1st retry delay
-        await vi.advanceTimersByTimeAsync(200); // Wait for 2nd retry delay
+        // await vi.advanceTimersByTimeAsync(100); // Wait for 1st retry delay
+        // await vi.advanceTimersByTimeAsync(200); // Wait for 2nd retry delay
 
         await expect(promise).rejects.toThrow("Temporary failure");
         expect(attempts).toBe(3);
@@ -762,8 +762,8 @@ describe("Composition Utilities (utils.ts)", () => {
         const promise = run(resilientTask, null);
 
         // Advance for both retries
-        await vi.advanceTimersByTimeAsync(10);
-        await vi.advanceTimersByTimeAsync(10);
+        // await vi.advanceTimersByTimeAsync(10);
+        // await vi.advanceTimersByTimeAsync(10);
 
         await expect(promise).rejects.toThrow("Network error");
         expect(attempts).toBe(3);
@@ -822,13 +822,13 @@ describe("Composition Utilities (utils.ts)", () => {
         const memoizedTask = memoize(expensiveTask);
 
         const p1 = run(memoizedTask, 5);
-        await vi.advanceTimersByTimeAsync(10);
+        // await vi.advanceTimersByTimeAsync(10);
 
         const result1 = await p1;
         const result2 = await run(memoizedTask, 5);
 
         const p3 = run(memoizedTask, 10);
-        await vi.advanceTimersByTimeAsync(10);
+        // await vi.advanceTimersByTimeAsync(10);
         const result3 = await p3;
 
         expect(result1).toBe(10);
@@ -896,7 +896,7 @@ describe("Composition Utilities (utils.ts)", () => {
         const promise1 = run(onceTask, null);
         const promise2 = run(onceTask, null);
 
-        await vi.advanceTimersByTimeAsync(100);
+        // await vi.advanceTimersByTimeAsync(100);
 
         const [result1, result2] = await Promise.all([promise1, promise2]);
 
@@ -916,7 +916,7 @@ describe("Composition Utilities (utils.ts)", () => {
         const timedTask = withTimeout(longTask, 500);
         const promise = run(timedTask, null);
 
-        await vi.advanceTimersByTimeAsync(500);
+        // await vi.advanceTimersByTimeAsync(500);
 
         await expect(promise).rejects.toThrow("timed out after 500ms");
       });
@@ -930,7 +930,7 @@ describe("Composition Utilities (utils.ts)", () => {
         const timedTask = withTimeout(fastTask, 500);
         const promise = run(timedTask, null);
 
-        await vi.advanceTimersByTimeAsync(100);
+        // await vi.advanceTimersByTimeAsync(100);
         const result = await promise;
 
         expect(result).toBe("completed");
@@ -949,7 +949,7 @@ describe("Composition Utilities (utils.ts)", () => {
         });
 
         setTimeout(() => controller.abort(), 10);
-        await vi.advanceTimersByTimeAsync(10);
+        // await vi.advanceTimersByTimeAsync(10);
 
         await expect(promise).rejects.toThrow("Aborted");
       });

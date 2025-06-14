@@ -7,14 +7,15 @@ export default defineConfig({
       // Start with minimal/default config; add options if needed
       // e.g., you might need to explicitly tell it to transform your 'run', 'provide'
       // if they are not automatically detected by unctx's heuristics.
-      asyncFunctions: [
-        "run",
-        "provide",
-        "_INTERNAL_runImpl",
-        "_INTERNAL_provideImpl",
-        "runImpl",
-        "provideImpl",
-      ], // Example
+      // asyncFunctions: [
+      //   "run",
+      //   "provide",
+      //   "_INTERNAL_runImpl",
+      //   "_INTERNAL_provideImpl",
+      //   "runImpl",
+      //   "provideImpl",
+      //   "getContext"
+      // ], // Example
     }),
   ],
   test: {

@@ -838,6 +838,12 @@ export function getContextOrUndefined<
   return globalDefaultInstance as C;
 }
 
+function isAsyncIterable(value: unknown): value is AsyncIterable<any> {
+  return (
+    value != null && typeof (value as any)[Symbol.asyncIterator] === "function"
+  );
+}
+
 /**
  * The internal, core execution engine for all workflows.
  * This function is the "dumb" engine: it receives a fully-formed context and
@@ -880,13 +886,12 @@ async function runImpl<
   let backtrackCount = 0;
   const maxBacktracks = 1000;
 
-  // Set the current unctx instance for the duration of this execution,
-  // allowing nested "smart" functions to find it.
   const previousActiveUnctxInstance = _INTERNAL_getCurrentUnctxInstance();
   _INTERNAL_setCurrentUnctxInstance(unctxInstance);
 
+  let finalResult: R | undefined; // To store the result before the finally block
+
   try {
-    // Main execution loop
     while (currentIndex < allSteps.length) {
       if (executionContext.scope.signal.aborted) {
         throw new WorkflowError(
@@ -896,13 +901,11 @@ async function runImpl<
           currentIndex,
         );
       }
-
       try {
         const currentTask = allSteps[currentIndex];
         logger.debug(
           `[runImpl] Executing task ${currentIndex}: ${currentTask.name || "anonymousTask"}`,
         );
-
         currentValue = await unctxInstance.callAsync(executionContext, () =>
           currentTask(executionContext as unknown as TaskContext, currentValue),
         );
@@ -911,23 +914,19 @@ async function runImpl<
       } catch (error) {
         if (isBacktrackSignal(error)) {
           backtrackCount++;
-          if (backtrackCount > maxBacktracks) {
+          if (backtrackCount > maxBacktracks)
             throw new WorkflowError(
               `Maximum backtrack limit (${maxBacktracks}) exceeded.`,
               error,
             );
-          }
-
           const targetIndex = allSteps.findIndex(
             (step: { __task_id?: symbol }) =>
               step.__task_id === error.target.__task_id,
           );
-
           if (targetIndex === -1)
             throw new WorkflowError(`BacktrackSignal target not found.`, error);
           if (targetIndex > currentIndex)
             throw new WorkflowError(`Cannot backtrack forward.`, error);
-
           logger.info(
             `[runImpl] Backtracking from step ${currentIndex} to ${targetIndex}`,
           );
@@ -935,7 +934,6 @@ async function runImpl<
           currentValue = error.value;
           continue;
         }
-
         throw new WorkflowError(
           `Task failed: ${error instanceof Error ? error.message : String(error)}`,
           error,
@@ -944,13 +942,12 @@ async function runImpl<
         );
       }
     }
-
     logger.debug("[runImpl] Workflow completed successfully");
-    const resultValue = currentValue as R;
+    finalResult = currentValue as R; // Store the result
 
     const shouldThrow = !("throw" in options) || options.throw !== false;
-    if (shouldThrow) return resultValue;
-    return ok(resultValue);
+    if (shouldThrow) return finalResult;
+    return ok(finalResult);
   } catch (error) {
     const workflowErrorInstance =
       error instanceof WorkflowError
@@ -960,20 +957,29 @@ async function runImpl<
       `[runImpl] Workflow failed: ${workflowErrorInstance.message}`,
       workflowErrorInstance,
     );
-
     const scopeController = (executionContext.scope as any).controller;
     if (scopeController && !scopeController.signal.aborted) {
       scopeController.abort(workflowErrorInstance);
     }
-
     const shouldThrow = !("throw" in options) || options.throw !== false;
     if (shouldThrow) throw workflowErrorInstance;
     return err(workflowErrorInstance);
   } finally {
     _INTERNAL_setCurrentUnctxInstance(previousActiveUnctxInstance);
     const scopeController = (executionContext.scope as any).controller;
-    if (scopeController && !scopeController.signal.aborted) {
-      scopeController.abort();
+
+    // ** THIS IS THE CRITICAL FIX **
+    // Only abort the controller if the operation is truly finished.
+    // If the result is an AsyncIterable, the operation is ongoing, and its
+    // lifecycle is now managed by the consumer of the iterable.
+    if (
+      scopeController &&
+      !scopeController.signal.aborted &&
+      !isAsyncIterable(finalResult)
+    ) {
+      scopeController.abort(
+        new DOMException("Workflow scope concluded.", "AbortError"),
+      );
     }
   }
 }
@@ -2299,8 +2305,46 @@ export function createContext<
   ): Task<C, V, R> => {
     return createTaskFunction<V, R, C, C>(fn, taskNameOrOptions);
   };
-
   async function provideSpecific<Pr>(
+    overrides: Partial<
+      Omit<C, "scope" | typeof UNCTX_INSTANCE_SYMBOL> &
+        Record<string | symbol, any>
+    >,
+    fn: () => Promise<Pr>,
+    options?: ProvideImplOptions,
+  ): Promise<Pr> {
+    // Correctly get the parent context without throwing.
+    // This call happens *before* a new scope is established.
+    const parentDataForProvide = localUnctxInstance.use();
+
+    // If we are nested inside a `run` or another `provide` from the same tools,
+    // `parentDataForProvide` will exist.
+    if (parentDataForProvide) {
+      return _INTERNAL_provideImpl<Pr, C, C>(
+        localUnctxInstance,
+        parentDataForProvide, // Use the active context as the parent
+        overrides,
+        fn,
+        options,
+      );
+    } else {
+      // This is a top-level `provide` call for these specific tools.
+      // We must build a base context from the tool's defaults.
+      const baseContextForThisProvide: C = {
+        ...(toolsDefaultContextData as C),
+        scope: { signal: new AbortController().signal }, // Create a root scope
+      };
+
+      return _INTERNAL_provideImpl<Pr, C, C>(
+        localUnctxInstance,
+        baseContextForThisProvide, // Use the default context as the parent
+        overrides,
+        fn,
+        options,
+      );
+    }
+  }
+  async function _provideSpecific<Pr>(
     overrides: Partial<
       Omit<C, "scope" | typeof UNCTX_INSTANCE_SYMBOL> &
         Record<string | symbol, any>

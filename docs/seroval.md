@@ -544,3 +544,469 @@ console.log(await serializeAsync(example, {
   ],
 })); // new Blob([new Uint8Array([72,101,108,108,111,44,32,87,111,114,108,100,33]).buffer],{type:"text/plain "})
 ```
+import type { Deferred } from './utils/deferred';
+import { createDeferred } from './utils/deferred';
+
+interface StreamListener<T> {
+  next(value: T): void;
+  throw(value: unknown): void;
+  return(value: T): void;
+}
+
+export interface Stream<T> {
+  __SEROVAL_STREAM__: true;
+
+  on(listener: StreamListener<T>): () => void;
+
+  next(value: T): void;
+  throw(value: unknown): void;
+  return(value: T): void;
+}
+
+export function isStream<T>(value: object): value is Stream<T> {
+  return '__SEROVAL_STREAM__' in value;
+}
+
+export function createStream<T>(): Stream<T> {
+  const listeners = new Set<StreamListener<T>>();
+  const buffer: unknown[] = [];
+  let alive = true;
+  let success = true;
+
+  function flushNext(value: T): void {
+    for (const listener of listeners.keys()) {
+      listener.next(value);
+    }
+  }
+
+  function flushThrow(value: unknown): void {
+    for (const listener of listeners.keys()) {
+      listener.throw(value);
+    }
+  }
+
+  function flushReturn(value: T): void {
+    for (const listener of listeners.keys()) {
+      listener.return(value);
+    }
+  }
+
+  return {
+    __SEROVAL_STREAM__: true,
+    on(listener: StreamListener<T>): () => void {
+      if (alive) {
+        listeners.add(listener);
+      }
+      for (let i = 0, len = buffer.length; i < len; i++) {
+        const value = buffer[i];
+        if (i === len - 1 && !alive) {
+          if (success) {
+            listener.return(value as T);
+          } else {
+            listener.throw(value);
+          }
+        } else {
+          listener.next(value as T);
+        }
+      }
+      return () => {
+        if (alive) {
+          listeners.delete(listener);
+        }
+      };
+    },
+    next(value): void {
+      if (alive) {
+        buffer.push(value);
+        flushNext(value);
+      }
+    },
+    throw(value): void {
+      if (alive) {
+        buffer.push(value);
+        flushThrow(value);
+        alive = false;
+        success = false;
+        listeners.clear();
+      }
+    },
+    return(value): void {
+      if (alive) {
+        buffer.push(value);
+        flushReturn(value);
+        alive = false;
+        success = true;
+        listeners.clear();
+      }
+    },
+  };
+}
+
+export function createStreamFromAsyncIterable<T>(
+  iterable: AsyncIterable<T>,
+): Stream<T> {
+  const stream = createStream<T>();
+
+  const iterator = iterable[Symbol.asyncIterator]();
+
+  async function push(): Promise<void> {
+    try {
+      const value = await iterator.next();
+      if (value.done) {
+        stream.return(value.value as T);
+      } else {
+        stream.next(value.value);
+        await push();
+      }
+    } catch (error) {
+      stream.throw(error);
+    }
+  }
+
+  push().catch(() => {
+    // no-op
+  });
+
+  return stream;
+}
+
+export function streamToAsyncIterable<T>(
+  stream: Stream<T>,
+): () => AsyncIterableIterator<T> {
+  return (): AsyncIterableIterator<T> => {
+    const buffer: T[] = [];
+    const pending: Deferred[] = [];
+    let count = 0;
+    let doneAt = -1;
+    let isThrow = false;
+
+    function resolveAll(): void {
+      for (let i = 0, len = pending.length; i < len; i++) {
+        pending[i].resolve({ done: true, value: undefined });
+      }
+    }
+
+    stream.on({
+      next(value) {
+        const current = pending.shift();
+        if (current) {
+          current.resolve({ done: false, value });
+        }
+        buffer.push(value);
+      },
+      throw(value) {
+        const current = pending.shift();
+        if (current) {
+          current.reject(value);
+        }
+        resolveAll();
+        doneAt = buffer.length;
+        buffer.push(value as T);
+        isThrow = true;
+      },
+      return(value) {
+        const current = pending.shift();
+        if (current) {
+          current.resolve({ done: true, value });
+        }
+        resolveAll();
+        doneAt = buffer.length;
+        buffer.push(value);
+      },
+    });
+
+    function finalize() {
+      const current = count++;
+      const value = buffer[current];
+      if (current !== doneAt) {
+        return { done: false, value };
+      }
+      if (isThrow) {
+        throw value;
+      }
+      return { done: true, value };
+    }
+
+    return {
+      [Symbol.asyncIterator](): AsyncIterableIterator<T> {
+        return this;
+      },
+      async next(): Promise<IteratorResult<T>> {
+        if (doneAt === -1) {
+          const current = count++;
+          if (current >= buffer.length) {
+            const deferred = createDeferred();
+            pending.push(deferred);
+            return (await deferred.promise) as Promise<IteratorResult<T>>;
+          }
+          return { done: false, value: buffer[current] };
+        }
+        if (count > doneAt) {
+          return { done: true, value: undefined };
+        }
+        return finalize();
+      },
+    };
+  };
+}
+import type { BaseStreamParserContextOptions } from '../context/parser/stream';
+import BaseStreamParserContext from '../context/parser/stream';
+import type { SerovalMode } from '../plugin';
+
+export type CrossStreamParserContextOptions = BaseStreamParserContextOptions;
+
+export default class CrossStreamParserContext extends BaseStreamParserContext {
+  readonly mode: SerovalMode = 'cross';
+}
+import { SerovalNodeType } from '../constants';
+import type { BaseSerializerContextOptions } from '../context/serializer';
+import BaseSerializerContext from '../context/serializer';
+import { GLOBAL_CONTEXT_REFERENCES } from '../keys';
+import type { SerovalMode } from '../plugin';
+import { serializeString } from '../string';
+import type { SerovalNode } from '../types';
+import type { CrossContextOptions } from './parser';
+
+export interface CrossSerializerContextOptions
+  extends BaseSerializerContextOptions,
+    CrossContextOptions {}
+
+export default class CrossSerializerContext extends BaseSerializerContext {
+  readonly mode: SerovalMode = 'cross';
+
+  scopeId?: string;
+
+  constructor(options: CrossSerializerContextOptions) {
+    super(options);
+    this.scopeId = options.scopeId;
+  }
+
+  getRefParam(id: number): string {
+    return GLOBAL_CONTEXT_REFERENCES + '[' + id + ']';
+  }
+
+  protected assignIndexedValue(index: number, value: string): string {
+    // In cross-reference, we have to assume that
+    // every reference are going to be referenced
+    // in the future, and so we need to store
+    // all of it into the reference array.
+    return this.getRefParam(index) + '=' + value;
+  }
+
+  serializeTop(tree: SerovalNode): string {
+    // Get the serialized result
+    const result = this.serialize(tree);
+    // If the node is a non-reference, return
+    // the result immediately
+    const id = tree.i;
+    if (id == null) {
+      return result;
+    }
+    // Get the patches
+    const patches = this.resolvePatches();
+    // Get the variable that represents the root
+    const ref = this.getRefParam(id);
+    // Parameters needed for scoping
+    const params = this.scopeId == null ? '' : GLOBAL_CONTEXT_REFERENCES;
+    // If there are patches, append it after the result
+    const body = patches ? '(' + result + ',' + patches + ref + ')' : result;
+    // If there are no params, there's no need to generate a function
+    if (params === '') {
+      if (tree.t === SerovalNodeType.Object && !patches) {
+        return '(' + body + ')';
+      }
+      return body;
+    }
+    // Get the arguments for the IIFE
+    const args =
+      this.scopeId == null
+        ? '()'
+        : '(' +
+          GLOBAL_CONTEXT_REFERENCES +
+          '["' +
+          serializeString(this.scopeId) +
+          '"])';
+    // Create the IIFE
+    return '(' + this.createFunction([params], body) + ')' + args;
+  }
+}
+import BaseAsyncParserContext from '../context/parser/async';
+import type { SerovalMode } from '../plugin';
+import type { CrossParserContextOptions } from './parser';
+
+export type CrossAsyncParserContextOptions = CrossParserContextOptions;
+
+export default class CrossAsyncParserContext extends BaseAsyncParserContext {
+  readonly mode: SerovalMode = 'cross';
+}
+export interface Deferred {
+  promise: Promise<unknown>;
+  resolve(value: unknown): void;
+  reject(value: unknown): void;
+}
+
+export function createDeferred(): Deferred {
+  let resolve: Deferred['resolve'];
+  let reject: Deferred['reject'];
+  return {
+    promise: new Promise<unknown>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    }),
+    resolve(value): void {
+      resolve(value);
+    },
+    reject(value): void {
+      reject(value);
+    },
+  };
+}
+import { describe, expect, it } from 'vitest';
+import {
+  Feature,
+  compileJSON,
+  crossSerializeAsync,
+  crossSerializeStream,
+  deserialize,
+  fromCrossJSON,
+  fromJSON,
+  serializeAsync,
+  toCrossJSONAsync,
+  toCrossJSONStream,
+  toJSONAsync,
+} from '../src';
+
+const EXAMPLE = {
+  title: 'Hello World',
+  async *[Symbol.asyncIterator](): AsyncIterator<number> {
+    await Promise.resolve();
+    yield 1;
+    yield 2;
+    yield 3;
+  },
+};
+
+describe('AsyncIterable', () => {
+  describe('serializeAsync', () => {
+    it('supports AsyncIterables', async () => {
+      const result = await serializeAsync(EXAMPLE);
+      expect(result).toMatchSnapshot();
+      const back = deserialize<typeof EXAMPLE>(result);
+      expect(back.title).toBe(EXAMPLE.title);
+      expect(Symbol.asyncIterator in back).toBe(true);
+      const iterator = back[Symbol.asyncIterator]();
+      expect((await iterator.next()).value).toBe(1);
+      expect((await iterator.next()).value).toBe(2);
+      expect((await iterator.next()).value).toBe(3);
+    });
+  });
+  describe('toJSONAsync', () => {
+    it('supports AsyncIterables', async () => {
+      const result = await toJSONAsync(EXAMPLE);
+      expect(JSON.stringify(result)).toMatchSnapshot();
+      const back = fromJSON<typeof EXAMPLE>(result);
+      expect(back.title).toBe(EXAMPLE.title);
+      expect(Symbol.asyncIterator in back).toBe(true);
+      const iterator = back[Symbol.asyncIterator]();
+      expect((await iterator.next()).value).toBe(1);
+      expect((await iterator.next()).value).toBe(2);
+      expect((await iterator.next()).value).toBe(3);
+    });
+  });
+  describe('crossSerializeAsync', () => {
+    it('supports AsyncIterables', async () => {
+      const result = await crossSerializeAsync(EXAMPLE);
+      expect(result).toMatchSnapshot();
+    });
+    describe('scoped', () => {
+      it('supports AsyncIterables', async () => {
+        const result = await crossSerializeAsync(EXAMPLE, {
+          scopeId: 'example',
+        });
+        expect(result).toMatchSnapshot();
+      });
+    });
+  });
+  describe('crossSerializeStream', () => {
+    it('supports AsyncIterables', async () =>
+      new Promise<void>((resolve, reject) => {
+        crossSerializeStream(EXAMPLE, {
+          onSerialize(data) {
+            expect(data).toMatchSnapshot();
+          },
+          onDone() {
+            resolve();
+          },
+          onError(error) {
+            reject(error);
+          },
+        });
+      }));
+    describe('scoped', () => {
+      it('supports AsyncIterables', async () =>
+        new Promise<void>((resolve, reject) => {
+          crossSerializeStream(EXAMPLE, {
+            scopeId: 'example',
+            onSerialize(data) {
+              expect(data).toMatchSnapshot();
+            },
+            onDone() {
+              resolve();
+            },
+            onError(error) {
+              reject(error);
+            },
+          });
+        }));
+    });
+  });
+  describe('toCrossJSONAsync', () => {
+    it('supports AsyncIterables', async () => {
+      const result = await toCrossJSONAsync(EXAMPLE);
+      expect(JSON.stringify(result)).toMatchSnapshot();
+      const back = fromCrossJSON<typeof EXAMPLE>(result, {
+        refs: new Map(),
+      });
+      expect(back.title).toBe(EXAMPLE.title);
+      expect(Symbol.asyncIterator in back).toBe(true);
+      const iterator = back[Symbol.asyncIterator]();
+      expect((await iterator.next()).value).toBe(1);
+      expect((await iterator.next()).value).toBe(2);
+      expect((await iterator.next()).value).toBe(3);
+    });
+  });
+  describe('toCrossJSONStream', () => {
+    it('supports AsyncIterables', async () =>
+      new Promise<void>((resolve, reject) => {
+        toCrossJSONStream(EXAMPLE, {
+          onParse(data) {
+            expect(JSON.stringify(data)).toMatchSnapshot();
+          },
+          onDone() {
+            resolve();
+          },
+          onError(error) {
+            reject(error);
+          },
+        });
+      }));
+  });
+  describe('compat', () => {
+    it('should use function expressions instead of arrow functions.', async () => {
+      expect(
+        await serializeAsync(EXAMPLE, {
+          disabledFeatures: Feature.ArrowFunction,
+        }),
+      ).toMatchSnapshot();
+    });
+  });
+  describe('compat#toJSONAsync', () => {
+    it('should use function expression instead of arrow functions.', async () => {
+      const result = await toJSONAsync(EXAMPLE, {
+        disabledFeatures: Feature.ArrowFunction,
+      });
+      expect(JSON.stringify(result)).toMatchSnapshot();
+      expect(compileJSON(result)).toMatchSnapshot();
+    });
+  });
+});
