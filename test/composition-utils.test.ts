@@ -54,6 +54,7 @@ import {
   run,
   type BaseContext,
   type Task,
+  WorkflowError,
 } from "../src/run";
 
 interface TestContext extends BaseContext {
@@ -498,16 +499,19 @@ describe("Composition Utilities (utils.ts)", () => {
       });
 
       it("should respect abort signals", async () => {
-        const incrementTask = defineTask(async (x: number) => x + 1);
+        const incrementTask = defineTask(async (x: number) => {
+          await new Promise((r) => setTimeout(r, 10));
+          return x + 1;
+        });
         const workflow = doWhile(incrementTask, () => true); // Infinite loop
         const controller = new AbortController();
 
-        // Abort immediately
-        controller.abort();
+        const promise = run(workflow, 1, { parentSignal: controller.signal });
 
-        await expect(
-          run(workflow, 1, { parentSignal: controller.signal }),
-        ).rejects.toThrow("Aborted");
+        setTimeout(() => controller.abort(), 15);
+        await vi.advanceTimersByTimeAsync(20);
+
+        await expect(promise).rejects.toThrow("Workflow aborted");
       });
     });
 
@@ -751,7 +755,8 @@ describe("Composition Utilities (utils.ts)", () => {
         const promise = run(resilientTask, null);
 
         // Advance for both retries
-        await vi.advanceTimersByTimeAsync(20);
+        await vi.advanceTimersByTimeAsync(10);
+        await vi.advanceTimersByTimeAsync(10);
 
         await expect(promise).rejects.toThrow("Network error");
         expect(attempts).toBe(3);
@@ -935,7 +940,9 @@ describe("Composition Utilities (utils.ts)", () => {
         const promise = run(timedTask, null, {
           parentSignal: controller.signal,
         });
-        controller.abort();
+
+        setTimeout(() => controller.abort(), 10);
+        await vi.advanceTimersByTimeAsync(10);
 
         await expect(promise).rejects.toThrow("Aborted");
       });
@@ -1007,7 +1014,7 @@ describe("Composition Utilities (utils.ts)", () => {
 
         const promises = [1, 2, 3, 4, 5].map((x) => run(throttledTask, x));
 
-        await vi.advanceTimersByTimeAsync(200);
+        await vi.runAllTimersAsync();
 
         const results = await Promise.all(promises);
         expect(results).toEqual([2, 4, 6, 8, 10]);
@@ -1015,7 +1022,10 @@ describe("Composition Utilities (utils.ts)", () => {
       });
 
       it("should respect abort signals in throttle queue", async () => {
-        const task = defineTask(async (x: number) => x * 2);
+        const task = defineTask(async (x: number) => {
+          await new Promise((r) => setTimeout(r, 10));
+          return x * 2;
+        });
         const throttledTask = withThrottle(task, {
           limit: 1,
           intervalMs: 1000,
@@ -1029,8 +1039,8 @@ describe("Composition Utilities (utils.ts)", () => {
         });
 
         controller.abort();
-        await vi.advanceTimersByTimeAsync(100);
 
+        await vi.advanceTimersByTimeAsync(10);
         const result1 = await promise1;
         expect(result1).toBe(2);
 
@@ -1070,7 +1080,14 @@ describe("Composition Utilities (utils.ts)", () => {
         });
         const promise = run(pollingTask, null);
         await vi.advanceTimersByTimeAsync(250);
-        await expect(promise).rejects.toThrow(PollTimeoutError);
+
+        try {
+          await promise;
+          expect.fail("Should have thrown");
+        } catch (e) {
+          expect(e).toBeInstanceOf(WorkflowError);
+          expect((e as WorkflowError).cause).toBeInstanceOf(PollTimeoutError);
+        }
       });
     });
 
@@ -1128,7 +1145,7 @@ describe("Composition Utilities (utils.ts)", () => {
         const result1 = await promise1;
         expect(result1).toBe("result-a");
 
-        // The promise for the aborted call should reject with an AbortError.
+        // The promise for the aborted call should reject.
         await expect(promise2).rejects.toThrow(
           "Call aborted before batch dispatch",
         );

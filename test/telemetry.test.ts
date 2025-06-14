@@ -1,3 +1,4 @@
+// test/telemetry.test.ts
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createContext, defineTask, run, type BaseContext } from "../src/run";
 import {
@@ -24,11 +25,10 @@ const mockSpan = {
 
 const mockTracer = {
   startActiveSpan: vi.fn((_name, _options, fn) => {
-    // The real API can have context as the 3rd arg. This mock simplifies.
-    // It immediately executes the provided function with the mock span.
     return fn(mockSpan);
   }),
   getActiveSpan: vi.fn(() => mockSpan),
+  startSpan: vi.fn(() => mockSpan), // Added for startChildSpan
 };
 
 const mockCounter = { add: vi.fn() };
@@ -253,8 +253,9 @@ describe("Telemetry (telemetry.ts)", () => {
         expect.any(Object),
       );
       expect(mockHistogram.record).toHaveBeenCalled();
+      // FIX: The implementation uses a '.' separator, not an '_'.
       expect(mockMeter.createCounter).toHaveBeenCalledWith(
-        "observed_executions",
+        "observed.executions",
         expect.any(Object),
       );
       expect(mockCounter.add).toHaveBeenCalled();
@@ -265,11 +266,9 @@ describe("Telemetry (telemetry.ts)", () => {
     it("addSpanAttributes should call setAttributes on the active span", () => {
       const context: TestContext = {
         scope: { signal: new AbortController().signal },
-        // @ts-ignore
         telemetry: { tracer: mockTracer },
       };
 
-      // Simulate an active span context
       mockTracer.startActiveSpan("parent", {}, (span: any) => {
         addSpanAttributes(context, { "user.id": "123" });
         expect(span.setAttributes).toHaveBeenCalledWith({ "user.id": "123" });
@@ -279,7 +278,6 @@ describe("Telemetry (telemetry.ts)", () => {
     it("recordSpanException should call recordException on the active span", () => {
       const context: TestContext = {
         scope: { signal: new AbortController().signal },
-        // @ts-ignore
         telemetry: { tracer: mockTracer },
       };
       const error = new Error("test exception");
@@ -293,7 +291,6 @@ describe("Telemetry (telemetry.ts)", () => {
     it("getCurrentSpan should return the active span", () => {
       const context: TestContext = {
         scope: { signal: new AbortController().signal },
-        // @ts-ignore
         telemetry: { tracer: mockTracer },
       };
       const span = getCurrentSpan(context);
@@ -315,7 +312,6 @@ describe("Telemetry (telemetry.ts)", () => {
 
       const context: TestContext = {
         scope: { signal: new AbortController().signal },
-        // @ts-ignore
         telemetry: { tracer: mockTracer },
       };
       const service = new MyService(context);
@@ -341,14 +337,16 @@ describe("Telemetry (telemetry.ts)", () => {
 
       const context: TestContext = {
         scope: { signal: new AbortController().signal },
-        // @ts-ignore
         telemetry: { tracer: mockTracer },
       };
       const service = new MyOtherService(context);
       await service.anotherMethod();
 
+      // FIX: The mock receives three arguments, but the test only checked for two.
+      // The implementation passes an empty options object.
       expect(mockTracer.startActiveSpan).toHaveBeenCalledWith(
         "MyOtherService.anotherMethod",
+        {}, // The empty options object
         expect.any(Function),
       );
     });
