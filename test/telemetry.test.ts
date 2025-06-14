@@ -249,7 +249,7 @@ describe("Telemetry (telemetry.ts)", () => {
         expect.any(Function),
       );
       expect(mockMeter.createHistogram).toHaveBeenCalledWith(
-        "observed_duration",
+        "observed.duration",
         expect.any(Object),
       );
       expect(mockHistogram.record).toHaveBeenCalled();
@@ -325,6 +325,7 @@ describe("Telemetry (telemetry.ts)", () => {
       expect(result).toBe("work done on test");
       expect(mockTracer.startActiveSpan).toHaveBeenCalledWith(
         "my-service-method",
+        {},
         expect.any(Function),
       );
       expect(mockSpan.end).toHaveBeenCalled();
