@@ -12,6 +12,8 @@ export default defineConfig({
         "provide",
         "_INTERNAL_runImpl",
         "_INTERNAL_provideImpl",
+        "runImpl",
+        "provideImpl",
       ], // Example
     }),
   ],
@@ -23,5 +25,6 @@ export default defineConfig({
     //     external: ['node:async_hooks']
     //   }
     // }
+    setupFiles: ["@vitest/web-worker"],
   },
 });

@@ -77,6 +77,7 @@
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@vitest/coverage-v8": "^2.1.8",
+    "@vitest/web-worker": "^3.2.3",
     "automd": "^0.3.12",
     "changelogen": "^0.5.7",
     "eslint": "^9.17.0",

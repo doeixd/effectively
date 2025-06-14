@@ -2300,7 +2300,7 @@ export function createContext<
     return createTaskFunction<V, R, C, C>(fn, taskNameOrOptions);
   };
 
-  async function provideSpecific<Pr>( // Renamed R to Pr for clarity
+  async function provideSpecific<Pr>(
     overrides: Partial<
       Omit<C, "scope" | typeof UNCTX_INSTANCE_SYMBOL> &
         Record<string | symbol, any>
@@ -2308,37 +2308,38 @@ export function createContext<
     fn: () => Promise<Pr>,
     options?: ProvideImplOptions,
   ): Promise<Pr> {
-    let parentDataForProvide: C;
-    const activeCtxForThisInstance = localUnctxInstance.use();
+    const parentDataForProvide = localUnctxInstance.use();
 
-    if (activeCtxForThisInstance) {
-      parentDataForProvide = activeCtxForThisInstance;
+    // The key change is here. If there is no active context for this instance,
+    // we build one from the defaults associated with *these tools*, not
+    // from a wrongly detected ambient context.
+    if (parentDataForProvide) {
+      // We are nested inside a `run` or another `provide` from the same tools.
+      // Correctly enhance the active context.
+      return _INTERNAL_provideImpl<Pr, C, C>(
+        localUnctxInstance,
+        parentDataForProvide,
+        overrides,
+        fn,
+        options,
+      );
     } else {
-      // This `provideSpecific` is the first call establishing a context for `localUnctxInstance`.
-      // The base is `toolsDefaultContextData`. A scope is needed.
-      // This scope should ideally be from an outer Effectively context if `tools.provide`
-      // is called from within one (even a global one).
-      const outerAmbientContext =
-        getContextOrUndefinedFromActiveInstance<BaseContext>(); // Check if *any* Effectively context is active
-      const inheritedScope = outerAmbientContext?.scope || {
-        signal: new AbortController().signal,
+      // This is the outermost call for this context. Use its own defaults as the base.
+      const baseContextForThisProvide: C = {
+        ...(toolsDefaultContextData as C),
+        // Create a new root scope for this top-level provide.
+        scope: { signal: new AbortController().signal },
       };
 
-      parentDataForProvide = {
-        ...(toolsDefaultContextData as C), // Defaults for this specific context instance
-        scope: inheritedScope, // Inherit or create new root scope
-      };
+      return _INTERNAL_provideImpl<Pr, C, C>(
+        localUnctxInstance,
+        baseContextForThisProvide,
+        overrides,
+        fn,
+        options,
+      );
     }
-
-    return _INTERNAL_provideImpl<Pr, C, C>(
-      localUnctxInstance,
-      parentDataForProvide,
-      overrides,
-      fn,
-      options, // User can specify strategy, or _INTERNAL_provideImpl defaults
-    );
   }
-
   /**
    * Executes a workflow exclusively within this specific context `C`.
    *
