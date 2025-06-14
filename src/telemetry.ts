@@ -269,18 +269,20 @@ export function traced(spanName?: string) {
       const name = spanName || `${this.constructor.name}.${methodName}`;
 
       if (tracer && typeof tracer.startActiveSpan === "function") {
-        return tracer.startActiveSpan(name, {}, async (span: SpanLike) => {
-          try {
-            const result = await target.apply(this, args);
-            span.setStatus({ code: 1 }); // OK
-            return result;
-          } catch (error: any) {
-            span.recordException(error);
-            span.setStatus({ code: 2, message: error.message }); // ERROR
-            throw error;
-          } finally {
-            span.end();
-          }
+        return tracer.startActiveSpan(name, {}, (span: SpanLike) => {
+          return Promise.resolve(target.apply(this, args))
+            .then((result) => {
+              span.setStatus({ code: 1 }); // OK
+              return result;
+            })
+            .catch((error) => {
+              span.recordException(error);
+              span.setStatus({ code: 2, message: error.message }); // ERROR
+              throw error;
+            })
+            .finally(() => {
+              span.end();
+            });
         });
       } else {
         return target.apply(this, args);
@@ -463,9 +465,7 @@ export function getCurrentSpan<C extends BaseContext & TelemetryContext>(
 ): SpanLike | null {
   const tracer = context.telemetry?.tracer;
   return tracer && typeof tracer.getActiveSpan === "function"
-    ? tracer.getActiveSpan()
-      ? null
-      : null
+    ? tracer.getActiveSpan() || null
     : null;
 }
 

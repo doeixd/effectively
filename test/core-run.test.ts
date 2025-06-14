@@ -325,34 +325,29 @@ describe("Core Execution Engine (run.ts)", () => {
 
       const outerResult = await run(contextTask, undefined);
       expect(outerResult).toBe("test-user");
-
       const innerResult = await provide(
         { userId: "temporary-user" },
-        async () => {
-          const context = getContext();
-          return contextTask(context, undefined);
-        },
+        () => run(contextTask, undefined), // Use run() to execute the task
       );
+
       expect(innerResult).toBe("temporary-user");
     });
 
     it("should nest provide calls correctly", async () => {
-      const { run, defineTask, getContext, provide } =
+      const { defineTask, getContext, provide, run } =
         createContext<TestContext>(testContextDefaults);
-
       const contextTask = defineTask(async () => {
         const ctx = getContext();
+        // Here, ctx should have userId: 'level1' and counter: 42
         return { userId: ctx.userId, counter: ctx.counter };
       });
-
       const result = await run(async () => {
-        return provide({ userId: "level1" }, async () => {
-          return provide({ counter: 42 }, async () => {
+        return provide({ userId: "level1" }, () => {
+          return provide({ counter: 42 }, () => {
             return run(contextTask, undefined);
           });
         });
       }, undefined);
-
       expect(result).toEqual({ userId: "level1", counter: 42 });
     });
 
@@ -458,12 +453,8 @@ describe("Core Execution Engine (run.ts)", () => {
         return service.getCurrentUser();
       });
 
-      const result = await provide(
-        { [userServiceToken]: userService },
-        async () => {
-          const context = getContext();
-          return injectionTask(context, undefined);
-        },
+      const result = await provide({ [userServiceToken]: userService }, () =>
+        run(injectionTask, undefined),
       );
 
       expect(result).toBe("injected-user");

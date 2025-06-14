@@ -9,7 +9,7 @@
  * creating clean, readable, and type-safe chains of operations.
  */
 
-import { Result, ok, err } from 'neverthrow';
+import { Result, ok, err } from "neverthrow";
 import {
   type Task,
   type BaseContext,
@@ -19,23 +19,28 @@ import {
   defineTask,
   getContext,
   isBacktrackSignal,
-} from './run';
-import { TimeoutError as GenericTimeoutError } from './utils'
+} from "./run";
+import { TimeoutError as GenericTimeoutError } from "./utils";
 
 // A lightweight deep-equal implementation for memoize key comparison
 const deepEqual = (a: any, b: any): boolean => {
   if (a === b) return true;
-  if (a && b && typeof a === 'object' && typeof b === 'object') {
+  if (a && b && typeof a === "object" && typeof b === "object") {
     if (a.constructor !== b.constructor) return false;
     if (Array.isArray(a)) {
       if (a.length !== b.length) return false;
-      for (let i = 0; i < a.length; i++) if (!deepEqual(a[i], b[i])) return false;
+      for (let i = 0; i < a.length; i++)
+        if (!deepEqual(a[i], b[i])) return false;
       return true;
     }
     const keys = Object.keys(a);
     if (keys.length !== Object.keys(b).length) return false;
     for (const key of keys) {
-      if (!Object.prototype.hasOwnProperty.call(b, key) || !deepEqual(a[key], b[key])) return false;
+      if (
+        !Object.prototype.hasOwnProperty.call(b, key) ||
+        !deepEqual(a[key], b[key])
+      )
+        return false;
     }
     return true;
   }
@@ -78,13 +83,69 @@ const deepEqual = (a: any, b: any): boolean => {
 export function pipe<A>(value: A): A;
 export function pipe<A, B>(value: A, f1: (a: A) => B): B;
 export function pipe<A, B, C>(value: A, f1: (a: A) => B, f2: (b: B) => C): C;
-export function pipe<A, B, C, D>(value: A, f1: (a: A) => B, f2: (b: B) => C, f3: (c: C) => D): D;
-export function pipe<A, B, C, D, E>(value: A, f1: (a: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E): E;
-export function pipe<A, B, C, D, E, F>(value: A, f1: (a: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F): F;
-export function pipe<A, B, C, D, E, F, G>(value: A, f1: (a: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F, f6: (f: F) => G): G;
-export function pipe<A, B, C, D, E, F, G, H>(value: A, f1: (a: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F, f6: (f: F) => G, f7: (g: G) => H): H;
-export function pipe<A, B, C, D, E, F, G, H, I>(value: A, f1: (a: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F, f6: (f: F) => G, f7: (g: G) => H, f8: (h: H) => I): I;
-export function pipe<A, B, C, D, E, F, G, H, I, J>(value: A, f1: (a: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F, f6: (f: F) => G, f7: (g: G) => H, f8: (h: H) => I, f9: (i: I) => J): J;
+export function pipe<A, B, C, D>(
+  value: A,
+  f1: (a: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+): D;
+export function pipe<A, B, C, D, E>(
+  value: A,
+  f1: (a: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+): E;
+export function pipe<A, B, C, D, E, F>(
+  value: A,
+  f1: (a: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+  f5: (e: E) => F,
+): F;
+export function pipe<A, B, C, D, E, F, G>(
+  value: A,
+  f1: (a: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+  f5: (e: E) => F,
+  f6: (f: F) => G,
+): G;
+export function pipe<A, B, C, D, E, F, G, H>(
+  value: A,
+  f1: (a: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+  f5: (e: E) => F,
+  f6: (f: F) => G,
+  f7: (g: G) => H,
+): H;
+export function pipe<A, B, C, D, E, F, G, H, I>(
+  value: A,
+  f1: (a: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+  f5: (e: E) => F,
+  f6: (f: F) => G,
+  f7: (g: G) => H,
+  f8: (h: H) => I,
+): I;
+export function pipe<A, B, C, D, E, F, G, H, I, J>(
+  value: A,
+  f1: (a: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+  f5: (e: E) => F,
+  f6: (f: F) => G,
+  f7: (g: G) => H,
+  f8: (h: H) => I,
+  f9: (i: I) => J,
+): J;
 export function pipe(value: any, ...fns: Function[]): any {
   let currentValue = value;
   for (const fn of fns) {
@@ -118,15 +179,69 @@ export function pipe(value: any, ...fns: Function[]): any {
  * ```
  */
 export function flow(): <T>(arg: T) => T;
-export function flow<A extends any[], B>(f1: (...args: A) => B): (...args: A) => B;
-export function flow<A extends any[], B, C>(f1: (...args: A) => B, f2: (b: B) => C): (...args: A) => C;
-export function flow<A extends any[], B, C, D>(f1: (...args: A) => B, f2: (b: B) => C, f3: (c: C) => D): (...args: A) => D;
-export function flow<A extends any[], B, C, D, E>(f1: (...args: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E): (...args: A) => E;
-export function flow<A extends any[], B, C, D, E, F>(f1: (...args: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F): (...args: A) => F;
-export function flow<A extends any[], B, C, D, E, F, G>(f1: (...args: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F, f6: (f: F) => G): (...args: A) => G;
-export function flow<A extends any[], B, C, D, E, F, G, H>(f1: (...args: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F, f6: (f: F) => G, f7: (g: G) => H): (...args: A) => H;
-export function flow<A extends any[], B, C, D, E, F, G, H, I>(f1: (...args: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F, f6: (f: F) => G, f7: (g: G) => H, f8: (h: H) => I): (...args: A) => I;
-export function flow<A extends any[], B, C, D, E, F, G, H, I, J>(f1: (...args: A) => B, f2: (b: B) => C, f3: (c: C) => D, f4: (d: D) => E, f5: (e: E) => F, f6: (f: F) => G, f7: (g: G) => H, f8: (h: H) => I, f9: (i: I) => J): (...args: A) => J;
+export function flow<A extends any[], B>(
+  f1: (...args: A) => B,
+): (...args: A) => B;
+export function flow<A extends any[], B, C>(
+  f1: (...args: A) => B,
+  f2: (b: B) => C,
+): (...args: A) => C;
+export function flow<A extends any[], B, C, D>(
+  f1: (...args: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+): (...args: A) => D;
+export function flow<A extends any[], B, C, D, E>(
+  f1: (...args: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+): (...args: A) => E;
+export function flow<A extends any[], B, C, D, E, F>(
+  f1: (...args: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+  f5: (e: E) => F,
+): (...args: A) => F;
+export function flow<A extends any[], B, C, D, E, F, G>(
+  f1: (...args: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+  f5: (e: E) => F,
+  f6: (f: F) => G,
+): (...args: A) => G;
+export function flow<A extends any[], B, C, D, E, F, G, H>(
+  f1: (...args: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+  f5: (e: E) => F,
+  f6: (f: F) => G,
+  f7: (g: G) => H,
+): (...args: A) => H;
+export function flow<A extends any[], B, C, D, E, F, G, H, I>(
+  f1: (...args: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+  f5: (e: E) => F,
+  f6: (f: F) => G,
+  f7: (g: G) => H,
+  f8: (h: H) => I,
+): (...args: A) => I;
+export function flow<A extends any[], B, C, D, E, F, G, H, I, J>(
+  f1: (...args: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+  f5: (e: E) => F,
+  f6: (f: F) => G,
+  f7: (g: G) => H,
+  f8: (h: H) => I,
+  f9: (i: I) => J,
+): (...args: A) => J;
 export function flow(...fns: Function[]): Function {
   const { length } = fns;
   if (length === 0) {
@@ -150,7 +265,7 @@ export function flow(...fns: Function[]): Function {
 
 // Helper to check if a function is a generator function
 function isGeneratorFunction(fn: any): fn is (...args: any[]) => Generator {
-  return Object.prototype.toString.call(fn) === '[object GeneratorFunction]';
+  return Object.prototype.toString.call(fn) === "[object GeneratorFunction]";
 }
 
 // Helper to run a lifted generator function and adapt it to the Task signature
@@ -170,8 +285,10 @@ function runLiftedGenerator<V, R>(genFn: (value: V) => Generator<any, R, any>) {
 
           // If it yielded a promise, wait for it. Otherwise, pass the yielded value to the next iteration.
           Promise.resolve(result.value)
-            .then(resolvedYieldedValue => iterateGenerator(resolvedYieldedValue))
-            .catch(errFromYieldedPromise => {
+            .then((resolvedYieldedValue) =>
+              iterateGenerator(resolvedYieldedValue),
+            )
+            .catch((errFromYieldedPromise) => {
               try {
                 // Propagate error into the generator
                 const resultFromThrow = gen.throw(errFromYieldedPromise); // Allow generator to catch it
@@ -181,8 +298,8 @@ function runLiftedGenerator<V, R>(genFn: (value: V) => Generator<any, R, any>) {
                   return;
                 }
                 Promise.resolve(resultFromThrow.value)
-                  .then(res => iterateGenerator(res))
-                  .catch(innerErr => reject(innerErr)); // Error from promise yielded after catch
+                  .then((res) => iterateGenerator(res))
+                  .catch((innerErr) => reject(innerErr)); // Error from promise yielded after catch
               } catch (errorThrownByGenerator) {
                 // This catches errors if gen.throw() itself throws (i.e., generator didn't catch it or re-threw)
                 reject(errorThrownByGenerator);
@@ -246,48 +363,58 @@ export type WorkflowStep<C extends BaseContext, V, R> =
  * ```
  */
 export function createWorkflow<C extends BaseContext, V, R1>(
-  s1: WorkflowStep<C, V, R1>
+  s1: WorkflowStep<C, V, R1>,
 ): Task<C, V, R1>;
 export function createWorkflow<C extends BaseContext, V, R1, R2>(
   s1: WorkflowStep<C, V, R1>,
-  s2: WorkflowStep<C, R1, R2>
+  s2: WorkflowStep<C, R1, R2>,
 ): Task<C, V, R2>;
 export function createWorkflow<C extends BaseContext, V, R1, R2, R3>(
   s1: WorkflowStep<C, V, R1>,
   s2: WorkflowStep<C, R1, R2>,
-  s3: WorkflowStep<C, R2, R3>
+  s3: WorkflowStep<C, R2, R3>,
 ): Task<C, V, R3>;
 export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4>(
   s1: WorkflowStep<C, V, R1>,
   s2: WorkflowStep<C, R1, R2>,
   s3: WorkflowStep<C, R2, R3>,
-  s4: WorkflowStep<C, R3, R4>
+  s4: WorkflowStep<C, R3, R4>,
 ): Task<C, V, R4>;
 export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5>(
   s1: WorkflowStep<C, V, R1>,
   s2: WorkflowStep<C, R1, R2>,
   s3: WorkflowStep<C, R2, R3>,
   s4: WorkflowStep<C, R3, R4>,
-  s5: WorkflowStep<C, R4, R5>
-): Task<C, V, R5>;
-export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6>(
-  s1: WorkflowStep<C, V, R1>,
-  s2: WorkflowStep<C, R1, R2>,
-  s3: WorkflowStep<C, R2, R3>,
-  s4: WorkflowStep<C, R3, R4>,
   s5: WorkflowStep<C, R4, R5>,
-  s6: WorkflowStep<C, R5, R6>
-): Task<C, V, R6>;
-export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7>(
+): Task<C, V, R5>;
+export function createWorkflow<
+  C extends BaseContext,
+  V,
+  R1,
+  R2,
+  R3,
+  R4,
+  R5,
+  R6,
+>(
   s1: WorkflowStep<C, V, R1>,
   s2: WorkflowStep<C, R1, R2>,
   s3: WorkflowStep<C, R2, R3>,
   s4: WorkflowStep<C, R3, R4>,
   s5: WorkflowStep<C, R4, R5>,
   s6: WorkflowStep<C, R5, R6>,
-  s7: WorkflowStep<C, R6, R7>
-): Task<C, V, R7>;
-export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8>(
+): Task<C, V, R6>;
+export function createWorkflow<
+  C extends BaseContext,
+  V,
+  R1,
+  R2,
+  R3,
+  R4,
+  R5,
+  R6,
+  R7,
+>(
   s1: WorkflowStep<C, V, R1>,
   s2: WorkflowStep<C, R1, R2>,
   s3: WorkflowStep<C, R2, R3>,
@@ -295,9 +422,19 @@ export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6,
   s5: WorkflowStep<C, R4, R5>,
   s6: WorkflowStep<C, R5, R6>,
   s7: WorkflowStep<C, R6, R7>,
-  s8: WorkflowStep<C, R7, R8>
-): Task<C, V, R8>;
-export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8, R9>(
+): Task<C, V, R7>;
+export function createWorkflow<
+  C extends BaseContext,
+  V,
+  R1,
+  R2,
+  R3,
+  R4,
+  R5,
+  R6,
+  R7,
+  R8,
+>(
   s1: WorkflowStep<C, V, R1>,
   s2: WorkflowStep<C, R1, R2>,
   s3: WorkflowStep<C, R2, R3>,
@@ -306,9 +443,20 @@ export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6,
   s6: WorkflowStep<C, R5, R6>,
   s7: WorkflowStep<C, R6, R7>,
   s8: WorkflowStep<C, R7, R8>,
-  s9: WorkflowStep<C, R8, R9>
-): Task<C, V, R9>;
-export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10>(
+): Task<C, V, R8>;
+export function createWorkflow<
+  C extends BaseContext,
+  V,
+  R1,
+  R2,
+  R3,
+  R4,
+  R5,
+  R6,
+  R7,
+  R8,
+  R9,
+>(
   s1: WorkflowStep<C, V, R1>,
   s2: WorkflowStep<C, R1, R2>,
   s3: WorkflowStep<C, R2, R3>,
@@ -318,9 +466,21 @@ export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6,
   s7: WorkflowStep<C, R6, R7>,
   s8: WorkflowStep<C, R7, R8>,
   s9: WorkflowStep<C, R8, R9>,
-  s10: WorkflowStep<C, R9, R10>
-): Task<C, V, R10>;
-export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11>(
+): Task<C, V, R9>;
+export function createWorkflow<
+  C extends BaseContext,
+  V,
+  R1,
+  R2,
+  R3,
+  R4,
+  R5,
+  R6,
+  R7,
+  R8,
+  R9,
+  R10,
+>(
   s1: WorkflowStep<C, V, R1>,
   s2: WorkflowStep<C, R1, R2>,
   s3: WorkflowStep<C, R2, R3>,
@@ -331,9 +491,22 @@ export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6,
   s8: WorkflowStep<C, R7, R8>,
   s9: WorkflowStep<C, R8, R9>,
   s10: WorkflowStep<C, R9, R10>,
-  s11: WorkflowStep<C, R10, R11>
-): Task<C, V, R11>;
-export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12>(
+): Task<C, V, R10>;
+export function createWorkflow<
+  C extends BaseContext,
+  V,
+  R1,
+  R2,
+  R3,
+  R4,
+  R5,
+  R6,
+  R7,
+  R8,
+  R9,
+  R10,
+  R11,
+>(
   s1: WorkflowStep<C, V, R1>,
   s2: WorkflowStep<C, R1, R2>,
   s3: WorkflowStep<C, R2, R3>,
@@ -345,7 +518,35 @@ export function createWorkflow<C extends BaseContext, V, R1, R2, R3, R4, R5, R6,
   s9: WorkflowStep<C, R8, R9>,
   s10: WorkflowStep<C, R9, R10>,
   s11: WorkflowStep<C, R10, R11>,
-  s12: WorkflowStep<C, R11, R12>
+): Task<C, V, R11>;
+export function createWorkflow<
+  C extends BaseContext,
+  V,
+  R1,
+  R2,
+  R3,
+  R4,
+  R5,
+  R6,
+  R7,
+  R8,
+  R9,
+  R10,
+  R11,
+  R12,
+>(
+  s1: WorkflowStep<C, V, R1>,
+  s2: WorkflowStep<C, R1, R2>,
+  s3: WorkflowStep<C, R2, R3>,
+  s4: WorkflowStep<C, R3, R4>,
+  s5: WorkflowStep<C, R4, R5>,
+  s6: WorkflowStep<C, R5, R6>,
+  s7: WorkflowStep<C, R6, R7>,
+  s8: WorkflowStep<C, R7, R8>,
+  s9: WorkflowStep<C, R8, R9>,
+  s10: WorkflowStep<C, R9, R10>,
+  s11: WorkflowStep<C, R10, R11>,
+  s12: WorkflowStep<C, R11, R12>,
 ): Task<C, V, R12>;
 
 // Implementation
@@ -353,15 +554,23 @@ export function createWorkflow(...steps: any[]): Task<any, any, any> {
   if (steps.length === 0) {
     // Return an identity task if no steps are provided
     const identityTask = async (context: any, v: any) => v;
-    Object.defineProperty(identityTask, 'name', { value: 'identityWorkflow', configurable: true });
-    Object.defineProperty(identityTask, '__task_id', { value: Symbol('identityWorkflow'), configurable: true, enumerable: false, writable: false });
+    Object.defineProperty(identityTask, "name", {
+      value: "identityWorkflow",
+      configurable: true,
+    });
+    Object.defineProperty(identityTask, "__task_id", {
+      value: Symbol("identityWorkflow"),
+      configurable: true,
+      enumerable: false,
+      writable: false,
+    });
     return identityTask;
   }
 
   const toTask = (stepOrFn: any): Task<any, any, any> => {
-    if (typeof stepOrFn !== 'function') {
+    if (typeof stepOrFn !== "function") {
       throw new Error(
-        `Invalid workflow step: expected a function, Task, or generator function, but got ${typeof stepOrFn}.`
+        `Invalid workflow step: expected a function, Task, or generator function, but got ${typeof stepOrFn}.`,
       );
     }
 
@@ -374,40 +583,66 @@ export function createWorkflow(...steps: any[]): Task<any, any, any> {
     // 2. If it's a generator function: (value) => Generator<any, R, any>
     // Lift it to: (context, value) => Promise<R>
     if (isGeneratorFunction(stepOrFn)) {
-      const liftedGenTask = runLiftedGenerator(stepOrFn as (value: any) => Generator<any, any, any>);
-      Object.defineProperty(liftedGenTask, 'name', { value: stepOrFn.name || 'liftedGeneratorTask', configurable: true });
+      const liftedGenTask = runLiftedGenerator(
+        stepOrFn as (value: any) => Generator<any, any, any>,
+      );
+      Object.defineProperty(liftedGenTask, "name", {
+        value: stepOrFn.name || "liftedGeneratorTask",
+        configurable: true,
+      });
       return liftedGenTask;
     }
 
     // 3. If it's a function with arity 2, assume it's a "raw" context-aware function:
     // (context, value) => R | Promise<R>. Lift to (context, value) => Promise<R>.
-    const fnStr = String(stepOrFn?.toString?.())
-    if (stepOrFn.length === 2 && (fnStr.includes('context') || fnStr.includes('ctx') || fnStr.includes('scope'))) {
-      const rawTaskWrapper = async (context: BaseContext, value: any): Promise<any> => {
+    const fnStr = String(stepOrFn?.toString?.());
+    if (
+      stepOrFn.length === 2 &&
+      (fnStr.includes("context") ||
+        fnStr.includes("ctx") ||
+        fnStr.includes("scope"))
+    ) {
+      const rawTaskWrapper = async (
+        context: BaseContext,
+        value: any,
+      ): Promise<any> => {
         const result = stepOrFn(context, value);
         return Promise.resolve(result); // Handles both sync and async results
       };
-      Object.defineProperty(rawTaskWrapper, 'name', { value: stepOrFn.name || 'liftedContextAwareFn', configurable: true });
+      Object.defineProperty(rawTaskWrapper, "name", {
+        value: stepOrFn.name || "liftedContextAwareFn",
+        configurable: true,
+      });
       return rawTaskWrapper;
     }
 
     // 4. Otherwise, it's a plain sync or async function taking one argument (the value):
     // (value) => R | Promise<R>. Lift to (context, value) => Promise<R>.
-    const liftedPlainTask = async (context: BaseContext, value: any): Promise<any> => {
+    const liftedPlainTask = async (
+      context: BaseContext,
+      value: any,
+    ): Promise<any> => {
       const result = stepOrFn(value);
       return Promise.resolve(result); // Handles both sync returns and Promise returns
     };
-    Object.defineProperty(liftedPlainTask, 'name', { value: stepOrFn.name || 'liftedValueTransformFn', configurable: true });
+    Object.defineProperty(liftedPlainTask, "name", {
+      value: stepOrFn.name || "liftedValueTransformFn",
+      configurable: true,
+    });
     return liftedPlainTask;
   };
 
   const allLiftedTasks = steps.map(toTask);
 
-  const composedWorkflow: Task<any, any, any> = async (context: any, initialValue: any) => {
+  const composedWorkflow: Task<any, any, any> = async (
+    context: any,
+    initialValue: any,
+  ) => {
     let currentValue = initialValue;
     for (const task of allLiftedTasks) {
-      if (context.scope?.signal?.aborted) { // Check for cancellation before each step
-        throw new DOMException('Workflow aborted', 'AbortError');
+      if (context.scope?.signal?.aborted) {
+        // Check for cancellation before each step
+        throw new DOMException("Workflow aborted", "AbortError");
       }
       currentValue = await task(context, currentValue);
     }
@@ -417,21 +652,23 @@ export function createWorkflow(...steps: any[]): Task<any, any, any> {
   // For backtracking, the run engine needs to know the original steps.
   // Store the lifted tasks, as these are what will be executed.
   // Backtracking targets are identified by __task_id, which only defined Tasks will have.
-  Object.defineProperty(composedWorkflow, '__steps', {
+  Object.defineProperty(composedWorkflow, "__steps", {
     value: Object.freeze([...allLiftedTasks]),
     configurable: true,
     enumerable: false,
     writable: false,
   });
 
-  const stepNames = allLiftedTasks.map(t => t.name || 'anonymous_step').join('_then_');
-  Object.defineProperty(composedWorkflow, 'name', {
-    value: `workflow(${stepNames || 'empty'})`,
+  const stepNames = allLiftedTasks
+    .map((t) => t.name || "anonymous_step")
+    .join("_then_");
+  Object.defineProperty(composedWorkflow, "name", {
+    value: `workflow(${stepNames || "empty"})`,
     configurable: true,
   });
   // A composed workflow is also a task, give it a unique ID for potential nesting/backtracking.
-  Object.defineProperty(composedWorkflow, '__task_id', {
-    value: Symbol(`workflow_${stepNames || 'empty'}`),
+  Object.defineProperty(composedWorkflow, "__task_id", {
+    value: Symbol(`workflow_${stepNames || "empty"}`),
     configurable: true,
     enumerable: false,
     writable: false,
@@ -492,7 +729,9 @@ export function fromValue<T>(value: T): Task<BaseContext, null, T> {
  * const user = await run(workflow);
  * ```
  */
-export function fromPromise<T>(promise: Promise<T>): Task<BaseContext, null, T> {
+export function fromPromise<T>(
+  promise: Promise<T>,
+): Task<BaseContext, null, T> {
   return async (context: BaseContext, _: null): Promise<T> => promise;
 }
 
@@ -509,11 +748,10 @@ export function fromPromise<T>(promise: Promise<T>): Task<BaseContext, null, T> 
  * ```
  */
 export function fromPromiseFn<C extends BaseContext, T>(
-  fn: (context: C) => Promise<T>
+  fn: (context: C) => Promise<T>,
 ): Task<C, null, T> {
   return async (context: C, _: null): Promise<T> => fn(context);
 }
-
 
 // =================================================================
 // Section 2: Pipeable Operators and Direct Composition
@@ -534,7 +772,7 @@ export function fromPromiseFn<C extends BaseContext, T>(
  * ```
  */
 export function map<C extends BaseContext, V, R>(
-  f: (value: V, context: C) => R | Promise<R>
+  f: (value: V, context: C) => R | Promise<R>,
 ): Task<C, V, R> {
   return async (context: C, value: V): Promise<R> => {
     const result = f(value, context);
@@ -584,24 +822,30 @@ export function flatMap<C extends BaseContext, V, RNext>(
   // For maximum flexibility, VInNext could be a separate generic, but let's stick to common usage.
   // If f returns Task<C, VAlt, RNext>, then the flatMap must correctly provide VAlt.
   // The current signature Task<C,V,RNext> means the task from f *also* takes V as input.
-  f: (value: V, context: C) => Task<C, V, RNext>
+  f: (value: V, context: C) => Task<C, V, RNext>,
 ): Task<C, V, RNext> {
-  const flatMapTask: Task<C, V, RNext> = async (context: C, value: V): Promise<RNext> => {
+  const flatMapTask: Task<C, V, RNext> = async (
+    context: C,
+    value: V,
+  ): Promise<RNext> => {
     const nextTask: Task<C, V, RNext> = f(value, context);
-    if (typeof nextTask !== 'function' || !nextTask.name === undefined) { // Basic check
-      throw new Error('flatMap function f must return a valid Task.');
+    if (typeof nextTask !== "function" || !nextTask.name === undefined) {
+      // Basic check
+      throw new Error("flatMap function f must return a valid Task.");
     }
     return nextTask(context, value); // Execute the returned task
   };
 
   // Enhancer property propagation
-  Object.defineProperty(flatMapTask, 'name', { value: `flatMap(${f.name || 'anonymousFn'})`, configurable: true });
+  Object.defineProperty(flatMapTask, "name", {
+    value: `flatMap(${f.name || "anonymousFn"})`,
+    configurable: true,
+  });
   // flatMap creates a new logical step; it typically wouldn't propagate __task_id or __steps from 'f'
   // as it's not the same task but a new one derived from it.
 
   return flatMapTask;
 }
-
 
 // --- Direct Composition Helpers (standalone) ---
 
@@ -617,7 +861,7 @@ export function flatMap<C extends BaseContext, V, RNext>(
  */
 export function mapTask<C extends BaseContext, V, A, B>(
   task: Task<C, V, A>,
-  f: (value: A) => B | Promise<B>
+  f: (value: A) => B | Promise<B>,
 ): Task<C, V, B> {
   return async (context: C, value: V): Promise<B> => {
     const result = await task(context, value);
@@ -655,21 +899,25 @@ export function mapTask<C extends BaseContext, V, A, B>(
  */
 export function andThenTask<C extends BaseContext, In, A, RNext>(
   task: Task<C, In, A>,
-  f: (value: A) => Task<C, A, RNext> // f produces a task that takes A as input
+  f: (value: A) => Task<C, A, RNext>, // f produces a task that takes A as input
 ): Task<C, In, RNext> {
-  const andThenCompositionTask: Task<C, In, RNext> = async (context: C, inputValue: In): Promise<RNext> => {
+  const andThenCompositionTask: Task<C, In, RNext> = async (
+    context: C,
+    inputValue: In,
+  ): Promise<RNext> => {
     const intermediateResult: A = await task(context, inputValue);
     const nextTask: Task<C, A, RNext> = f(intermediateResult);
-    if (typeof nextTask !== 'function' || nextTask.name === undefined) { // Basic check
-      throw new Error('andThenTask function f must return a valid Task.');
+    if (typeof nextTask !== "function" || nextTask.name === undefined) {
+      // Basic check
+      throw new Error("andThenTask function f must return a valid Task.");
     }
     // The `nextTask` expects `A` as its value input, which is `intermediateResult`.
     return nextTask(context, intermediateResult);
   };
 
-  Object.defineProperty(andThenCompositionTask, 'name', {
-    value: `andThen(${task.name || 'anonymousTask'}, ${f.name || 'anonymousFn'})`,
-    configurable: true
+  Object.defineProperty(andThenCompositionTask, "name", {
+    value: `andThen(${task.name || "anonymousTask"}, ${f.name || "anonymousFn"})`,
+    configurable: true,
   });
   // This creates a new composite task. Propagating __task_id from the first task
   // might be misleading if backtracking targets the composite.
@@ -690,14 +938,17 @@ export function andThenTask<C extends BaseContext, In, A, RNext>(
  * const partialUser = await run(workflow, 'user-123'); // { id: '...', name: '...' }
  * ```
  */
-export function pick<T extends object, K extends keyof T>(...keys: K[]): Task<BaseContext, T, Pick<T, K>> {
+export function pick<T extends object, K extends keyof T>(
+  ...keys: K[]
+): Task<BaseContext, T, Pick<T, K>> {
   return async (context: BaseContext, value: T): Promise<Pick<T, K>> => {
     const newObj = {} as Pick<T, K>;
-    for (const key of keys) if (Object.prototype.hasOwnProperty.call(value, key)) newObj[key] = value[key];
+    for (const key of keys)
+      if (Object.prototype.hasOwnProperty.call(value, key))
+        newObj[key] = value[key];
     return newObj;
   };
 }
-
 
 // =================================================================
 // Section 3: Flow Control, Logic, and Side Effects
@@ -718,7 +969,7 @@ export function pick<T extends object, K extends keyof T>(...keys: K[]): Task<Ba
  */
 export function when<C extends BaseContext, V>(
   predicate: (value: V, context: C) => boolean | Promise<boolean>,
-  task: Task<C, V, V>
+  task: Task<C, V, V>,
 ): Task<C, V, V> {
   return async (context: C, value: V): Promise<V> => {
     return (await predicate(value, context)) ? task(context, value) : value;
@@ -740,7 +991,7 @@ export function when<C extends BaseContext, V>(
  */
 export function unless<C extends BaseContext, V>(
   predicate: (value: V, context: C) => boolean | Promise<boolean>,
-  task: Task<C, V, V>
+  task: Task<C, V, V>,
 ): Task<C, V, V> {
   return when(async (v, c) => !(await predicate(v, c)), task);
 }
@@ -758,12 +1009,13 @@ export function unless<C extends BaseContext, V>(
  */
 export function doWhile<C extends BaseContext, V>(
   task: Task<C, V, V>,
-  predicate: (value: V, context: C) => boolean | Promise<boolean>
+  predicate: (value: V, context: C) => boolean | Promise<boolean>,
 ): Task<C, V, V> {
   return async (context: C, initialValue: V): Promise<V> => {
     let currentValue = initialValue;
     while (await predicate(currentValue, context)) {
-      if (context.scope.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      if (context.scope.signal.aborted)
+        throw new DOMException("Aborted", "AbortError");
       currentValue = await task(context, currentValue);
     }
     return currentValue;
@@ -783,7 +1035,7 @@ export function doWhile<C extends BaseContext, V>(
  * ```
  */
 export function tap<C extends BaseContext, V>(
-  f: (value: V, context: C) => void | Promise<void>
+  f: (value: V, context: C) => void | Promise<void>,
 ): Task<C, V, V> {
   return async (context: C, value: V): Promise<V> => {
     await f(value, context);
@@ -805,17 +1057,21 @@ export function tap<C extends BaseContext, V>(
  */
 export function sleep(ms: number): Task<BaseContext, any, void> {
   return async (context: BaseContext, _: any): Promise<void> => {
-    if (context.scope.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (context.scope.signal.aborted)
+      throw new DOMException("Aborted", "AbortError");
     return new Promise((resolve, reject) => {
       const timer = setTimeout(resolve, ms);
-      context.scope.signal.addEventListener('abort', () => {
-        clearTimeout(timer);
-        reject(new DOMException('Aborted', 'AbortError'));
-      }, { once: true });
+      context.scope.signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          reject(new DOMException("Aborted", "AbortError"));
+        },
+        { once: true },
+      );
     });
   };
 }
-
 
 // =================================================================
 // Section 4: Error Handling & Resilience
@@ -855,9 +1111,12 @@ export function sleep(ms: number): Task<BaseContext, any, void> {
 export function tapError<C extends BaseContext, V, R, E extends Error = Error>(
   task: Task<C, V, R>,
   onErrorFn: (error: E, context: C) => void | Promise<void>,
-  errorConstructor?: new (...args: any[]) => E
+  errorConstructor?: new (...args: any[]) => E,
 ): Task<C, V, R> {
-  const tappedTaskLogic: Task<C, V, R> = async (context: C, value: V): Promise<R> => {
+  const tappedTaskLogic: Task<C, V, R> = async (
+    context: C,
+    value: V,
+  ): Promise<R> => {
     try {
       return await task(context, value);
     } catch (error) {
@@ -867,7 +1126,8 @@ export function tapError<C extends BaseContext, V, R, E extends Error = Error>(
       }
 
       // Check if we should handle this error based on the constructor
-      const shouldHandle = !errorConstructor || (error instanceof errorConstructor);
+      const shouldHandle =
+        !errorConstructor || error instanceof errorConstructor;
 
       if (shouldHandle) {
         // Perform the side effect.
@@ -878,7 +1138,7 @@ export function tapError<C extends BaseContext, V, R, E extends Error = Error>(
           const logger = (context as C & { logger?: Logger }).logger || console;
           logger.error(
             `[tapError] An error occurred within the error-tapping function itself while handling another error. The original error will be re-thrown.`,
-            { tapFnError, originalError: error }
+            { tapFnError, originalError: error },
           );
         }
       }
@@ -889,21 +1149,25 @@ export function tapError<C extends BaseContext, V, R, E extends Error = Error>(
   };
 
   // Set descriptive name and propagate properties
-  Object.defineProperty(tappedTaskLogic, 'name', {
-    value: `tapError(${task.name || 'anonymousTask'}, ${onErrorFn.name || 'onErrorFn'})`,
+  Object.defineProperty(tappedTaskLogic, "name", {
+    value: `tapError(${task.name || "anonymousTask"}, ${onErrorFn.name || "onErrorFn"})`,
     configurable: true,
   });
 
   if (task.__task_id) {
-    Object.defineProperty(tappedTaskLogic, '__task_id', {
+    Object.defineProperty(tappedTaskLogic, "__task_id", {
       value: task.__task_id,
-      configurable: true, enumerable: false, writable: false,
+      configurable: true,
+      enumerable: false,
+      writable: false,
     });
   }
   if (task.__steps) {
-    Object.defineProperty(tappedTaskLogic, '__steps', {
+    Object.defineProperty(tappedTaskLogic, "__steps", {
       value: task.__steps,
-      configurable: true, enumerable: false, writable: false,
+      configurable: true,
+      enumerable: false,
+      writable: false,
     });
   }
 
@@ -921,7 +1185,11 @@ function defaultAttemptErrorMapper<E extends Error>(caughtError: unknown): E {
     return caughtError as E; // Assumes E is compatible with Error or is Error itself
   }
   // For non-Error types, wrap them in a generic Error instance.
-  return new Error(String(caughtError !== undefined ? caughtError : 'Unknown error during attempt')) as E;
+  return new Error(
+    String(
+      caughtError !== undefined ? caughtError : "Unknown error during attempt",
+    ),
+  ) as E;
 }
 
 /**
@@ -971,46 +1239,52 @@ function defaultAttemptErrorMapper<E extends Error>(caughtError: unknown): E {
  */
 export function attempt<C extends BaseContext, V, R, E extends Error = Error>(
   task: Task<C, V, R>,
-  mapErrorToE: (caughtError: unknown) => E = defaultAttemptErrorMapper
+  mapErrorToE: (caughtError: unknown) => E = defaultAttemptErrorMapper,
 ): Task<C, V, Result<R, E>> {
-
-  const attemptTaskLogic: Task<C, V, Result<R, E>> =
-    async (context: C, value: V): Promise<Result<R, E>> => {
-      try {
-        const resultValue = await task(context, value);
-        return ok(resultValue);
-      } catch (error) {
-        if (isBacktrackSignal(error)) {
-          throw error; // Propagate BacktrackSignal for control flow
-        }
-        // Use the error mapper to convert the caught error to type E
-        return err(mapErrorToE(error));
+  const attemptTaskLogic: Task<C, V, Result<R, E>> = async (
+    context: C,
+    value: V,
+  ): Promise<Result<R, E>> => {
+    try {
+      const resultValue = await task(context, value);
+      return ok(resultValue);
+    } catch (error) {
+      if (isBacktrackSignal(error)) {
+        throw error; // Propagate BacktrackSignal for control flow
       }
-    };
+      // Use the error mapper to convert the caught error to type E
+      return err(mapErrorToE(error));
+    }
+  };
 
   // Set descriptive name and propagate properties
-  Object.defineProperty(attemptTaskLogic, 'name', {
-    value: `attempt(${task.name || 'anonymousTask'})`,
+  Object.defineProperty(attemptTaskLogic, "name", {
+    value: `attempt(${task.name || "anonymousTask"})`,
     configurable: true,
   });
 
   if (task.__task_id) {
-    Object.defineProperty(attemptTaskLogic, '__task_id', {
+    Object.defineProperty(attemptTaskLogic, "__task_id", {
       value: task.__task_id, // Or a new Symbol
-      configurable: true, enumerable: false, writable: false,
+      configurable: true,
+      enumerable: false,
+      writable: false,
     });
   }
   if (task.__steps) {
-    Object.defineProperty(attemptTaskLogic, '__steps', {
+    Object.defineProperty(attemptTaskLogic, "__steps", {
       value: task.__steps,
-      configurable: true, enumerable: false, writable: false,
+      configurable: true,
+      enumerable: false,
+      writable: false,
     });
   }
 
   return attemptTaskLogic;
 }
 
-export interface RetryOptions<E = Error> { // Added E generic for error type
+export interface RetryOptions<E = Error> {
+  // Added E generic for error type
   /**
    * Maximum number of attempts (including the initial call).
    * @default 3
@@ -1027,7 +1301,7 @@ export interface RetryOptions<E = Error> { // Added E generic for error type
    * - 'exponential': Doubles the delay for each subsequent retry (`delayMs * 2^i`).
    * @default 'exponential'
    */
-  backoff?: 'fixed' | 'exponential';
+  backoff?: "fixed" | "exponential";
   /**
    * A function to determine if a specific error should trigger a retry.
    * By default, retries on any error that is not a `BacktrackSignal`.
@@ -1042,7 +1316,7 @@ export interface RetryOptions<E = Error> { // Added E generic for error type
    * (value: number) => number: A custom function that takes the calculated delay and returns the jittered delay.
    * @default 'none'
    */
-  jitter?: 'none' | 'full' | ((delay: number) => number);
+  jitter?: "none" | "full" | ((delay: number) => number);
 }
 
 /**
@@ -1075,29 +1349,26 @@ export function withRetry<
   C extends BaseContext & { logger?: Logger },
   V,
   R,
-  E extends Error = Error // Default E to Error
->(
-  task: Task<C, V, R>,
-  options: RetryOptions<E> = {}
-): Task<C, V, R> {
+  E extends Error = Error, // Default E to Error
+>(task: Task<C, V, R>, options: RetryOptions<E> = {}): Task<C, V, R> {
   const {
     attempts = 3,
     delayMs = 100,
-    backoff = 'exponential',
+    backoff = "exponential",
     // Default shouldRetry to check for non-BacktrackSignal errors.
     shouldRetry = (error): error is E => !isBacktrackSignal(error),
-    jitter = 'none',
+    jitter = "none",
   } = options;
 
   if (attempts <= 0) {
-    throw new Error('Retry attempts must be positive.');
+    throw new Error("Retry attempts must be positive.");
   }
 
   const applyJitter = (currentDelay: number): number => {
-    if (jitter === 'none') {
+    if (jitter === "none") {
       return currentDelay;
     }
-    if (jitter === 'full') {
+    if (jitter === "full") {
       return currentDelay + Math.random() * currentDelay;
     }
     return jitter(currentDelay);
@@ -1105,35 +1376,42 @@ export function withRetry<
 
   const retryTaskLogic = async (context: C, value: V): Promise<R> => {
     const logger = context.logger || noopLogger;
-    let lastError: E | unknown = new Error('Task was not attempted.'); // Initialize with a generic error
+    let lastError: E | unknown = new Error("Task was not attempted."); // Initialize with a generic error
 
     for (let attemptCount = 0; attemptCount < attempts; attemptCount++) {
       try {
         // Check for cancellation before each attempt
         if (context.scope.signal.aborted) {
           // If already aborted before first attempt, or between retries
-          throw (context.scope.signal.reason ?? new DOMException('Aborted before attempt', 'AbortError'));
+          throw (
+            context.scope.signal.reason ??
+            new DOMException("Aborted before attempt", "AbortError")
+          );
         }
         return await task(context, value);
       } catch (error) {
         lastError = error; // Store the caught error
 
         // If it's a BacktrackSignal, or shouldRetry returns false, or it's the last attempt, re-throw.
-        if (isBacktrackSignal(error) || !shouldRetry(error as E | unknown) || attemptCount === attempts - 1) {
+        if (
+          isBacktrackSignal(error) ||
+          !shouldRetry(error as E | unknown) ||
+          attemptCount === attempts - 1
+        ) {
           throw error;
         }
 
         // Calculate delay for the next retry
         let currentDelay = delayMs;
-        if (backoff === 'exponential' && attemptCount > 0) { // No delay before first retry if delayMs is for "after first failure"
-          currentDelay = delayMs * (2 ** attemptCount);
+        if (backoff === "exponential" && attemptCount > 0) {
+          // No delay before first retry if delayMs is for "after first failure"
+          currentDelay = delayMs * 2 ** attemptCount;
         }
         currentDelay = applyJitter(currentDelay);
 
-
         logger.warn(
-          `Task '${task.name || 'anonymous'}' failed (attempt ${attemptCount + 1}/${attempts}). Retrying in ${Math.round(currentDelay)}ms...`,
-          { originalError: error } // Log the specific error that caused the retry
+          `Task '${task.name || "anonymous"}' failed (attempt ${attemptCount + 1}/${attempts}). Retrying in ${Math.round(currentDelay)}ms...`,
+          { originalError: error }, // Log the specific error that caused the retry
         );
 
         try {
@@ -1141,10 +1419,13 @@ export function withRetry<
           await sleep(currentDelay)(context, null);
         } catch (sleepError) {
           // If sleep itself was aborted (e.g., context.scope.signal)
-          if (sleepError instanceof DOMException && sleepError.name === 'AbortError') {
+          if (
+            sleepError instanceof DOMException &&
+            sleepError.name === "AbortError"
+          ) {
             logger.warn(
-              `[withRetry - ${task.name || 'anonymous'}] Retry delay aborted (attempt ${attemptCount + 1}/${attempts}). Re-throwing original task error.`,
-              { originalError: error, abortReason: sleepError }
+              `[withRetry - ${task.name || "anonymous"}] Retry delay aborted (attempt ${attemptCount + 1}/${attempts}). Re-throwing original task error.`,
+              { originalError: error, abortReason: sleepError },
             );
             // When delay is aborted, standard behavior is to not proceed with more retries
             // and let the last known error from the task propagate.
@@ -1164,13 +1445,13 @@ export function withRetry<
   // Create the task function with potential properties
   const enhancedTask: Task<C, V, R> = retryTaskLogic;
 
-  Object.defineProperty(enhancedTask, 'name', {
-    value: `withRetry(${task.name || 'anonymous'}, attempts=${attempts})`,
+  Object.defineProperty(enhancedTask, "name", {
+    value: `withRetry(${task.name || "anonymous"}, attempts=${attempts})`,
     configurable: true,
   });
 
   if (task.__task_id) {
-    Object.defineProperty(enhancedTask, '__task_id', {
+    Object.defineProperty(enhancedTask, "__task_id", {
       value: task.__task_id, // Or a new Symbol for distinctness if enhancers create new backtrackable steps
       configurable: true,
       enumerable: false,
@@ -1178,7 +1459,7 @@ export function withRetry<
     });
   }
   if (task.__steps) {
-    Object.defineProperty(enhancedTask, '__steps', {
+    Object.defineProperty(enhancedTask, "__steps", {
       value: task.__steps,
       configurable: true,
       enumerable: false,
@@ -1203,9 +1484,12 @@ export function withRetry<
  * const namedFetch = withName(fetchTask, 'GetFromPrimaryAPI');
  * ```
  */
-export function withName<C extends BaseContext, V, R>(task: Task<C, V, R>, name: string): Task<C, V, R> {
+export function withName<C extends BaseContext, V, R>(
+  task: Task<C, V, R>,
+  name: string,
+): Task<C, V, R> {
   const namedTask: Task<C, V, R> = (ctx, val) => task(ctx, val);
-  Object.defineProperty(namedTask, 'name', { value: name, configurable: true });
+  Object.defineProperty(namedTask, "name", { value: name, configurable: true });
   if (task.__task_id) namedTask.__task_id = task.__task_id;
   if (task.__steps) namedTask.__steps = task.__steps;
   return namedTask;
@@ -1241,7 +1525,7 @@ export function memoize<C extends BaseContext, V, R>(
   task: Task<C, V, R>,
   options?: {
     cacheKeyFn?: (value: V) => string | number | symbol | boolean;
-  }
+  },
 ): Task<C, V, R> {
   // Each call to memoize gets its own private cache.
   const cache = new Map<any, Promise<R>>(); // Key can be primitive or complex if no cacheKeyFn
@@ -1249,31 +1533,35 @@ export function memoize<C extends BaseContext, V, R>(
   const getCacheKey = options?.cacheKeyFn
     ? options.cacheKeyFn
     : (value: V): V | string => {
-      // For primitive types, use the value itself as the key.
-      // For objects, if no custom key function, we'll rely on finding via deepEqual or stringify.
-      // Stringifying can be lossy or inconsistent for complex objects, so deepEqual is preferred for lookup.
-      // However, Map itself uses SameValueZero for keys, so distinct objects won't match.
-      // So, if it's an object and no cacheKeyFn, we'll use the object itself and iterate for deepEqual.
-      if (typeof value === 'object' && value !== null) {
-        return value; // Store the object, lookup will use deepEqual iteration.
-      }
-      return value; // Primitives can be direct keys.
-    };
+        // For primitive types, use the value itself as the key.
+        // For objects, if no custom key function, we'll rely on finding via deepEqual or stringify.
+        // Stringifying can be lossy or inconsistent for complex objects, so deepEqual is preferred for lookup.
+        // However, Map itself uses SameValueZero for keys, so distinct objects won't match.
+        // So, if it's an object and no cacheKeyFn, we'll use the object itself and iterate for deepEqual.
+        if (typeof value === "object" && value !== null) {
+          return value; // Store the object, lookup will use deepEqual iteration.
+        }
+        return value; // Primitives can be direct keys.
+      };
 
   const findInCache = (value: V, generatedKey: any): Promise<R> | undefined => {
-    if (options?.cacheKeyFn || (typeof value !== 'object' || value === null)) {
+    if (options?.cacheKeyFn || typeof value !== "object" || value === null) {
       return cache.get(generatedKey);
     }
     // If it's an object and no cacheKeyFn, iterate and deepEqual
     for (const [k, v] of cache.entries()) {
-      if (deepEqual(k, value)) { // `value` here is the original object input
+      if (deepEqual(k, value)) {
+        // `value` here is the original object input
         return v;
       }
     }
     return undefined;
   };
 
-  const memoizedTask: Task<C, V, R> = async (context: C, value: V): Promise<R> => {
+  const memoizedTask: Task<C, V, R> = async (
+    context: C,
+    value: V,
+  ): Promise<R> => {
     const cacheKey = getCacheKey(value);
     const cachedPromise = findInCache(value, cacheKey);
 
@@ -1285,11 +1573,11 @@ export function memoize<C extends BaseContext, V, R>(
 
     // Execute the task, store the promise in cache, then return it.
     // Store the promise itself, not the result, to handle inflight requests.
-    const newPromise = task(context, value).catch(err => {
+    const newPromise = task(context, value).catch((err) => {
       // If the task fails, remove the promise from cache to allow retries.
       // This behavior is debatable: some might want to cache failures too.
       // For simplicity, we remove on failure.
-      if (options?.cacheKeyFn || (typeof value !== 'object' || value === null)) {
+      if (options?.cacheKeyFn || typeof value !== "object" || value === null) {
         cache.delete(cacheKey);
       } else {
         // Iterate to find and delete the object key if no custom key fn
@@ -1308,11 +1596,15 @@ export function memoize<C extends BaseContext, V, R>(
   };
 
   // Propagate name and task ID for consistency and debugging
-  Object.defineProperty(memoizedTask, 'name', { value: `memoized(${task.name || 'anonymous'})`, configurable: true });
+  Object.defineProperty(memoizedTask, "name", {
+    value: `memoized(${task.name || "anonymous"})`,
+    configurable: true,
+  });
   if (task.__task_id) {
     memoizedTask.__task_id = task.__task_id; // Or a new Symbol(`memoized_${task.__task_id.description}`)
   }
-  if (task.__steps) { // If the original task was a workflow
+  if (task.__steps) {
+    // If the original task was a workflow
     memoizedTask.__steps = task.__steps;
   }
 
@@ -1330,7 +1622,9 @@ export function memoize<C extends BaseContext, V, R>(
  * await run(initDb); // Returns existing connection promise
  * ```
  */
-export function once<C extends BaseContext, V, R>(task: Task<C, V, R>): Task<C, V, R> {
+export function once<C extends BaseContext, V, R>(
+  task: Task<C, V, R>,
+): Task<C, V, R> {
   let promise: Promise<R> | null = null;
   return async (context: C, value: V): Promise<R> => {
     if (promise) return promise;
@@ -1343,10 +1637,10 @@ export function once<C extends BaseContext, V, R>(task: Task<C, V, R>): Task<C, 
  * Custom error thrown when a task wrapped by `withTimeout` exceeds its allocated execution time.
  */
 export class TimeoutError extends Error {
-  public readonly _tag = 'TimeoutError' as const; // For easier type guarding if needed
+  public readonly _tag = "TimeoutError" as const; // For easier type guarding if needed
   constructor(taskName: string, durationMs: number) {
     super(`Task '${taskName}' timed out after ${durationMs}ms.`);
-    this.name = 'TimeoutError';
+    this.name = "TimeoutError";
     // Ensure the prototype chain is correct for custom errors
     Object.setPrototypeOf(this, TimeoutError.prototype);
   }
@@ -1389,26 +1683,30 @@ export class TimeoutError extends Error {
  */
 export function withTimeout<C extends BaseContext, V, R>(
   task: Task<C, V, R>,
-  durationMs: number
+  durationMs: number,
 ): Task<C, V, R> {
   if (durationMs < 0) {
-    throw new Error('Timeout durationMs must be non-negative.');
+    throw new Error("Timeout durationMs must be non-negative.");
   }
 
   // Define TimeoutError class outside the returned task function if preferred,
   // but keeping it here for closure over task.name and durationMs is fine.
   // For this version, we'll use the exported TimeoutError class.
-  const taskNameForError = task.name || 'anonymous';
+  const taskNameForError = task.name || "anonymous";
 
-  const timeoutEnhancedTask: Task<C, V, R> = (context: C, value: V): Promise<R> => {
+  const timeoutEnhancedTask: Task<C, V, R> = (
+    context: C,
+    value: V,
+  ): Promise<R> => {
     let timerId: ReturnType<typeof setTimeout> | undefined = undefined;
 
     const timeoutPromise = new Promise<never>((_, reject) => {
       timerId = setTimeout(() => {
         // Important: Clear the listener for 'abort' when the timeout fires
         // to prevent potential memory leaks if the context outlives this operation.
-        if (timerId !== undefined) { // Check because it might have been cleared by abort
-          context.scope.signal.removeEventListener('abort', abortListener);
+        if (timerId !== undefined) {
+          // Check because it might have been cleared by abort
+          context.scope.signal.removeEventListener("abort", abortListener);
         }
         reject(new TimeoutError(taskNameForError, durationMs));
       }, durationMs);
@@ -1427,7 +1725,9 @@ export function withTimeout<C extends BaseContext, V, R>(
 
     // Listen for abortion to clear the timeout
     // Use { once: true } as we only need to clear it once.
-    context.scope.signal.addEventListener('abort', abortListener, { once: true });
+    context.scope.signal.addEventListener("abort", abortListener, {
+      once: true,
+    });
 
     return Promise.race([
       task(context, value), // The original task execution
@@ -1444,19 +1744,19 @@ export function withTimeout<C extends BaseContext, V, R>(
       // Note: Checking signal.aborted here might be too late if the event already fired.
       // Relying on {once: true} is generally sufficient. For robustness, if not using {once:true},
       // you would always call removeEventListener.
-      context.scope.signal.removeEventListener('abort', abortListener);
+      context.scope.signal.removeEventListener("abort", abortListener);
     });
   };
 
   // Set a descriptive name for the enhanced task
-  Object.defineProperty(timeoutEnhancedTask, 'name', {
-    value: `withTimeout(${task.name || 'anonymous'}, ${durationMs}ms)`,
+  Object.defineProperty(timeoutEnhancedTask, "name", {
+    value: `withTimeout(${task.name || "anonymous"}, ${durationMs}ms)`,
     configurable: true,
   });
 
   // Copy internal properties like __task_id and __steps for consistency
   if (task.__task_id) {
-    Object.defineProperty(timeoutEnhancedTask, '__task_id', {
+    Object.defineProperty(timeoutEnhancedTask, "__task_id", {
       value: task.__task_id, // Or a new Symbol if enhancers should be distinct steps
       configurable: true,
       enumerable: false,
@@ -1464,7 +1764,7 @@ export function withTimeout<C extends BaseContext, V, R>(
     });
   }
   if (task.__steps) {
-    Object.defineProperty(timeoutEnhancedTask, '__steps', {
+    Object.defineProperty(timeoutEnhancedTask, "__steps", {
       value: task.__steps,
       configurable: true,
       enumerable: false,
@@ -1479,11 +1779,7 @@ export function withTimeout<C extends BaseContext, V, R>(
  * A unique symbol used to store StateTools in the context.
  * @internal
  */
-const STATE_TOOLS_KEY = Symbol('effectively.stateTools');
-
-// ... keep all other existing code ...
-
-// REPLACE the old withState and its related types with all of this:
+const STATE_TOOLS_KEY = Symbol("effectively.stateTools");
 
 /**
  * Tools for interacting with the state managed by `withState`.
@@ -1519,8 +1815,8 @@ export function useState<S>(context: BaseContext): StateTools<S> {
   const tools = (context as any)[STATE_TOOLS_KEY] as StateTools<S> | undefined;
   if (!tools) {
     throw new Error(
-      'useState() can only be used within a task wrapped by withState(). ' +
-      'Ensure withState() is an ancestor enhancer in your workflow.'
+      "useState() can only be used within a task wrapped by withState(). " +
+        "Ensure withState() is an ancestor enhancer in your workflow.",
     );
   }
   return tools;
@@ -1532,7 +1828,7 @@ export function useState<S>(context: BaseContext): StateTools<S> {
  *
  * This new implementation is a proper enhancer, making it more composable and
  * improving type inference significantly. The wrapped task can access `getState`
-* and `setState` tools via the `useState(getContext())` hook.
+ * and `setState` tools via the `useState(getContext())` hook.
  *
  * @template C The context type of the inner task.
  * @template V The input value type for the task.
@@ -1563,21 +1859,26 @@ export function useState<S>(context: BaseContext): StateTools<S> {
  */
 export function withState<C extends BaseContext, V, R, S>(
   initialState: S | ((initialValue: V) => S),
-  task: Task<C & { [STATE_TOOLS_KEY]: StateTools<S> }, V, R>
+  task: Task<C & { [STATE_TOOLS_KEY]: StateTools<S> }, V, R>,
 ): Task<C, V, { result: R; state: S }> {
-  const statefulTaskLogic: Task<C, V, { result: R; state: S }> = async (context, value) => {
+  const statefulTaskLogic: Task<C, V, { result: R; state: S }> = async (
+    context,
+    value,
+  ) => {
     // 1. Initialize the state for this specific execution.
-    let state: S = typeof initialState === 'function'
-      ? (initialState as (initialValue: V) => S)(value)
-      : initialState;
+    let state: S =
+      typeof initialState === "function"
+        ? (initialState as (initialValue: V) => S)(value)
+        : initialState;
 
     // 2. Create the state management tools. They operate on the `state` variable in this closure.
     const tools: StateTools<S> = {
       getState: () => state,
       setState: (updater) => {
-        state = typeof updater === 'function'
-          ? (updater as (prevState: S) => S)(state)
-          : updater;
+        state =
+          typeof updater === "function"
+            ? (updater as (prevState: S) => S)(state)
+            : updater;
       },
     };
 
@@ -1585,11 +1886,11 @@ export function withState<C extends BaseContext, V, R, S>(
     // The `provide` function is assumed to be available from './run' or a similar module.
     // We need to import `provide` for this to work. Let's assume it's available.
     // Since this is a utility, it should use the global smart `provide`.
-    const { provide } = await import('./run'); // Dynamic import to avoid circular dependency issues at module load time
+    const { provide } = await import("./run"); // Dynamic import to avoid circular dependency issues at module load time
 
     const result = await provide(
       { [STATE_TOOLS_KEY]: tools },
-      () => task(context as any, value) // The context for the task will be enhanced by `provide`
+      () => task(context as any, value), // The context for the task will be enhanced by `provide`
     );
 
     // 4. Return the final result and state.
@@ -1597,35 +1898,34 @@ export function withState<C extends BaseContext, V, R, S>(
   };
 
   // Set a descriptive name for the enhanced task
-  Object.defineProperty(statefulTaskLogic, 'name', {
-    value: `withState(${task.name || 'anonymousTask'})`,
+  Object.defineProperty(statefulTaskLogic, "name", {
+    value: `withState(${task.name || "anonymousTask"})`,
     configurable: true,
   });
 
   // Propagate the original task's ID for backtracking or identification.
   if (task.__task_id) {
-    Object.defineProperty(statefulTaskLogic, '__task_id', {
+    Object.defineProperty(statefulTaskLogic, "__task_id", {
       value: task.__task_id,
-      configurable: true, enumerable: false, writable: false,
+      configurable: true,
+      enumerable: false,
+      writable: false,
     });
   }
 
   return statefulTaskLogic;
 }
 
-
-
-
 // =================================================================
 // Section 6: Advanced Scheduling, Batching, and Polling
 // =================================================================
 
-  export interface ThrottleOptions {
-    /** Maximum number of calls allowed within the interval. */
-    limit: number;
-    /** The time interval in milliseconds. */
-    intervalMs: number;
-  }
+export interface ThrottleOptions {
+  /** Maximum number of calls allowed within the interval. */
+  limit: number;
+  /** The time interval in milliseconds. */
+  intervalMs: number;
+}
 
 /**
  * Creates a throttled version of a task that respects a rate limit.
@@ -1648,11 +1948,11 @@ export function withState<C extends BaseContext, V, R, S>(
  */
 export function withThrottle<C extends BaseContext, V, R>(
   task: Task<C, V, R>,
-  options: ThrottleOptions
+  options: ThrottleOptions,
 ): Task<C, V, R> {
   const { limit, intervalMs } = options;
   if (limit <= 0 || intervalMs <= 0) {
-    throw new Error('Throttle limit and intervalMs must be positive.');
+    throw new Error("Throttle limit and intervalMs must be positive.");
   }
 
   // Queue for pending calls: { value, resolve, reject, context }
@@ -1677,7 +1977,7 @@ export function withThrottle<C extends BaseContext, V, R>(
   }, refillIntervalTime);
 
   // For Node.js, allow the process to exit if this is the only active timer.
-  if (typeof refillInterval.unref === 'function') {
+  if (typeof refillInterval.unref === "function") {
     refillInterval.unref();
   }
 
@@ -1691,7 +1991,10 @@ export function withThrottle<C extends BaseContext, V, R>(
 
       if (nextCall.context.scope.signal.aborted) {
         callQueue.shift(); // Remove aborted call
-        nextCall.reject(nextCall.context.scope.signal.reason ?? new DOMException('Aborted', 'AbortError'));
+        nextCall.reject(
+          nextCall.context.scope.signal.reason ??
+            new DOMException("Aborted", "AbortError"),
+        );
         continue; // Check next in queue
       }
 
@@ -1715,7 +2018,10 @@ export function withThrottle<C extends BaseContext, V, R>(
   const throttledTask: Task<C, V, R> = (context: C, value: V): Promise<R> => {
     return new Promise<R>((resolve, reject) => {
       if (context.scope.signal.aborted) {
-        reject(context.scope.signal.reason ?? new DOMException('Aborted', 'AbortError'));
+        reject(
+          context.scope.signal.reason ??
+            new DOMException("Aborted", "AbortError"),
+        );
         return;
       }
 
@@ -1724,7 +2030,10 @@ export function withThrottle<C extends BaseContext, V, R>(
     });
   };
 
-  Object.defineProperty(throttledTask, 'name', { value: `throttled(${task.name || 'anonymous'})`, configurable: true });
+  Object.defineProperty(throttledTask, "name", {
+    value: `throttled(${task.name || "anonymous"})`,
+    configurable: true,
+  });
   if (task.__task_id) {
     throttledTask.__task_id = task.__task_id;
   }
@@ -1771,14 +2080,16 @@ export interface PollOptions<R> {
  * Custom error thrown by `withPoll` when the `timeoutMs` is reached before
  * the `until` condition returns true.
  */
-export class PollTimeoutError extends GenericTimeoutError { // Inherit from a generic TimeoutError if available
+export class PollTimeoutError extends GenericTimeoutError {
+  // Inherit from a generic TimeoutError if available
   // public override readonly _tag = 'PollTimeoutError' as const;
   constructor(operationName: string, timeoutMs: number) {
     super(
       // `Polling operation '${operationName}' timed out after ${timeoutMs}ms.`
-      operationName
-      , timeoutMs);
-    this.name = 'PollTimeoutError'; // Override name
+      operationName,
+      timeoutMs,
+    );
+    this.name = "PollTimeoutError"; // Override name
     Object.setPrototypeOf(this, PollTimeoutError.prototype);
   }
 }
@@ -1824,22 +2135,25 @@ export class PollTimeoutError extends GenericTimeoutError { // Inherit from a ge
  */
 export function withPoll<C extends BaseContext, V, R>(
   taskToPoll: Task<C, V, R>,
-  options: PollOptions<R>
+  options: PollOptions<R>,
 ): Task<C, V, R> {
   const { intervalMs, timeoutMs, until: untilPredicate, pollName } = options;
 
   if (intervalMs < 0) {
-    throw new Error('PollOptions.intervalMs must be non-negative.');
+    throw new Error("PollOptions.intervalMs must be non-negative.");
   }
   if (timeoutMs < 0) {
-    throw new Error('PollOptions.timeoutMs must be non-negative.');
+    throw new Error("PollOptions.timeoutMs must be non-negative.");
   }
   // Optional: Could warn if timeoutMs is very small relative to intervalMs,
   // e.g., if timeoutMs < intervalMs, no retry will happen.
 
-  const operationName = pollName || taskToPoll.name || 'anonymousPoll';
+  const operationName = pollName || taskToPoll.name || "anonymousPoll";
 
-  const pollingLoopTask: Task<C, V, R> = async (context: C, value: V): Promise<R> => {
+  const pollingLoopTask: Task<C, V, R> = async (
+    context: C,
+    value: V,
+  ): Promise<R> => {
     // Loop indefinitely until the `until` condition is met or an error (like timeout) is thrown.
     // The overall timeout is handled by `withTimeout` wrapping this loop.
     // Cancellation is handled by `taskToPoll` and `sleep` respecting `context.scope.signal`.
@@ -1847,19 +2161,29 @@ export function withPoll<C extends BaseContext, V, R>(
     while (true) {
       // Explicit check before potentially long operation (taskToPoll)
       if (context.scope.signal.aborted) {
-        throw context.scope.signal.reason ?? new DOMException('Polling loop aborted before task execution', 'AbortError');
+        throw (
+          context.scope.signal.reason ??
+          new DOMException(
+            "Polling loop aborted before task execution",
+            "AbortError",
+          )
+        );
       }
 
       const result = await taskToPoll(context, value);
 
       // Check condition after task execution
-      if (await untilPredicate(result)) { // Await in case `until` is async
+      if (await untilPredicate(result)) {
+        // Await in case `until` is async
         return result; // Condition met, resolve with the result
       }
 
       // Explicit check before potentially long operation (sleep)
       if (context.scope.signal.aborted) {
-        throw context.scope.signal.reason ?? new DOMException('Polling loop aborted before sleep', 'AbortError');
+        throw (
+          context.scope.signal.reason ??
+          new DOMException("Polling loop aborted before sleep", "AbortError")
+        );
       }
 
       // Wait for the specified interval before the next poll attempt.
@@ -1875,7 +2199,11 @@ export function withPoll<C extends BaseContext, V, R>(
     try {
       return await withTimeout(pollingLoopTask, timeoutMs)(context, value);
     } catch (error) {
-      if (error instanceof GenericTimeoutError && !(error instanceof PollTimeoutError)) { // Check if it's the generic TimeoutError from withTimeout
+      if (
+        error instanceof GenericTimeoutError &&
+        !(error instanceof PollTimeoutError)
+      ) {
+        // Check if it's the generic TimeoutError from withTimeout
         throw new PollTimeoutError(operationName, timeoutMs);
       }
       throw error; // Re-throw other errors (e.g., from taskToPoll, or PollTimeoutError itself)
@@ -1883,7 +2211,7 @@ export function withPoll<C extends BaseContext, V, R>(
   };
 
   // Set descriptive name and propagate properties for the final task
-  Object.defineProperty(timedPollingLoop, 'name', {
+  Object.defineProperty(timedPollingLoop, "name", {
     value: `withPoll(${operationName}, interval=${intervalMs}ms, timeout=${timeoutMs}ms)`,
     configurable: true,
   });
@@ -1891,15 +2219,20 @@ export function withPoll<C extends BaseContext, V, R>(
   // Propagate __task_id from the original taskToPoll if it exists.
   // This implies that if backtracking targets taskToPoll, the polling mechanism restarts.
   if (taskToPoll.__task_id) {
-    Object.defineProperty(timedPollingLoop, '__task_id', {
+    Object.defineProperty(timedPollingLoop, "__task_id", {
       value: taskToPoll.__task_id,
-      configurable: true, enumerable: false, writable: false,
+      configurable: true,
+      enumerable: false,
+      writable: false,
     });
   }
-  if (taskToPoll.__steps) { // If taskToPoll was a workflow
-    Object.defineProperty(timedPollingLoop, '__steps', {
+  if (taskToPoll.__steps) {
+    // If taskToPoll was a workflow
+    Object.defineProperty(timedPollingLoop, "__steps", {
       value: taskToPoll.__steps,
-      configurable: true, enumerable: false, writable: false,
+      configurable: true,
+      enumerable: false,
+      writable: false,
     });
   }
 
@@ -1971,15 +2304,15 @@ interface PendingBatchItem<K, R> {
  */
 export function createBatchingTask<C extends BaseContext, K, R>(
   batchFn: (keys: K[], context: C, batchSignal: AbortSignal) => Promise<R[]>,
-  options: BatchingOptions = {}
+  options: BatchingOptions = {},
 ): Task<C, K, R> {
   const { windowMs = 10, maxBatchSize = Infinity } = options;
 
   if (windowMs < 0) {
-    throw new Error('BatchingOptions windowMs must be non-negative.');
+    throw new Error("BatchingOptions windowMs must be non-negative.");
   }
   if (maxBatchSize <= 0) {
-    throw new Error('BatchingOptions maxBatchSize must be positive.');
+    throw new Error("BatchingOptions maxBatchSize must be positive.");
   }
 
   let pendingItems: PendingBatchItem<K, R>[] = [];
@@ -1988,7 +2321,6 @@ export function createBatchingTask<C extends BaseContext, K, R>(
   // This is a common approach; alternatively, one could try to merge contexts or require
   // batchFn to not rely on specific request-scoped context values.
   let representativeContextForBatch: C | null = null;
-
 
   const dispatch = () => {
     if (dispatchTimer) {
@@ -2018,15 +2350,18 @@ export function createBatchingTask<C extends BaseContext, K, R>(
       }
     }
 
-    abortedCalls.forEach(item =>
-      item.reject(item.signal.reason ?? new DOMException('Call aborted before batch dispatch', 'AbortError'))
+    abortedCalls.forEach((item) =>
+      item.reject(
+        item.signal.reason ??
+          new DOMException("Call aborted before batch dispatch", "AbortError"),
+      ),
     );
 
     if (activeCalls.length === 0) {
       return;
     }
 
-    const keysForBatch = activeCalls.map(item => item.key);
+    const keysForBatch = activeCalls.map((item) => item.key);
 
     // Create an AbortController for the batchFn call itself.
     // This can be aborted if the representativeContextForBatch's scope is aborted.
@@ -2034,31 +2369,41 @@ export function createBatchingTask<C extends BaseContext, K, R>(
     // For now, link it to the representativeContextForBatch's signal.
     const batchAbortController = new AbortController();
     const onBatchContextAbort = () => {
-      batchAbortController.abort(batchContext.scope.signal.reason ?? new DOMException('Batch execution aborted by context', 'AbortError'));
+      batchAbortController.abort(
+        batchContext.scope.signal.reason ??
+          new DOMException("Batch execution aborted by context", "AbortError"),
+      );
     };
-    batchContext.scope.signal.addEventListener('abort', onBatchContextAbort, { once: true });
+    batchContext.scope.signal.addEventListener("abort", onBatchContextAbort, {
+      once: true,
+    });
 
     batchFn(keysForBatch, batchContext, batchAbortController.signal)
-      .then(results => {
+      .then((results) => {
         if (results.length !== activeCalls.length) {
           // This is a critical error in the batchFn implementation
           const error = new Error(
-            `Batch function contract violation: expected ${activeCalls.length} results, but got ${results.length}.`
+            `Batch function contract violation: expected ${activeCalls.length} results, but got ${results.length}.`,
           );
-          activeCalls.forEach(item => item.reject(error));
+          activeCalls.forEach((item) => item.reject(error));
           return;
         }
         activeCalls.forEach((item, i) => item.resolve(results[i]));
       })
-      .catch(error => {
+      .catch((error) => {
         // If batchFn itself throws, reject all promises in this batch
-        activeCalls.forEach(item => item.reject(error));
+        activeCalls.forEach((item) => item.reject(error));
       })
       .finally(() => {
-        batchContext.scope.signal.removeEventListener('abort', onBatchContextAbort);
+        batchContext.scope.signal.removeEventListener(
+          "abort",
+          onBatchContextAbort,
+        );
         // If batchAbortController wasn't aborted by context, ensure it's cleaned up.
         if (!batchAbortController.signal.aborted) {
-          batchAbortController.abort(new DOMException('Batch function concluded.', 'AbortError'));
+          batchAbortController.abort(
+            new DOMException("Batch function concluded.", "AbortError"),
+          );
         }
       });
   };
@@ -2066,7 +2411,10 @@ export function createBatchingTask<C extends BaseContext, K, R>(
   const batchingTask: Task<C, K, R> = (context: C, key: K): Promise<R> => {
     // If this call itself is already aborted, reject immediately
     if (context.scope.signal.aborted) {
-      return Promise.reject(context.scope.signal.reason ?? new DOMException('Call aborted before queueing', 'AbortError'));
+      return Promise.reject(
+        context.scope.signal.reason ??
+          new DOMException("Call aborted before queueing", "AbortError"),
+      );
     }
 
     // Capture the context of the first item in a new batch.
@@ -2093,8 +2441,8 @@ export function createBatchingTask<C extends BaseContext, K, R>(
     return promise;
   };
 
-  Object.defineProperty(batchingTask, 'name', {
-    value: `createBatchingTask(${batchFn.name || 'batchFn'})`,
+  Object.defineProperty(batchingTask, "name", {
+    value: `createBatchingTask(${batchFn.name || "batchFn"})`,
     configurable: true,
   });
   // A batching task usually doesn't have a single __task_id in the same way
@@ -2104,7 +2452,6 @@ export function createBatchingTask<C extends BaseContext, K, R>(
 
   return batchingTask;
 }
-
 
 export interface DebounceOptions {
   /**
@@ -2146,10 +2493,10 @@ export interface DebounceOptions {
 export function withDebounce<C extends BaseContext, V, R>(
   task: Task<C, V, R>,
   durationMs: number,
-  options?: DebounceOptions
+  options?: DebounceOptions,
 ): Task<C, V, R> {
   if (durationMs < 0) {
-    throw new Error('Debounce durationMs must be non-negative.');
+    throw new Error("Debounce durationMs must be non-negative.");
   }
 
   const { linkToLatestSignal = true } = options || {};
@@ -2166,14 +2513,20 @@ export function withDebounce<C extends BaseContext, V, R>(
     abortController?: AbortController; // Controller for linking external signal
   } | null = null;
 
-  const debouncedTaskLogic: Task<C, V, R> = async (context: C, value: V): Promise<R> => {
+  const debouncedTaskLogic: Task<C, V, R> = async (
+    context: C,
+    value: V,
+  ): Promise<R> => {
     // If there's an active timer, clear it because a new call has arrived.
     if (timerId !== null) {
       clearTimeout(timerId);
       timerId = null;
       // If the previous timer had an abort listener, remove it.
       if (latestCallPayload?.abortController) {
-        latestCallPayload.context.scope.signal.removeEventListener('abort', latestCallPayload.abortController.abort);
+        latestCallPayload.context.scope.signal.removeEventListener(
+          "abort",
+          latestCallPayload.abortController.abort,
+        );
       }
     }
 
@@ -2194,7 +2547,8 @@ export function withDebounce<C extends BaseContext, V, R>(
       // callers that shared `pendingExecutionPromise` should be ignored, the logic becomes more complex.
       // Typically, all callers to a debounced function get the same eventual result.
       // Here, we update the payload that the timer will use.
-      if (latestCallPayload) { // Should always be true if pendingExecutionPromise is not null
+      if (latestCallPayload) {
+        // Should always be true if pendingExecutionPromise is not null
         latestCallPayload.value = value;
         latestCallPayload.context = context;
         // The resolve/reject functions remain from the call that initiated pendingExecutionPromise
@@ -2206,12 +2560,22 @@ export function withDebounce<C extends BaseContext, V, R>(
     const onLatestCallAbort = () => {
       // If this specific call (which set up the current timer) is aborted,
       // we should clear the timer and reject its associated promise.
-      if (timerId !== null && latestCallPayload && latestCallPayload.context === context) {
+      if (
+        timerId !== null &&
+        latestCallPayload &&
+        latestCallPayload.context === context
+      ) {
         clearTimeout(timerId);
         timerId = null;
         // Resetting `pendingExecutionPromise` means subsequent calls start a new debounce cycle.
         // The `reject` here is for the `pendingExecutionPromise` that all current waiters are on.
-        latestCallPayload.reject(context.scope.signal.reason ?? new DOMException('Debounced execution aborted by latest caller', 'AbortError'));
+        latestCallPayload.reject(
+          context.scope.signal.reason ??
+            new DOMException(
+              "Debounced execution aborted by latest caller",
+              "AbortError",
+            ),
+        );
         pendingExecutionPromise = null;
         latestCallPayload = null;
       }
@@ -2220,21 +2584,32 @@ export function withDebounce<C extends BaseContext, V, R>(
     if (linkToLatestSignal) {
       // We only care about the latest signal. If a previous call set up an abort listener,
       // it's already been cleared when its timer was cleared.
-      if (latestCallPayload) { // latestCallPayload should be set if pendingExecutionPromise is true
+      if (latestCallPayload) {
+        // latestCallPayload should be set if pendingExecutionPromise is true
         latestCallPayload.abortController = new AbortController(); // Dummy controller for linking
-        context.scope.signal.addEventListener('abort', onLatestCallAbort, { once: true });
+        context.scope.signal.addEventListener("abort", onLatestCallAbort, {
+          once: true,
+        });
       }
     }
-
 
     timerId = setTimeout(() => {
       // Timer fired. Use the details from the latestCallPayload.
       if (latestCallPayload) {
-        const { value: execValue, context: execContext, resolve: execResolve, reject: execReject, abortController } = latestCallPayload;
+        const {
+          value: execValue,
+          context: execContext,
+          resolve: execResolve,
+          reject: execReject,
+          abortController,
+        } = latestCallPayload;
 
         // Clean up: remove signal listener, reset timerId
         if (linkToLatestSignal && abortController) {
-          execContext.scope.signal.removeEventListener('abort', onLatestCallAbort);
+          execContext.scope.signal.removeEventListener(
+            "abort",
+            onLatestCallAbort,
+          );
         }
         timerId = null;
         // Keep pendingExecutionPromise and latestCallPayload until task resolves/rejects
@@ -2244,7 +2619,13 @@ export function withDebounce<C extends BaseContext, V, R>(
         // This check is covered by onLatestCallAbort if linkToLatestSignal is true.
         // If linkToLatestSignal is false, the original task should check its own signal.
         if (linkToLatestSignal && execContext.scope.signal.aborted) {
-          execReject(execContext.scope.signal.reason ?? new DOMException('Debounced execution aborted before start', 'AbortError'));
+          execReject(
+            execContext.scope.signal.reason ??
+              new DOMException(
+                "Debounced execution aborted before start",
+                "AbortError",
+              ),
+          );
           pendingExecutionPromise = null; // Allow new debounce cycle
           latestCallPayload = null;
           return;
@@ -2268,12 +2649,12 @@ export function withDebounce<C extends BaseContext, V, R>(
 
   const debouncedTask: Task<C, V, R> = debouncedTaskLogic;
 
-  Object.defineProperty(debouncedTask, 'name', {
-    value: `withDebounce(${task.name || 'anonymous'}, ${durationMs}ms)`,
+  Object.defineProperty(debouncedTask, "name", {
+    value: `withDebounce(${task.name || "anonymous"}, ${durationMs}ms)`,
     configurable: true,
   });
   if (task.__task_id) {
-    Object.defineProperty(debouncedTask, '__task_id', {
+    Object.defineProperty(debouncedTask, "__task_id", {
       value: task.__task_id, // Or a new Symbol
       configurable: true,
       enumerable: false,
@@ -2281,7 +2662,7 @@ export function withDebounce<C extends BaseContext, V, R>(
     });
   }
   if (task.__steps) {
-    Object.defineProperty(debouncedTask, '__steps', {
+    Object.defineProperty(debouncedTask, "__steps", {
       value: task.__steps,
       configurable: true,
       enumerable: false,

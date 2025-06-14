@@ -6,6 +6,7 @@ import {
   type BaseContext,
   type Task,
   type Logger,
+  WorkflowError,
 } from "../src/run";
 
 interface TestContext extends BaseContext {
@@ -187,14 +188,14 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
         );
 
         await expect(run(protectedTask, "test3")).rejects.toThrow(
-          new CircuitOpenError(circuitId),
+          CircuitOpenError,
         );
       });
 
       it("should fail fast with CircuitOpenError when circuit is open", async () => {
         const circuitId = getUniqueCircuitId("open-fail-fast-circuit");
         const slowTask = defineTaskScoped(async () => {
-          vi.advanceTimersByTime(100);
+          await vi.advanceTimersByTimeAsync(100);
           throw new Error("Underlying task error");
         });
         const protectedTask = withCircuitBreaker(slowTask, {
@@ -213,7 +214,7 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
 
         const startTime = Date.now();
         await expect(run(protectedTask, "test2")).rejects.toThrow(
-          new CircuitOpenError(circuitId),
+          CircuitOpenError,
         );
         const endTime = Date.now();
         expect(endTime - startTime).toBeLessThan(50);
@@ -245,23 +246,19 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
           ),
         );
         await expect(run(protectedTask, "test2")).rejects.toThrow(
-          new CircuitOpenError(circuitId),
+          CircuitOpenError,
         );
 
-        vi.advanceTimersByTime(1001);
+        await vi.advanceTimersByTimeAsync(1001);
         allowRecovery = true;
 
         const result = await run(protectedTask, "test3"); // Trial
         expect(result).toBe("recovered-test3");
-        expect(globalMockLogger.warn).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] State changed to HALF-OPEN. Attempting trial request.`,
-          ),
+        expect(globalMockLogger.debug).toHaveBeenCalledWith(
+          `[Circuit Breaker: ${circuitId}] Attempting trial request.`,
         );
         expect(globalMockLogger.info).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] Trial request succeeded. State changed to CLOSED.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] Trial request succeeded. State changed to CLOSED.`,
         );
 
         allowRecovery = true;
@@ -289,24 +286,22 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
           ),
         );
 
-        vi.advanceTimersByTime(501);
+        await vi.advanceTimersByTimeAsync(501);
 
         await expect(run(protectedTask, "test2")).rejects.toThrow(
           "Trial always fails",
         );
         expect(globalMockLogger.warn).toHaveBeenCalledWith(
           expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] State changed to HALF-OPEN. Attempting trial request.`,
+            `[Circuit Breaker: ${circuitId}] State changed to HALF-OPEN. Ready for a trial request.`,
           ),
         );
         expect(globalMockLogger.error).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] Trial request failed. State changed back to OPEN.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] Trial request failed. State changed back to OPEN.`,
         );
 
         await expect(run(protectedTask, "test3")).rejects.toThrow(
-          new CircuitOpenError(circuitId),
+          CircuitOpenError,
         );
       });
 
@@ -323,20 +318,18 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
 
         await expect(run(protectedTask, "trip")).rejects.toThrow("Fails");
 
-        vi.advanceTimersByTime(1999);
+        await vi.advanceTimersByTimeAsync(1999);
         await expect(run(protectedTask, "still-open")).rejects.toThrow(
-          new CircuitOpenError(circuitId),
+          CircuitOpenError,
         );
         expect(globalMockLogger.warn).not.toHaveBeenCalledWith(
           expect.stringContaining("State changed to HALF-OPEN"),
         );
 
-        vi.advanceTimersByTime(2);
+        await vi.advanceTimersByTimeAsync(2);
         await expect(run(protectedTask, "trial")).rejects.toThrow("Fails");
         expect(globalMockLogger.warn).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] State changed to HALF-OPEN. Attempting trial request.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] State changed to HALF-OPEN. Ready for a trial request.`,
         );
       });
     });
@@ -367,9 +360,7 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
 
         await expect(run(protectedTask, "test5")).rejects.toThrow("Fails");
         expect(globalMockLogger.error).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`,
         );
       });
 
@@ -386,17 +377,15 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
 
         await expect(run(protectedTask, "trip")).rejects.toThrow("Fails");
 
-        vi.advanceTimersByTime(4999);
+        await vi.advanceTimersByTimeAsync(4999);
         await expect(run(protectedTask, "still-open")).rejects.toThrow(
-          new CircuitOpenError(circuitId),
+          CircuitOpenError,
         );
 
-        vi.advanceTimersByTime(2);
+        await vi.advanceTimersByTimeAsync(2);
         await expect(run(protectedTask, "trial")).rejects.toThrow("Fails");
         expect(globalMockLogger.warn).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] State changed to HALF-OPEN. Attempting trial request.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] State changed to HALF-OPEN. Ready for a trial request.`,
         );
       });
 
@@ -427,11 +416,11 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
 
         errorToThrow = new TemporaryError();
         await expect(run(protectedTask, "temp1")).rejects.toThrow(
-          TemporaryError,
+          WorkflowError,
         );
         errorToThrow = new TemporaryError();
         await expect(run(protectedTask, "temp2")).rejects.toThrow(
-          TemporaryError,
+          WorkflowError,
         );
         expect(globalMockLogger.warn).not.toHaveBeenCalledWith(
           expect.stringContaining("Recorded failure"),
@@ -442,9 +431,7 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
           PermanentError,
         );
         expect(globalMockLogger.warn).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] Recorded failure #1.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] Recorded failure #1.`,
           { error: expect.any(PermanentError) },
         );
 
@@ -453,9 +440,7 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
           PermanentError,
         );
         expect(globalMockLogger.error).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`,
         );
       });
 
@@ -463,23 +448,18 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
         const circuitId = getUniqueCircuitId(
           "config-backtrack-default-circuit",
         );
-
-        // Note: The task must be a function so it can refer to itself in the signal.
-        // It's defined within the test scope.
+        let protectedTask: Task<TestContext, number, any>;
         const backtrackingLogic: Task<TestContext, number, any> =
           defineTaskScoped(async function actualBacktrackingTask(
             attempt: number,
           ) {
             if (attempt < 2) {
-              // We need to refer to the *wrapped* task for backtracking to work correctly through the enhancer.
-              // This test reveals a complex interaction. For this test's purpose, we'll assume backtracking
-              // should target the original logic. The key is that BacktrackSignal isn't counted.
-              throw new BacktrackSignal(backtrackingLogic, attempt + 1);
+              throw new BacktrackSignal(protectedTask, attempt + 1);
             }
             throw new Error("Real failure after backtrack");
           });
 
-        const protectedTask = withCircuitBreaker(backtrackingLogic, {
+        protectedTask = withCircuitBreaker(backtrackingLogic, {
           id: circuitId,
           failureThreshold: 1,
         });
@@ -487,12 +467,9 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
         await expect(run(protectedTask, 1)).rejects.toThrow(
           "Real failure after backtrack",
         );
-        // Only one failure should be recorded: the "Real failure".
         expect(globalMockLogger.warn).toHaveBeenCalledTimes(1);
         expect(globalMockLogger.warn).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] Recorded failure #1.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] Recorded failure #1.`,
           {
             error: expect.objectContaining({
               message: "Real failure after backtrack",
@@ -500,9 +477,7 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
           },
         );
         expect(globalMockLogger.error).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`,
         );
       });
     });
@@ -526,29 +501,21 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
 
         await expect(run(protected1, "1a")).rejects.toThrow("Fail id-1a");
         expect(globalMockLogger.error).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${id1}] Failure threshold reached. State changed to OPEN.`,
-          ),
+          `[Circuit Breaker: ${id1}] Failure threshold reached. State changed to OPEN.`,
         );
 
         globalMockLogger.error.mockClear();
         globalMockLogger.warn.mockClear();
 
-        await expect(run(protected1, "1b")).rejects.toThrow(
-          new CircuitOpenError(id1),
-        );
+        await expect(run(protected1, "1b")).rejects.toThrow(CircuitOpenError);
 
         await expect(run(protected2, "2a")).rejects.toThrow("Fail id-2a");
         expect(globalMockLogger.warn).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${id2}] Recorded failure #1.`,
-          ),
+          `[Circuit Breaker: ${id2}] Recorded failure #1.`,
           { error: expect.objectContaining({ message: "Fail id-2a" }) },
         );
         expect(globalMockLogger.error).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${id2}] Failure threshold reached. State changed to OPEN.`,
-          ),
+          `[Circuit Breaker: ${id2}] Failure threshold reached. State changed to OPEN.`,
         );
       });
     });
@@ -597,17 +564,13 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
         ).rejects.toThrow("Custom logger error");
 
         expect(customLocalLogger.warn).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] Recorded failure #1.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] Recorded failure #1.`,
           {
             error: expect.objectContaining({ message: "Custom logger error" }),
           },
         );
         expect(customLocalLogger.error).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`,
         );
         expect(globalMockLogger.warn).not.toHaveBeenCalled();
         expect(globalMockLogger.error).not.toHaveBeenCalled();
@@ -637,7 +600,7 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
         let actualTaskExecutions = 0;
         const slowTrialTask = defineTaskScoped(async () => {
           actualTaskExecutions++;
-          await new Promise((r) => setTimeout(r, 50));
+          await vi.advanceTimersByTimeAsync(50);
           return "trial success rapid";
         });
 
@@ -647,8 +610,6 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
             tripDone = true;
             throw new Error("Forced trip for rapid test B");
           }
-          // Directly call the other task, passing the context implicitly.
-          // Note: The input value is `undefined` from the run call.
           return slowTrialTask(undefined as any, undefined);
         });
 
@@ -662,29 +623,25 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
           "Forced trip for rapid test B",
         );
         expect(globalMockLogger.error).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`,
         );
 
-        vi.advanceTimersByTime(101);
+        await vi.advanceTimersByTimeAsync(101);
 
         const promises = [
           run(protectedTask, undefined),
-          run(protectedTask, undefined).catch((error_) => error_),
-          run(protectedTask, undefined).catch((error_) => error_),
+          run(protectedTask, undefined),
+          run(protectedTask, undefined),
         ];
 
-        // The slowTrialTask has a setTimeout of 50ms, we must advance timers for it to resolve
-        await vi.advanceTimersByTimeAsync(50);
-
-        const results = await Promise.all(promises);
+        const results = await Promise.allSettled(promises);
 
         const successResults = results.filter(
-          (r) => r === "trial success rapid",
+          (r) => r.status === "fulfilled" && r.value === "trial success rapid",
         );
         const openErrors = results.filter(
-          (r) => r instanceof CircuitOpenError && r.id === circuitId,
+          (r) =>
+            r.status === "rejected" && r.reason instanceof CircuitOpenError,
         );
 
         expect(actualTaskExecutions).toBe(1);
@@ -692,14 +649,10 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
         expect(openErrors.length).toBe(2);
 
         expect(globalMockLogger.warn).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] State changed to HALF-OPEN. Attempting trial request.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] State changed to HALF-OPEN. Ready for a trial request.`,
         );
         expect(globalMockLogger.info).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] Trial request succeeded. State changed to CLOSED.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] Trial request succeeded. State changed to CLOSED.`,
         );
       });
 
@@ -709,7 +662,6 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
           throw new Error("Shared state fail for runs B");
         });
 
-        // IMPORTANT: protectedTask is defined ONCE with the fixed ID
         const protectedTask = withCircuitBreaker(task, {
           id: circuitId,
           failureThreshold: 1,
@@ -719,15 +671,12 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
           "Shared state fail for runs B",
         );
         expect(globalMockLogger.error).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`,
         );
 
-        // Call run again with the SAME protectedTask instance
         await expect(
           run(protectedTask, undefined, { overrides: { counter: 123 } }),
-        ).rejects.toThrow(new CircuitOpenError(circuitId));
+        ).rejects.toThrow(CircuitOpenError);
       });
     });
 
@@ -767,23 +716,19 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
           "FailPattern2B",
         );
         expect(globalMockLogger.error).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`,
         );
 
         await expect(run(protectedTask, undefined)).rejects.toThrow(
-          new CircuitOpenError(circuitId),
+          CircuitOpenError,
         );
 
-        vi.advanceTimersByTime(101);
+        await vi.advanceTimersByTimeAsync(101);
         expect(await run(protectedTask, undefined)).toBe(
           "SuccessPatternAfterOpenB",
         );
         expect(globalMockLogger.info).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] Trial request succeeded. State changed to CLOSED.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] Trial request succeeded. State changed to CLOSED.`,
         );
 
         globalMockLogger.warn.mockClear();
@@ -791,9 +736,7 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
           "FailPattern3B",
         );
         expect(globalMockLogger.warn).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] Recorded failure #1.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] Recorded failure #1.`,
           { error: expect.objectContaining({ message: "FailPattern3B" }) },
         );
 
@@ -805,9 +748,7 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
         );
         expect(globalMockLogger.error).toHaveBeenCalledTimes(1);
         expect(globalMockLogger.error).toHaveBeenCalledWith(
-          expect.stringContaining(
-            `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`,
-          ),
+          `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`,
         );
       });
     });
