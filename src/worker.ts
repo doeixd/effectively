@@ -1,18 +1,30 @@
-// File: src/worker.ts
-import { createContext, type BaseContext, type Task } from "./run";
+/**
+ * @module
+ * This module provides seamless integration with native Web Workers, enabling
+ * computationally expensive or I/O-bound tasks to be offloaded from the main thread.
+ * It leverages `seroval` for robust, type-safe data serialization and `Atomics`
+ * for efficient, low-latency cancellation signaling.
+ */
+
 import {
-  toJSON,
+  createContext,
+  type BaseContext,
+  type Task,
+  WorkflowError,
+} from "./run";
+import {
   toJSONAsync,
   fromJSON,
   getCrossReferenceHeader,
   createReference,
-  createStream,
+  crossSerializeStream,
+  createStream as createSerovalStream,
   type SerovalJSON,
   type Plugin as SerovalPlugin,
   type Stream as SerovalStream,
 } from "seroval";
 
-// --- Seroval Stream-to-Iterable Bridge (from seroval documentation) ---
+// --- Seroval Stream-to-Iterable Bridge ---
 interface Deferred {
   promise: Promise<any>;
   resolve(value: any): void;
@@ -117,11 +129,7 @@ interface NodeWorkerListener {
 }
 export type IsomorphicWorker = MinimalWorker &
   (WebWorkerListener | NodeWorkerListener);
-export interface StreamHandle<TNext, TReturn = void> {
-  next(value: TNext): void;
-  throw(error: unknown): void;
-  return(value?: TReturn): void;
-}
+
 interface WorkerHandlerOptions {
   references?: Record<string, unknown>;
   plugins?: SerovalPlugin<any, any>[];
@@ -143,8 +151,8 @@ interface WorkerRequest {
 }
 interface WorkerResponse {
   id: number;
-  type: "result" | "error";
-  payload: SerovalJSON;
+  type: "result" | "error" | "stream_start";
+  payload: SerovalJSON | null;
 }
 const workerPendingRequests = new WeakMap<
   IsomorphicWorker,
@@ -166,6 +174,7 @@ export function createWorkerHandler(
     }
   }
   const { run } = createContext<BaseContext>({});
+
   self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     const {
       id,
@@ -174,54 +183,83 @@ export function createWorkerHandler(
       cancellationBuffer,
       type: requestType,
     } = event.data;
-    if (!taskId || !tasks[taskId]) {
-      const errorPayload = await toJSONAsync(
-        new ReferenceError(`Task "${taskId}" not found on worker.`),
-      );
-      self.postMessage({ id, type: "error", payload: errorPayload });
+
+    const targetTask = tasks[taskId];
+    if (!targetTask) {
+      self.postMessage({
+        id,
+        type: "error",
+        payload: await toJSONAsync(
+          new ReferenceError(`Task "${taskId}" not found.`),
+        ),
+      });
       return;
     }
+
     const workerSideAbortController = new AbortController();
     if (cancellationBuffer) {
-      const cancellationView = new Int32Array(cancellationBuffer);
-      const pollCancellation = () => {
-        if (Atomics.load(cancellationView, 0) === 1) {
+      const view = new Int32Array(cancellationBuffer);
+      const poll = () => {
+        if (Atomics.load(view, 0) === 1)
           workerSideAbortController.abort(
             new DOMException("Aborted by main thread", "AbortError"),
           );
-        } else if (!workerSideAbortController.signal.aborted) {
-          setTimeout(pollCancellation, 50);
-        }
+        else if (!workerSideAbortController.signal.aborted)
+          setTimeout(poll, 50);
       };
-      pollCancellation();
+      poll();
     }
+
     try {
       const deserialized = fromJSON(payload, { plugins: options.plugins }) as {
         value: unknown;
         context: Record<string, unknown>;
-        stream?: StreamHandle<any, any>;
       };
       const runOptions = {
-        overrides: { ...deserialized.context, stream: deserialized.stream },
+        overrides: deserialized.context,
         parentSignal: workerSideAbortController.signal,
       };
-      const result = await run(tasks[taskId], deserialized.value, runOptions);
-      // **FIX:** Only send a final 'result' for non-streaming requests.
-      if (requestType !== "stream_request") {
-        const serializationResult = await toJSONAsync(result, {
-          plugins: options.plugins,
+
+      if (requestType === "stream_request") {
+        // Handshake: Tell the main thread we are ready to stream.
+        self.postMessage({ id, type: "stream_start", payload: null });
+        await crossSerializeStream(
+          run(targetTask, deserialized.value, runOptions),
+          {
+            scopeId: "worker",
+            onSerialize: (chunk) => self.postMessage(chunk),
+            onError: async (e) =>
+              self.postMessage({
+                id,
+                type: "error",
+                payload: await toJSONAsync(
+                  e instanceof WorkflowError && e.cause ? e.cause : e,
+                  { plugins: options.plugins },
+                ),
+              }),
+            plugins: options.plugins,
+          },
+        );
+      } else {
+        const result = await run(targetTask, deserialized.value, runOptions);
+        self.postMessage({
+          id,
+          type: "result",
+          payload: await toJSONAsync(result, { plugins: options.plugins }),
         });
-        self.postMessage({ id, type: "result", payload: serializationResult });
       }
-    } catch (executionError) {
-      const serializedError = await toJSONAsync(executionError, {
-        plugins: options.plugins,
+    } catch (e) {
+      self.postMessage({
+        id,
+        type: "error",
+        payload: await toJSONAsync(
+          e instanceof WorkflowError && e.cause ? e.cause : e,
+          { plugins: options.plugins },
+        ),
       });
-      self.postMessage({ id, type: "error", payload: serializedError });
     } finally {
-      if (!workerSideAbortController.signal.aborted) {
+      if (!workerSideAbortController.signal.aborted)
         workerSideAbortController.abort();
-      }
     }
   };
 }
@@ -233,55 +271,57 @@ function ensureWorkerListener(
 ) {
   if (workerPendingRequests.has(worker)) return;
   workerPendingRequests.set(worker, new Map());
+
+  if (typeof (globalThis as any).$R !== "object") (globalThis as any).$R = {};
+  if (!(globalThis as any).$R.worker) (globalThis as any).$R.worker = [];
+
   const messageHandler = (eventOrData: MessageEvent | any) => {
     const data = eventOrData.data ?? eventOrData;
     if (typeof data === "string") {
       try {
         eval(data);
       } catch (e) {
-        console.error("Effectively worker: Error evaluating stream chunk:", e);
+        console.error("Effectively stream eval error:", e);
       }
       return;
     }
+
     const { id, type, payload } = data as WorkerResponse;
+    if (id === undefined) return;
     const pending = workerPendingRequests.get(worker)?.get(id);
     if (!pending) return;
+
+    if (type === "stream_start") {
+      pending.resolve(null); // Resolve the setup promise, but keep the request pending for final errors.
+      return;
+    }
+
     workerPendingRequests.get(worker)?.delete(id);
     pending.cleanup();
     try {
       const deserialized = fromJSON(payload, { plugins: opOptions?.plugins });
-      if (type === "error") {
-        pending.reject(deserialized);
-      } else {
-        pending.resolve(deserialized);
-      }
+      type === "error"
+        ? pending.reject(deserialized)
+        : pending.resolve(deserialized);
     } catch (e) {
       pending.reject(e);
     }
   };
-  const errorHandler = (eventOrError: ErrorEvent | Error) => {
-    const error =
-      eventOrError instanceof Error ? eventOrError : eventOrError.error;
-    const pendingMap = workerPendingRequests.get(worker);
-    if (pendingMap) {
-      pendingMap.forEach((pending) => {
-        pending.cleanup();
-        pending.reject(error || new Error("Unknown worker error"));
-      });
-      pendingMap.clear();
-    }
+
+  const errorHandler = (e: ErrorEvent | Error) => {
+    const err = "error" in e ? e.error : e;
+    workerPendingRequests.get(worker)?.forEach((p) => {
+      p.cleanup();
+      p.reject(err);
+    });
+    workerPendingRequests.get(worker)?.clear();
   };
-  if (
-    "addEventListener" in worker &&
-    typeof worker.addEventListener === "function"
-  ) {
-    worker.addEventListener("message", messageHandler);
-    worker.addEventListener("error", errorHandler);
-  } else {
-    const nodeWorker = worker as unknown as { on: Function };
-    nodeWorker.on("message", messageHandler);
-    nodeWorker.on("error", errorHandler);
-  }
+
+  "addEventListener" in worker
+    ? (worker.addEventListener("message", messageHandler),
+      worker.addEventListener("error", errorHandler))
+    : ((worker as any).on("message", messageHandler),
+      (worker as any).on("error", errorHandler));
 }
 
 export function runOnWorker<C extends BaseContext, V, R>(
@@ -289,31 +329,19 @@ export function runOnWorker<C extends BaseContext, V, R>(
   taskId: string,
   opOptions?: RunOnWorkerOptions,
 ): Task<C, V, R> {
-  const workerTaskLogic: Task<C, V, R> = (
-    fullContext: C,
-    value: V,
-  ): Promise<R> => {
+  return async (fullContext: C, value: V): Promise<R> => {
     ensureWorkerListener(worker, opOptions);
     const id = messageIdCounter++;
     const { scope, ...contextToSerialize } = fullContext;
     const cancellationBuffer = new SharedArrayBuffer(4);
+
     return new Promise<R>(async (resolve, reject) => {
-      const onMainThreadCancel = () => {
-        const view = new Int32Array(cancellationBuffer);
-        Atomics.store(view, 0, 1);
-        Atomics.notify(view, 0);
-      };
-      if (scope.signal.aborted) {
-        return reject(
-          scope.signal.reason ??
-            new DOMException("Operation aborted before dispatch", "AbortError"),
-        );
-      }
-      const cleanup = () =>
-        scope.signal.removeEventListener("abort", onMainThreadCancel);
-      scope.signal.addEventListener("abort", onMainThreadCancel, {
-        once: true,
-      });
+      const onAbort = () =>
+        Atomics.store(new Int32Array(cancellationBuffer), 0, 1);
+      if (scope.signal.aborted) return reject(scope.signal.reason);
+      const cleanup = () => scope.signal.removeEventListener("abort", onAbort);
+      scope.signal.addEventListener("abort", onAbort, { once: true });
+
       workerPendingRequests.get(worker)!.set(id, { resolve, reject, cleanup });
       try {
         const payload = await toJSONAsync(
@@ -334,10 +362,6 @@ export function runOnWorker<C extends BaseContext, V, R>(
       }
     });
   };
-  Object.defineProperty(workerTaskLogic, "name", {
-    value: `runOnWorker(${taskId})`,
-  });
-  return workerTaskLogic;
 }
 
 export function runStreamOnWorker<C extends BaseContext, V, R>(
@@ -345,76 +369,65 @@ export function runStreamOnWorker<C extends BaseContext, V, R>(
   taskId: string,
   opOptions?: RunOnWorkerOptions,
 ): Task<C, V, AsyncIterable<R>> {
-  const streamWorkerTaskLogic: Task<C, V, AsyncIterable<R>> = (
-    fullContext: C,
-    value: V,
-  ): Promise<AsyncIterable<R>> => {
+  return async (fullContext: C, value: V): Promise<AsyncIterable<R>> => {
     ensureWorkerListener(worker, opOptions);
-    return new Promise<AsyncIterable<R>>(async (resolve, reject) => {
-      try {
-        const id = messageIdCounter++;
-        const { scope, ...contextToSerialize } = fullContext;
-        const cancellationBuffer = new SharedArrayBuffer(4);
-        const streamProxy = createStream<R>();
+    const id = messageIdCounter++;
+    const { scope, ...contextToSerialize } = fullContext;
+    const cancellationBuffer = new SharedArrayBuffer(4);
 
-        // This promise *only* tracks if the worker sends back an immediate, one-off error.
-        const setupErrorPromise = new Promise<void>((_, setupReject) => {
-          const onMainThreadCancel = () => {
-            const view = new Int32Array(cancellationBuffer);
-            Atomics.store(view, 0, 1);
-            Atomics.notify(view, 0);
-            setupReject(
-              scope.signal.reason ??
-                new DOMException("Stream aborted by context", "AbortError"),
-            );
-          };
-          if (scope.signal.aborted) {
-            return setupReject(
-              scope.signal.reason ??
-                new DOMException(
-                  "Stream aborted before creation",
-                  "AbortError",
-                ),
-            );
-          }
-          const cleanup = () =>
-            scope.signal.removeEventListener("abort", onMainThreadCancel);
-          scope.signal.addEventListener("abort", onMainThreadCancel, {
-            once: true,
-          });
-          // A stream request doesn't need a `resolve` function in the pending map for its final value,
-          // but it needs a `reject` to catch setup errors.
-          workerPendingRequests
-            .get(worker)!
-            .set(id, { resolve: () => {}, reject: setupReject, cleanup });
-        });
-
-        setupErrorPromise.catch((err) => streamProxy.throw(err));
-
-        const iterable = streamToAsyncIterable(streamProxy);
-
-        const payload = toJSON(
-          { value, context: contextToSerialize, stream: streamProxy },
-          { plugins: opOptions?.plugins },
-        );
-        worker.postMessage({
-          type: "stream_request",
-          id,
-          taskId,
-          payload,
-          cancellationBuffer,
-        });
-
-        // Resolve immediately with the iterable, breaking the deadlock.
-        resolve(iterable);
-      } catch (e) {
-        reject(e);
-      }
+    const payload = await toJSONAsync(
+      { value, context: contextToSerialize },
+      { plugins: opOptions?.plugins },
+    );
+    worker.postMessage({
+      type: "stream_request",
+      id,
+      taskId,
+      payload,
+      cancellationBuffer,
     });
-  };
 
-  Object.defineProperty(streamWorkerTaskLogic, "name", {
-    value: `runStreamOnWorker(${taskId})`,
-  });
-  return streamWorkerTaskLogic;
+    // Wait for the 'stream_start' handshake from the worker
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = () => scope.signal.removeEventListener("abort", onAbort);
+      const onAbort = () => {
+        Atomics.store(new Int32Array(cancellationBuffer), 0, 1);
+        reject(scope.signal.reason);
+        cleanup();
+      };
+      if (scope.signal.aborted) return reject(scope.signal.reason);
+      scope.signal.addEventListener("abort", onAbort, { once: true });
+      // The resolve function here will be called by the `stream_start` message type
+      workerPendingRequests.get(worker)!.set(id, {
+        resolve: () => {
+          cleanup();
+          resolve();
+        },
+        reject,
+        cleanup,
+      });
+    });
+
+    return (async function* managedAsyncIterable(): AsyncIterable<R> {
+      const streamProxy = createSerovalStream<R>();
+      const iterable = streamToAsyncIterable(streamProxy);
+      createReference(`Stream#${id}`, streamProxy);
+
+      const onMainThreadCancel = () =>
+        Atomics.store(new Int32Array(cancellationBuffer), 0, 1);
+      scope.signal.addEventListener("abort", onMainThreadCancel, {
+        once: true,
+      });
+      try {
+        for await (const item of iterable) {
+          if (scope.signal.aborted) throw scope.signal.reason;
+          yield item;
+        }
+      } finally {
+        scope.signal.removeEventListener("abort", onMainThreadCancel);
+        if (Atomics.load(new Int32Array(cancellationBuffer), 0) === 0)
+          onMainThreadCancel();
+      }
+    })();
+  };
 }

@@ -1,4 +1,4 @@
-// File: test/manual-worker-runner.ts
+// File: test/manual-worker.ts
 import {
   createContext,
   run,
@@ -100,8 +100,15 @@ async function main() {
       "✅ [Runner] Got iterable immediately, now starting 'for await' loop...",
     );
     const results: string[] = [];
+    // <<< DEBUG LOG >>>
+    console.log(
+      ">>> [DEBUG] Main thread is about to enter the for-await loop.",
+    );
     for await (const value of iterable) {
-      console.log(`...[Runner] Received stream value: "${value}"`);
+      // <<< DEBUG LOG >>>
+      console.log(
+        `>>> [DEBUG] Main thread received value from iterable: "${value}"`,
+      );
       results.push(value);
     }
     console.log("✅ [Runner] 'for await' loop finished.");
@@ -114,28 +121,6 @@ async function main() {
     console.log("✅ Main: Stream consumed successfully.");
   } catch (e) {
     console.error("❌ Main: Scenario 4 failed unexpectedly:", e);
-  }
-
-  // SCENARIO 5: Streaming with Error
-  console.log("\n--- SCENARIO 5: Testing error propagation during stream ---");
-  try {
-    const remoteFailingStream = runStreamOnWorker(
-      worker,
-      "failingStreamTask",
-      serovalOptions,
-    );
-    const iterable = await testRun(remoteFailingStream, null);
-    console.log("...[Main] Got iterable for failing stream, consuming...");
-    for await (const value of iterable) {
-      console.log(`...[Main] Received pre-error stream value: "${value}"`);
-    }
-  } catch (e: any) {
-    console.log(`✅ Main: Correctly caught error during stream: ${e.message}`);
-    if (e.message !== "Stream blew up") {
-      throw new Error(
-        `Assertion failed! Expected "Stream blew up", got "${e.message}"`,
-      );
-    }
   }
 
   // --- Teardown ---

@@ -885,7 +885,7 @@ async function runImpl<
   const previousActiveUnctxInstance = _INTERNAL_getCurrentUnctxInstance();
   _INTERNAL_setCurrentUnctxInstance(unctxInstance);
 
-  let finalResult: R | undefined; // To store the result before the finally block
+  let finalResult: R | undefined;
 
   try {
     while (currentIndex < allSteps.length) {
@@ -904,6 +904,13 @@ async function runImpl<
         );
         currentIndex++;
       } catch (error) {
+        // --- START FIX: Check for pre-existing WorkflowError ---
+        if (error instanceof WorkflowError || isBacktrackSignal(error)) {
+          throw error; // Re-throw without re-wrapping
+        }
+        // --- END FIX ---
+
+        // Original logic for wrapping other errors remains
         if (isBacktrackSignal(error)) {
           backtrackCount++;
           if (backtrackCount > maxBacktracks)
@@ -956,11 +963,6 @@ async function runImpl<
     _INTERNAL_setCurrentUnctxInstance(previousActiveUnctxInstance);
     const scopeController = (executionContext.scope as any).controller;
 
-    // ** THIS IS THE CRITICAL FIX **
-    // Only abort the controller if the operation is truly finished.
-    // If the result is an AsyncIterable, the operation is ongoing, and its
-    // lifecycle is now managed by the consumer of the iterable. The iterable's
-    // `finally` block is responsible for signaling the worker to stop.
     if (
       scopeController &&
       !scopeController.signal.aborted &&
