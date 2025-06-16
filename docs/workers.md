@@ -1,232 +1,159 @@
 # 🚀 Offload Work with Web Workers
+This module provides a robust, high-level bridge to Web Workers, transforming them from a low-level browser API into a natural, integrated part of your `Effectively` application. It eliminates the boilerplate and complexity, letting you focus on your logic, not on the communication channel.
 
-This powerful module enables you to seamlessly offload computationally intensive or I/O-bound tasks from the main thread to Web Workers. It provides a high-level API that integrates with your existing `Task` infrastructure, handling complex serialization, low-latency cancellation, and both request-response and streaming communication patterns.
+### The Pain of Using Workers Directly
 
-**Core Features:**
+Using the native Web Worker API can be cumbersome and error-prone. You've likely faced these challenges:
 
-*   **Effortless Parallelism:** Execute tasks in true parallelism without blocking the main UI thread.
-*   **Rich Data Serialization:** Leverages `seroval` to transfer complex JavaScript objects, Promises, Errors, and even custom types (with plugins) between threads.
-*   **Streaming Support:** Efficiently stream sequences of data from the worker back to the main thread using `AsyncIterable`.
-*   **Zero-Latency Cancellation:** Uses `SharedArrayBuffer` and `Atomics` for immediate cancellation signaling from the main thread to the worker.
-*   **Isomorphic References:** Share non-serializable objects (like functions or class instances) that exist in both environments by reference.
-*   **Context Propagation:** Main thread context properties (excluding `scope`) can be serialized and provided as overrides to the task running on the worker.
+*   **Manual Messaging:** Juggling `postMessage` and `onmessage` listeners for every request and response, and manually correlating request IDs.
+*   **Data Serialization:** Hitting the limits of `JSON.stringify` or `structuredClone`, unable to easily pass complex objects, Dates, Maps, or proper `Error` instances.
+*   **Streaming Data:** Manually creating a protocol to send back chunks of data for a long-running process, which is complex to get right without race conditions.
+*   **Cancellation:** Signaling a worker to stop a task has latency. Sending a "cancel" message doesn't guarantee the task stops immediately.
+*   **Context & Dependencies:** Workers are isolated. Getting application-level context (like config or user info) into a worker task requires manual serialization and plumbing.
+*   **Error Handling:** Errors from a worker arrive as a generic `MessageEvent`, losing their original type and stack trace, making debugging difficult.
 
-### ⚙️ How It Works: Main Concepts
+### The Solution: An Integrated `Task`-Based API
 
-1.  **Worker Script (`my.worker.ts`):**
-    *   You create a standard JavaScript/TypeScript file for your worker.
-    *   Inside this worker script, you import `createWorkerHandler` from this module.
-    *   You define the tasks the worker can perform using your library's `defineTask`.
-    *   You call `createWorkerHandler`, passing it an object mapping task IDs (strings) to your defined worker tasks.
+This module solves these problems by providing a clean, `Task`-based API that handles the complexity for you:
 
-2.  **Main Thread Integration:**
-    *   You create a native `new Worker(...)` instance pointing to your worker script.
-    *   You use `runOnWorker` (for single results) or `runStreamOnWorker` (for multiple, streamed results) from this module. These functions take your `Worker` instance and the `taskId` (string) you want to execute.
-    *   `runOnWorker` and `runStreamOnWorker` return a new `Task`. You execute this "remote task" using your main thread's `run` function, just like any other task.
+*   ✅ **Rich Data Transfer:** Powered by `seroval`, it transparently handles complex data types, circular references, and even `Error` objects.
+*   ✅ **Native `AsyncIterable` Support:** Simply write an `async function*` in your worker, and you get a standard `AsyncIterable` on the main thread.
+*   ✅ **Zero-Latency Cancellation:** Uses `SharedArrayBuffer` and `Atomics` to provide instantaneous, reliable cancellation when available.
+*   ✅ **Automatic Context Propagation:** Your main thread's `run` context is automatically serialized and made available inside the worker task.
+*   ✅ **Proper Error Propagation:** Errors thrown in the worker are serialized, sent to the main thread, and re-thrown, preserving their type and message.
+*   ✅ **Less Boilerplate:** Define tasks in the worker, then call them from the main thread as if they were local.
 
-3.  **Communication & Serialization:**
-    *   When you `run` the remote task, this module serializes the input value and relevant parts of the main thread's context using `seroval`.
-    *   This payload is sent to the worker via `postMessage`.
-    *   The worker's `createWorkerHandler` deserializes the payload and executes the target task within its own isolated `run` environment, applying the received context as overrides.
-    *   Results or errors from the worker task are serialized by `seroval` and sent back to the main thread, where they are deserialized and resolve/reject the main thread's promise.
 
-4.  **Streaming:**
-    *   For streaming, a `seroval` Stream object (`streamProxy`) is created on the main thread and a reference to it is sent to the worker.
-    *   The worker task receives a `StreamHandle` in its context, allowing it to call `next(value)`, `throw(error)`, or `return()` on the stream.
-    *   These calls are translated into JavaScript commands by `seroval`, sent to the main thread, and `eval`ed to drive the `streamProxy`.
-    *   On the main thread, `runStreamOnWorker` converts this `streamProxy` into a standard `AsyncIterable` for easy consumption (`for await...of`).
+### ⚙️ Setup & Configuration
 
-5.  **Cancellation:**
-    *   A `SharedArrayBuffer` is used as a flag.
-    *   If the main thread's task `scope.signal` is aborted, it writes to the `SharedArrayBuffer` using `Atomics.store`.
-    *   The worker polls this buffer using `Atomics.load`. If it sees the flag, it aborts its internal `AbortController`, which is passed as `parentSignal` to the task running on the worker.
+To use this module effectively, especially its cancellation features, your environment may need minor configuration.
 
-### 🛠️ API Reference & Usage
+#### Browser Environment
 
-#### 1. Worker-Side: `createWorkerHandler`
+To enable `SharedArrayBuffer` (which powers zero-latency cancellation), you must serve your page with specific HTTP headers. This creates a secure cross-origin isolated context.
 
-This function is the heart of your worker script.
-
-| Function                                                                  | Description                                                                                                                                                                                                |
-| :------------------------------------------------------------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `createWorkerHandler(tasks: Record<string, Task<BaseContext, any, any>>, options?: WorkerHandlerOptions)` | Initializes the worker to handle tasks. Call this once in your worker script. Expose tasks by mapping a string ID to the `Task` function. |
-
-**`WorkerHandlerOptions` Interface:**
-
-| Property     | Type                                      | Description                                                                                                                                       |
-| :----------- | :---------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `references` | `Record<string, unknown>` (optional)      | Isomorphic references available to tasks (e.g., shared utility functions). Register with `createReference` from `seroval` on both main and worker. |
-| `plugins`    | `SerovalPlugin<any, SerovalNode>[]` (optional) | `seroval` plugins for custom serialization/deserialization on the worker side (e.g., `DOMExceptionPlugin` for errors).                               |
-
-**Example Worker Script (`my.worker.ts`):**
-
-```typescript
-import { 
-  createWorkerHandler, 
-  defineTask, // Use the global defineTask or one from a worker-specific createContext
-  type BaseContext, 
-  type StreamHandle,
-  getContext // If tasks need to access context
-} from 'path/to/your/effectively-lib'; // Adjust path
-import { DOMExceptionPlugin } from 'seroval-plugins/web'; // Optional, but recommended for DOMException
-
-// Define tasks the worker can execute
-const heavyCalculation = defineTask(async (context: BaseContext, data: { value: number }) => {
-  console.log('[Worker] Running heavyCalculation with scope signal:', context.scope.signal.aborted);
-  for(let i=0; i < 1e9; i++) { // Simulate work
-    if (context.scope.signal.aborted) {
-      throw new DOMException('Heavy calculation aborted', 'AbortError');
-    }
-  }
-  return data.value * 2;
-});
-
-interface StreamingTaskContext extends BaseContext {
-  stream: StreamHandle<string, void>; // TNext = string, TReturn = void
-}
-
-const liveUpdates = defineTask(async (context: StreamingTaskContext, count: number) => {
-  for (let i = 1; i <= count; i++) {
-    if (context.scope.signal.aborted) {
-      context.stream.throw(new DOMException('Streaming task aborted by worker', 'AbortError'));
-      return; // Important to exit after signalling throw on stream
-    }
-    await new Promise(res => setTimeout(res, 200)); // Simulate async event
-    context.stream.next(`Update ${i}/${count}`);
-  }
-  context.stream.return(); // Signal completion
-});
-
-// Initialize the worker
-createWorkerHandler(
-  {
-    'calculate': heavyCalculation,
-    'subscribeToUpdates': liveUpdates,
-  },
-  {
-    plugins: [DOMExceptionPlugin], // Good for consistent error handling
-    // references: { 'mySharedUtil': () => console.log('Shared util called') }
-  }
-);
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
 ```
 
-**Important Notes for Worker Tasks:**
+Without these headers, `SharedArrayBuffer` will be unavailable, and cancellation signals will not be sent.
 
-*   **Context:** Worker tasks receive a `BaseContext` by default (containing `scope`). Any additional context properties must be sent from the main thread via `overrides` when calling `runOnWorker` or `runStreamOnWorker`.
-*   **Streaming Tasks:** If a task is meant to be streamed (`isStream: true`), its context will include a `stream: StreamHandle<TNext, TReturn>` property. The task *must* use `context.stream.next()`, `context.stream.throw()`, and `context.stream.return()` to communicate back to the main thread. It doesn't "return" data in the typical task sense for its stream.
-*   **Cancellation:** Worker tasks should respect their `context.scope.signal` for cancellation.
+#### Node.js Environment
 
-#### 2. Main-Thread Side: `runOnWorker` and `runStreamOnWorker`
+No special configuration is needed. `worker_threads` and `SharedArrayBuffer` are available by default in modern Node.js versions.
 
-These functions create "remote" tasks that delegate execution to your worker.
+#### TypeScript Configuration
 
-| Function                                                                                       | Description                                                                                                                                  |
-| :--------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------- |
-| `runOnWorker<C, V, R>(worker: globalThis.Worker, taskId: string, options?: RunOnWorkerOptions)`    | Creates a `Task` for request-response communication. Resolves/rejects with a single result/error from the worker.                            |
-| `runStreamOnWorker<C, V, R>(worker: globalThis.Worker, taskId: string, options?: RunOnWorkerOptions)` | Creates a `Task` for streaming. Resolves to an `AsyncIterable<R>` that yields values pushed by the worker task using its `StreamHandle`. |
+Ensure your `tsconfig.json` includes the `WebWorker` library to provide correct types for the worker's global scope (`self`).
 
-**`RunOnWorkerOptions` Interface:**
-
-| Property  | Type                                      | Description                                                                                                   |
-| :-------- | :---------------------------------------- | :------------------------------------------------------------------------------------------------------------ |
-| `plugins` | `SerovalPlugin<any, SerovalNode>[]` (optional) | `seroval` plugins for serialization/deserialization on the main thread (e.g., for arguments, results, errors). |
-
-**Example Main Thread Usage:**
-
-```typescript
-import { runOnWorker, runStreamOnWorker, type RunOnWorkerOptions } from 'path/to/your/worker-utils';
-import { createContext, run } from 'path/to/your/effectively-lib';
-import { DOMExceptionPlugin } from 'seroval-plugins/web'; // If using it
-
-interface AppContext extends BaseContext { /* ... your app context ... */ }
-
-const { run: appRun } = createContext<AppContext>({ /* ... */ });
-const myWorker = new Worker(new URL('./my.worker.ts', import.meta.url), { type: 'module' });
-
-const serovalMainThreadOptions: RunOnWorkerOptions = {
-  plugins: [DOMExceptionPlugin]
-};
-
-async function performCalculations() {
-  const remoteCalc = runOnWorker<AppContext, { value: number }, number>(
-    myWorker, 
-    'calculate',
-    serovalMainThreadOptions
-  );
-  try {
-    const result = await appRun(remoteCalc, { value: 10 });
-    console.log('Remote calculation result:', result); // Expected: 20
-  } catch (e) {
-    console.error('Remote calculation failed:', e);
+```jsonc
+// tsconfig.json
+{
+  "compilerOptions": {
+    // ... other options
+    "lib": ["ESNext", "DOM", "WebWorker"]
   }
 }
-
-async function subscribeToData() {
-  const remoteUpdater = runStreamOnWorker<AppContext, number, string>(
-    myWorker, 
-    'subscribeToUpdates',
-    serovalMainThreadOptions
-  );
-  try {
-    const updatesIterable = await appRun(remoteUpdater, 5); // Request 5 updates
-    for await (const update of updatesIterable) {
-      console.log('Received update from worker:', update);
-      // Example: if (update === 'Update 3/5') break; // To test consumer breaking loop
-    }
-    console.log('Stream finished.');
-  } catch (e) {
-    console.error('Streaming failed:', e);
-  }
-}
-
-// Call them
-// performCalculations();
-// subscribeToData().then(() => myWorker.terminate()); // Terminate worker when done
 ```
 
-### ✨ Key Benefits & Features
+### 🔬 How It Works Under the Hood
 
-*   **Type Safety:** Full TypeScript support for tasks, context, arguments, and results across the worker boundary, aided by `seroval`.
-*   **Complex Data Transfer:** `seroval` handles Promises, Dates, Maps, Sets, circular references, and more, making data transfer robust.
-*   **Isomorphic Code:** Use `options.references` in `createWorkerHandler` to share functions or objects that exist in both main and worker environments without serializing their code.
-*   **Efficient Cancellation:** `Atomics.store/load/notify` provide a very fast way to signal cancellation from the main thread to the worker, which then aborts its task execution via its `scope.signal`.
-*   **Standard AsyncIterable:** `runStreamOnWorker` provides a standard `AsyncIterable` on the main thread, making consumption of streamed data idiomatic (`for await...of`).
-*   **Error Propagation:** Errors (including custom errors if `seroval` plugins are used, like `DOMExceptionPlugin`) are serialized from the worker and re-thrown on the main thread, maintaining stack traces where possible.
+This module replaces manual `postMessage` calls with a structured, reliable protocol. Understanding this flow helps in debugging and advanced usage.
 
-### 💡 Tips & Gotchas
+#### 1. Worker Script (`createWorkerHandler`)
 
-1.  **Worker Instantiation:** Remember `new Worker(new URL('./path/to/worker.ts', import.meta.url), { type: 'module' });` for ES module workers.
-2.  **Serialization Limits:** While `seroval` is powerful, not everything is serializable (e.g., live DOM elements, some opaque browser objects). For functions, use isomorphic references.
-3.  **Context Serialization:** When `runOnWorker` or `runStreamOnWorker` is called, it serializes `fullContext` (excluding `scope`). Ensure all properties in your `fullContext` are serializable by `seroval` or registered as isomorphic references if they need to be accessed by the worker task.
-4.  **`eval()` Usage:** This module uses `eval()` in two places as required/recommended by `seroval`:
-    *   `eval(getCrossReferenceHeader('worker'))` in `createWorkerHandler`: Initializes `seroval`'s global `$R` array for cross-referencing within the worker. This executes trusted code generated by `seroval`.
-    *   `eval(e.data)` in `runStreamOnWorker`'s `onmessage` handler: Executes JavaScript string commands sent by `seroval` from the worker to control the main thread's `streamProxy` (e.g., `streamProxy.next(...)`). This is also part of `seroval`'s trusted streaming protocol.
-    These are specific to `seroval`'s mechanics and are generally safe when used with `seroval`-generated data.
-5.  **Worker Task Contract for Streams:** Worker tasks used with `runStreamOnWorker` **must** accept a `stream: StreamHandle<TNext, TReturn>` in their context and use its methods (`next`, `throw`, `return`) to send data back.
-6.  **`seroval-plugins`:** For best results with web API objects like `DOMException`, `File`, `Blob`, etc., use the corresponding plugins from `seroval-plugins/web` in both the main thread's `RunOnWorkerOptions` and the worker's `WorkerHandlerOptions`.
-7.  **Worker Termination:** You are responsible for terminating the worker (e.g., `worker.terminate()`) when it's no longer needed to free up resources.
-8.  **Error Object Revival:** While `seroval` (especially with plugins like `DOMExceptionPlugin`) does a good job, errors crossing the worker boundary might sometimes lose their exact prototype chain. The `runOnWorker` includes a fallback to reconstruct error-like objects. Always check `error.name` and `error.message`.
-9.  **SharedArrayBuffer Availability:** `Atomics`-based cancellation relies on `SharedArrayBuffer`. This is widely available in modern Node.js and browsers (with proper COOP/COEP headers for web). If `SharedArrayBuffer` is unavailable, cancellation will not be as efficient (the worker task would only stop when its `parentSignal` (the internal `AbortController`) is checked, without the immediate atomic flag). The module currently assumes `SharedArrayBuffer` is available.
+Your worker file is the server in this client-server relationship. The `createWorkerHandler(tasks)` function is its entry point. It:
+*   Creates an internal map of string `taskId`s to your `Task` functions.
+*   Attaches a single, powerful message listener to the worker's global scope (`self` or `parentPort`).
+*   Sends a `{ type: 'ready' }` message to the main thread to signal that it's initialized and ready to accept requests.
+
+#### 2. Main Thread Integration (`runOnWorker` / `runStreamOnWorker`)
+
+On the main thread, `runOnWorker` and `runStreamOnWorker` act as client-side factories. They don't execute any logic immediately. Instead, they create a "remote `Task`" that, when executed by `run()`, knows how to communicate with the worker.
+
+#### 3. The Communication Protocol
+
+The core of the module is a simple, `eval`-free JSON message protocol. Every message follows a defined structure.
+
+*   **Request Message (Main -> Worker):**
+    ```typescript
+    interface RequestMessage {
+      id: number;          // Unique ID for this specific request
+      type: 'run';
+      isStream: boolean;   // True if runStreamOnWorker was used
+      taskId: string;        // The string key of the task to run
+      payload: string;       // seroval-serialized [value, context]
+      signal?: Int32Array; // View on a SharedArrayBuffer for cancellation
+    }
+    ```
+
+*   **Response Message (Worker -> Main):**
+    ```typescript
+    interface ResponseMessage {
+      id: number;          // The ID from the original request
+      type: 'resolve' | 'reject' | 'stream_chunk' | 'stream_end' | 'stream_error';
+      payload?: string;      // seroval-serialized result, error, or stream chunk
+    }
+    ```
+
+#### 4. Handshake and State Management
+
+*   **Ready Handshake:** Waiting for the `{ type: 'ready' }` message is crucial, especially in Node.js. It prevents a race condition where the main thread posts a message before the worker's listener is attached, which would cause the message to be lost and the task to hang.
+*   **State Maps:** The main thread maintains two global maps to track pending operations:
+    *   `promiseMap: Map<number, { resolve, reject }>` for request-response tasks.
+    *   `streamControllerMap: Map<number, ReadableStreamDefaultController>` for streaming tasks.
+    When a response arrives, its `id` is used to look up the correct handler in these maps. The maps are cleaned up upon completion, error, or cancellation to prevent memory leaks.
+
+#### 5. Serialization (`seroval`)
+
+*   **Context:** When you `run` a remote task, the entire `context` object you are running in, **except for the `scope` property**, is serialized and sent to the worker. The non-serializable `scope` is reconstructed inside the worker.
+*   **Values:** The input `value` and any return `results` or `errors` are also passed through `seroval`. This allows for rich data transfer far beyond what `JSON.stringify` can handle.
+
+#### 6. Streaming (`AsyncIterable`)
+
+The streaming implementation is robust and avoids race conditions:
+1.  The main thread creates a `ReadableStream`. Its `controller` is stored in the `streamControllerMap`. The stream itself (which is an `AsyncIterable`) is returned to the user.
+2.  The worker executes the target task, which must be an `async function*`.
+3.  For each `yield`, the worker sends a `stream_chunk` message. The main thread receives it, finds the correct controller via the message `id`, and calls `controller.enqueue()`.
+4.  When the generator finishes, the worker sends a `stream_end` message. The main thread calls `controller.close()`.
+5.  If the generator throws an error, a `stream_error` message is sent, and the main thread calls `controller.error()`.
+
+#### 7. Cancellation (`Atomics`)
+
+This module's zero-latency cancellation is powered exclusively by `Atomics` and `SharedArrayBuffer`.
+*   **If these APIs are available**, a `SharedArrayBuffer` is created for the request. If the main thread's `AbortSignal` fires, `Atomics.store` and `Atomics.notify` instantly update a value in that shared memory. The worker, which is listening with the non-blocking `Atomics.waitAsync`, immediately aborts its internal `AbortController`, which is passed to the running task.
+*   **If these APIs are NOT available**, the `signal` property will not be sent, and **cancellation signals for that task cannot be propagated**.
 
 
-###  Troubleshooting
+### 💡 Advanced Topics & FAQ
 
-*   **"Task X not found on worker":**
-    *   Ensure the `taskId` string passed to `runOnWorker` or `runStreamOnWorker` exactly matches a key in the `tasks` object passed to `createWorkerHandler` in your worker script.
-    *   Check for typos or case sensitivity issues.
+#### What is a `TaskIdentifier`?
 
-*   **Data not serializing/deserializing correctly:**
-    *   The object you're passing or returning might contain types not supported by `seroval` by default. Consider using `seroval-plugins` or simplifying the data.
-    *   For functions or complex class instances, ensure they are registered as isomorphic references on both sides if applicable.
+It's a `string` or a `Task` object.
+*   **String:** `runOnWorker(worker, 'multiply')`. This is the simplest and most common usage.
+*   **Task Object:** `runOnWorker(worker, multiplyTask)`. You can also pass the `Task` object itself. The library extracts its unique internal ID (`task.__task_id.description`). This can be useful for better type-safety and refactoring.
 
-*   **Streaming not working / `AsyncIterable` never ends or starts:**
-    *   Verify the worker task is correctly using `context.stream.next()`, `context.stream.throw()`, and especially `context.stream.return()` to signal completion.
-    *   Check the main thread's `worker.onmessage` that calls `eval(e.data)` – are messages arriving from the worker? Are there errors during `eval`?
-    *   Ensure the `streamProxy` is correctly passed in the serialized context to the worker.
+#### How are errors from the worker handled?
 
-*   **Cancellation not working immediately:**
-    *   Confirm `SharedArrayBuffer` is available in your environment.
-    *   Ensure the worker task frequently checks its `context.scope.signal.aborted` status, especially during long loops or before/after I/O. The Atomics flag signals the worker's internal `AbortController`, but the task logic itself needs to react to that controller's signal.
+When a task in the worker throws an error, the module catches it, serializes it with `seroval`, and sends it back to the main thread.
+*   The error's `name` and `message` are reliably preserved. If you use `seroval-plugins` (like for `DOMException`), even more properties can be maintained.
+*   The main thread re-constructs the error and rejects the `Promise` or errors the `AsyncIterable`.
+*   The **stack trace** will reflect the point where the error was thrown **inside the worker**, which is useful for debugging worker-specific logic, but it will not be connected to the main thread's call stack.
 
-*   **`eval` related Content Security Policy (CSP) issues (Web):**
-    *   If you have a strict CSP that disallows `eval` or `'unsafe-eval'`, `seroval`'s streaming mechanism (which relies on `eval` on the main thread for stream commands) might be blocked. `seroval`'s documentation might offer alternatives or CSP configurations if this is an issue. For `getCrossReferenceHeader`, it's a one-time init.
+
+### 📋 API Reference
+
+| Function                               | Side   | Description                                                                                                                                  |
+| :------------------------------------- | :----- | :------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createWorkerHandler(tasks, options?)` | Worker | Sets up the worker to handle task requests from the main thread.                                                                               |
+| `runOnWorker(worker, taskId, opts?)`   | Main   | Creates a `Task` for a request-response operation on a worker. `taskId` can be a string or a `Task` object.                                    |
+| `runStreamOnWorker(worker, taskId, opts?)`| Main | Creates a `Task` that returns an `AsyncIterable`. `taskId` can be a string or a `Task` object.                                                 |
+
+
+### ⚠️ Troubleshooting
+
+*   **Task Hangs / Never Resolves:** You likely sent a message before the worker was ready. Always wait for the `{ type: 'ready' }` message from the worker after creating it.
+*   **"Task X not found on worker":** The `taskId` string you passed to `runOnWorker` doesn't match any key in the `tasks` object you gave to `createWorkerHandler`. Check for typos.
+*   **"Task ... did not return an AsyncIterable":** You used `runStreamOnWorker`, but the corresponding task in the worker was not an `async function*`. The task must `yield` values.
+*   **Cancellation Not Working:** Check your browser's dev tools console for warnings about `SharedArrayBuffer`. You likely need to set the COOP/COEP headers as described in the Setup section.

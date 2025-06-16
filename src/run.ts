@@ -1,3 +1,4 @@
+// run.ts
 import { createContext as createUnctx } from "unctx";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { type Result, type Ok, type Err, ok, err } from "neverthrow";
@@ -580,34 +581,74 @@ function createTaskFunction<
 
 /**
  * Defines a context-aware Task, inferring Input (V) and Result (R) types from `fn`.
- * The expected Context (C) for `getContext<C>()` calls within `fn` defaults to `DefaultGlobalContext`.
- * The returned Task is typed as `Task<any, V, R>`, suitable for global use.
+ * This overload is for standard async functions that return a single value via a Promise.
+ *
+ * @param fn An async function `(value: V) => Promise<R>`.
+ * @param taskNameOrOptions Optional name or configuration for the task.
+ * @returns A `Task<any, V, R>` for request-response patterns.
  */
 export function defineTask<V, R>(
   fn: (value: V) => Promise<R>,
   taskNameOrOptions?: string | DefineTaskOptions,
 ): Task<any, V, R>;
+
 /**
- * Defines a context-aware Task, specifying the expected Context type `C` for
- * `getContext<C>()` calls within `fn`. Input (V) and Result (R) types are inferred from `fn`.
- * The returned Task is typed as `Task<any, V, R>`, suitable for global use,
- * but `fn` is type-checked against `C`.
+ * Defines a context-aware Task from an async generator function, which is used for streaming.
+ * It infers the Input (V) and the yielded item type (R) from the generator.
+ *
+ * @param fn An async generator function `(value: V) => AsyncGenerator<R> | AsyncIterable<R>`.
+ * @param taskNameOrOptions Optional name or configuration for the task.
+ * @returns A `Task<any, V, AsyncIterable<R>>` for streaming patterns.
  */
-export function defineTask<C extends BaseContext, V = any, R = any>( // V, R default to any to allow inference if C is first
-  fn: (value: V) => Promise<R>, // V and R will be inferred from this function
+export function defineTask<V, R>(
+  fn: (value: V) => AsyncGenerator<R> | AsyncIterable<R>,
+  taskNameOrOptions?: string | DefineTaskOptions,
+): Task<any, V, AsyncIterable<R>>;
+
+/**
+ * Defines a context-aware Task, specifying the expected Context type `C`.
+ * This overload is for standard async functions.
+ *
+ * @param fn An async function `(value: V) => Promise<R>`.
+ * @param taskNameOrOptions Optional name or configuration for the task.
+ */
+export function defineTask<C extends BaseContext, V = any, R = any>(
+  fn: (value: V) => Promise<R>,
   taskNameOrOptions?: string | DefineTaskOptions,
 ): Task<any, V, R>;
+
 /**
- * Defines a context-aware Task, explicitly specifying Input (V), Result (R),
- * and expected Context (C) types.
- * The returned Task is typed as `Task<any, V, R>`.
+ * Defines a context-aware Task, specifying the expected Context type `C`.
+ * This overload is for async generator functions (streaming).
+ *
+ * @param fn An async generator function `(value: V) => AsyncGenerator<R> | AsyncIterable<R>`.
+ * @param taskNameOrOptions Optional name or configuration for the task.
+ */
+export function defineTask<C extends BaseContext, V = any, R = any>(
+  fn: (value: V) => AsyncGenerator<R> | AsyncIterable<R>,
+  taskNameOrOptions?: string | DefineTaskOptions,
+): Task<any, V, AsyncIterable<R>>;
+
+/**
+ * Defines a context-aware Task with full explicit type annotations.
+ * This overload is for standard async functions.
  */
 export function defineTask<V, R, C extends BaseContext>(
   fn: (value: V) => Promise<R>,
   taskNameOrOptions?: string | DefineTaskOptions,
 ): Task<any, V, R>;
+
 /**
- * Defines a context-aware Task from a simple asynchronous function.
+ * Defines a context-aware Task with full explicit type annotations.
+ * This overload is for async generator functions (streaming).
+ */
+export function defineTask<V, R, C extends BaseContext>(
+  fn: (value: V) => AsyncGenerator<R> | AsyncIterable<R>,
+  taskNameOrOptions?: string | DefineTaskOptions,
+): Task<any, V, AsyncIterable<R>>;
+
+/**
+ * Defines a context-aware Task from a simple asynchronous function or async generator.
  *
  * This "smart" version of `defineTask` creates a Task that can be run
  * either within a specific context (established by `createContext` and `run`)
@@ -617,30 +658,29 @@ export function defineTask<V, R, C extends BaseContext>(
  * Instead, it should use `getContext<C>()` internally to access the context
  * active at runtime.
  *
- * The returned Task has its context type parameter as `any` (`Task<any, V, R>`)
- * signifying it can run in various contexts. The `C` generic primarily serves
- * to type-check `getContext<C>()` calls within the body of your `fn`.
+ * - If `fn` returns a `Promise`, the result is a single value `R`.
+ * - If `fn` is an `async function*`, the result is a stream `AsyncIterable<R>`.
  *
  * @param fn The core asynchronous logic of the task.
  * @param taskNameOrOptions Optional name for the task or DefineTaskOptions.
  */
 export function defineTask<
-  V_Inferred, // Will be inferred from fn if not specified in an overload
-  R_Inferred, // Will be inferred from fn if not specified in an overload
+  V_Inferred,
+  R_Inferred, // This will be either the Promise result or the AsyncIterable yielded type
   C_Expected extends BaseContext = DefaultGlobalContext,
 >(
-  fn: (value: V_Inferred) => Promise<R_Inferred>,
+  fn: (value: V_Inferred) => Promise<R_Inferred> | AsyncIterable<R_Inferred>,
   taskNameOrOptions?: string | DefineTaskOptions,
-): Task<any, V_Inferred, R_Inferred> {
+): Task<any, V_Inferred, R_Inferred | AsyncIterable<R_Inferred>> {
   // C_Expected is the type hint for `getContext<C>()` calls inside `fn`.
   // The returned Task is `Task<any, ...>` because this smart defineTask
   // creates tasks runnable in any compatible context or the global default.
   return createTaskFunction<
     V_Inferred,
-    R_Inferred,
+    R_Inferred | AsyncIterable<R_Inferred>,
     /* ActualContext for Task signature */ any,
     /* ExpectedContextInFn */ C_Expected
-  >(fn, taskNameOrOptions);
+  >(fn as any, taskNameOrOptions);
 }
 
 /**
