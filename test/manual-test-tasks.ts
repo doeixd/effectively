@@ -19,6 +19,8 @@ function cancellableDelay(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+export type tasks = typeof tasks
+
 export const tasks = {
   heavyTask: defineTask(async (data: { value: number }) => {
     const { scope } = getContext();
@@ -45,6 +47,7 @@ export const tasks = {
       yield `Update #${i}`;
     }
     console.log("[Worker] Stream generation finished.");
+    return
   }),
 
   failingStreamTask: defineTask(async function* (_value: void) {

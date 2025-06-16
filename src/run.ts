@@ -134,6 +134,8 @@ export type Task<C extends BaseContext, V, R> = ((
    * @internal
    */
   __steps?: ReadonlyArray<Task<C, unknown, unknown>>;
+  
+  __task_type?: 'stream' | 'request'
 };
 
 /**
@@ -311,10 +313,23 @@ export interface ContextTools<
    * @param taskNameOrOptions Optional name for the task or `DefineTaskOptions`.
    * @returns A `Task<C, V, R>`, strongly typed to this context.
    */
-  defineTask: <V, R>(
-    fn: (value: V) => Promise<R>,
-    taskNameOrOptions?: string | DefineTaskOptions,
-  ) => Task<C, V, R>;
+  defineTask: {
+    /**
+     * Defines a context-aware Task from a standard async function.
+     */
+    <V, R>(
+      fn: (value: V) => Promise<R>,
+      taskNameOrOptions?: string | DefineTaskOptions
+    ): Task<C, V, R>;
+
+    /**
+     * Defines a context-aware Task from an async generator for streaming.
+     */
+    <V, R>(
+      fn: (value: V) => AsyncGenerator<R, any, unknown> | AsyncIterable<R>,
+      taskNameOrOptions?: string | DefineTaskOptions
+    ): Task<C, V, AsyncIterable<R>>;
+  }
 
   /**
    * Executes a function within a new, nested context scope that temporarily
@@ -539,18 +554,22 @@ export interface DefineTaskOptions {
  * - ExpectedContextInFn: The context type `getContext<C>()` calls *inside* `fn` will expect.
  */
 function createTaskFunction<
-  V, // Input type of fn
-  R, // Result type of fn
-  ActualContext extends BaseContext, // Context type for the Task signature
-  ExpectedContextInFn extends BaseContext, // Context type fn expects via getContext<ExpectedContextInFn>
+  V,
+  R,
+  ActualContext extends BaseContext,
+  ExpectedContextInFn extends BaseContext
 >(
-  fn: (value: V) => Promise<R>,
+  // This signature correctly accepts a function that returns either a Promise or an AsyncIterable.
+  fn: (value: V) => Promise<R> | AsyncIterable<R>,
   taskNameOrOptions?: string | DefineTaskOptions,
 ): Task<ActualContext, V, R> {
+  // This executor correctly returns a Promise, satisfying the Task<C, V, R> type.
   const taskFnExecutor = (context: ActualContext, value: V): Promise<R> => {
-    // The user's `fn` uses getContext<ExpectedContextInFn>() internally.
-    // The `context` param here is what `run` provides.
-    return fn(value);
+    // Promise.resolve() correctly handles both cases:
+    // 1. If fn(value) is a Promise, it's returned as-is.
+    // 2. If fn(value) is an AsyncIterable, it's immediately resolved,
+    //    and the iterable object itself becomes the fulfilled value of the promise.
+    return Promise.resolve(fn(value) as R);
   };
 
   let taskName: string | undefined;
@@ -562,48 +581,20 @@ function createTaskFunction<
     taskName = taskNameOrOptions.name;
     idSymbol = taskNameOrOptions.idSymbol;
   }
-
   const finalName = taskName || fn.name || "anonymousTask";
 
-  Object.defineProperty(taskFnExecutor, "name", {
-    value: finalName,
-    configurable: true,
-  });
-  Object.defineProperty(taskFnExecutor, "__task_id", {
-    value: idSymbol || Symbol(finalName),
-    configurable: false,
-    enumerable: false,
-    writable: false,
+  Object.defineProperty(taskFnExecutor, "name", { value: finalName, configurable: true });
+  Object.defineProperty(taskFnExecutor, "__task_id", { value: idSymbol || Symbol(finalName), configurable: true });
+
+  const isAsyncGenerator = fn.constructor.name === 'AsyncGeneratorFunction';
+  Object.defineProperty(taskFnExecutor, "__task_type", {
+    value: isAsyncGenerator ? 'stream' : 'request',
+    configurable: true
   });
 
   return taskFnExecutor as Task<ActualContext, V, R>;
 }
 
-/**
- * Defines a context-aware Task, inferring Input (V) and Result (R) types from `fn`.
- * This overload is for standard async functions that return a single value via a Promise.
- *
- * @param fn An async function `(value: V) => Promise<R>`.
- * @param taskNameOrOptions Optional name or configuration for the task.
- * @returns A `Task<any, V, R>` for request-response patterns.
- */
-export function defineTask<V, R>(
-  fn: (value: V) => Promise<R>,
-  taskNameOrOptions?: string | DefineTaskOptions,
-): Task<any, V, R>;
-
-/**
- * Defines a context-aware Task from an async generator function, which is used for streaming.
- * It infers the Input (V) and the yielded item type (R) from the generator.
- *
- * @param fn An async generator function `(value: V) => AsyncGenerator<R> | AsyncIterable<R>`.
- * @param taskNameOrOptions Optional name or configuration for the task.
- * @returns A `Task<any, V, AsyncIterable<R>>` for streaming patterns.
- */
-export function defineTask<V, R>(
-  fn: (value: V) => AsyncGenerator<R> | AsyncIterable<R>,
-  taskNameOrOptions?: string | DefineTaskOptions,
-): Task<any, V, AsyncIterable<R>>;
 
 /**
  * Defines a context-aware Task, specifying the expected Context type `C`.
@@ -616,7 +607,6 @@ export function defineTask<C extends BaseContext, V = any, R = any>(
   fn: (value: V) => Promise<R>,
   taskNameOrOptions?: string | DefineTaskOptions,
 ): Task<any, V, R>;
-
 /**
  * Defines a context-aware Task, specifying the expected Context type `C`.
  * This overload is for async generator functions (streaming).
@@ -628,25 +618,6 @@ export function defineTask<C extends BaseContext, V = any, R = any>(
   fn: (value: V) => AsyncGenerator<R> | AsyncIterable<R>,
   taskNameOrOptions?: string | DefineTaskOptions,
 ): Task<any, V, AsyncIterable<R>>;
-
-/**
- * Defines a context-aware Task with full explicit type annotations.
- * This overload is for standard async functions.
- */
-export function defineTask<V, R, C extends BaseContext>(
-  fn: (value: V) => Promise<R>,
-  taskNameOrOptions?: string | DefineTaskOptions,
-): Task<any, V, R>;
-
-/**
- * Defines a context-aware Task with full explicit type annotations.
- * This overload is for async generator functions (streaming).
- */
-export function defineTask<V, R, C extends BaseContext>(
-  fn: (value: V) => AsyncGenerator<R> | AsyncIterable<R>,
-  taskNameOrOptions?: string | DefineTaskOptions,
-): Task<any, V, AsyncIterable<R>>;
-
 /**
  * Defines a context-aware Task from a simple asynchronous function or async generator.
  *
@@ -2330,12 +2301,14 @@ export function createContext<
     // but if G_AppGlobal is DefaultGlobalContext, it's fine.
   };
 
-  const defineTaskSpecific = <V, R>(
-    fn: (value: V) => Promise<R>,
+  const defineTaskSpecific: ContextTools<C>['defineTask'] = (
+    fn: (value: any) => Promise<any> | AsyncIterable<any>,
     taskNameOrOptions?: string | DefineTaskOptions,
-  ): Task<C, V, R> => {
-    return createTaskFunction<V, R, C, C>(fn, taskNameOrOptions);
-  };
+  ): Task<C, any, any> => {
+    // Create a task bound to context `C`. This is now fully type-safe.
+    return createTaskFunction<any, any, C, C>(fn, taskNameOrOptions);
+  }
+
   async function provideSpecific<Pr>(
     overrides: Partial<
       Omit<C, "scope" | typeof UNCTX_INSTANCE_SYMBOL> &

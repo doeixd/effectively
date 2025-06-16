@@ -1190,9 +1190,11 @@ Here is the complete, corrected, and comprehensive API reference section for you
 ### Multi-Threading (Web Workers)
 | Function | Side | Description |
 |----------|------|-------------|
-| `createWorkerHandler(tasks, options?)` | Worker | Sets up the worker to handle task requests from the main thread. |
-| `runOnWorker(worker, taskId, options?)` | Main | Creates a `Task` that executes its logic on a worker (request-response). |
-| `runStreamOnWorker(worker, taskId, options?)` | Main | Creates a `Task` that returns an `AsyncIterable` for streaming results from a worker. |
+| `createWorkerHandler(tasks, options?)` | Worker | Sets up the worker script to listen for and execute tasks. It automatically sends task metadata to the main thread on startup. |
+| `runOnWorker(worker, taskId, options?)` | Main | Creates a `Task` that executes a specific task on the worker (request-response). Best for manual or dynamic task calls. |
+| `runStreamOnWorker(worker, taskId, options?)` | Main | Creates a `Task` that returns an `AsyncIterable` for streaming results from a worker. Best for manual or dynamic stream calls. |
+| `createWorkerProxy<T>(worker, options?)` | Main | **(Not Recommended)** Returns a `Promise` that resolves to a type-safe proxy for all worker tasks. It's the most ergonomic way to call remote tasks, as it automatically handles whether a task is a stream or a single response. |
+
 
 ### Context & Dependency Injection
 | Function | Description |
