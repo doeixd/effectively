@@ -103,7 +103,7 @@ const { defineTask, getContext } = createContext<AppContext>({
 
 // After: defineTask makes context implicit
 const greet = defineTask(async (name: string) => {
-  const { greeting } = getContext();  // Context is now available via getContext()
+  const { greeting } = getContext();  // Typesafe Context is now available via getContext()
   return `${greeting}, ${name}!`;
 });
 ```
