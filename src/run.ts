@@ -134,8 +134,8 @@ export type Task<C extends BaseContext, V, R> = ((
    * @internal
    */
   __steps?: ReadonlyArray<Task<C, unknown, unknown>>;
-  
-  __task_type?: 'stream' | 'request'
+
+  __task_type?: "stream" | "request";
 };
 
 /**
@@ -319,7 +319,7 @@ export interface ContextTools<
      */
     <V, R>(
       fn: (value: V) => Promise<R>,
-      taskNameOrOptions?: string | DefineTaskOptions
+      taskNameOrOptions?: string | DefineTaskOptions,
     ): Task<C, V, R>;
 
     /**
@@ -327,9 +327,9 @@ export interface ContextTools<
      */
     <V, R>(
       fn: (value: V) => AsyncGenerator<R, any, unknown> | AsyncIterable<R>,
-      taskNameOrOptions?: string | DefineTaskOptions
+      taskNameOrOptions?: string | DefineTaskOptions,
     ): Task<C, V, AsyncIterable<R>>;
-  }
+  };
 
   /**
    * Executes a function within a new, nested context scope that temporarily
@@ -534,6 +534,7 @@ interface DefaultGlobalContext extends BaseContext {}
 const DEFAULT_GLOBAL_CONTEXT_KEY = "__effectively_default_context__" as const;
 
 declare global {
+  // @ts-ignore
   var __effectively_default_context__:
     | ContextTools<DefaultGlobalContext, DefaultGlobalContext>
     | undefined;
@@ -557,7 +558,7 @@ function createTaskFunction<
   V,
   R,
   ActualContext extends BaseContext,
-  ExpectedContextInFn extends BaseContext
+  ExpectedContextInFn extends BaseContext,
 >(
   // This signature correctly accepts a function that returns either a Promise or an AsyncIterable.
   fn: (value: V) => Promise<R> | AsyncIterable<R>,
@@ -583,18 +584,23 @@ function createTaskFunction<
   }
   const finalName = taskName || fn.name || "anonymousTask";
 
-  Object.defineProperty(taskFnExecutor, "name", { value: finalName, configurable: true });
-  Object.defineProperty(taskFnExecutor, "__task_id", { value: idSymbol || Symbol(finalName), configurable: true });
+  Object.defineProperty(taskFnExecutor, "name", {
+    value: finalName,
+    configurable: true,
+  });
+  Object.defineProperty(taskFnExecutor, "__task_id", {
+    value: idSymbol || Symbol(finalName),
+    configurable: true,
+  });
 
-  const isAsyncGenerator = fn.constructor.name === 'AsyncGeneratorFunction';
+  const isAsyncGenerator = fn.constructor.name === "AsyncGeneratorFunction";
   Object.defineProperty(taskFnExecutor, "__task_type", {
-    value: isAsyncGenerator ? 'stream' : 'request',
-    configurable: true
+    value: isAsyncGenerator ? "stream" : "request",
+    configurable: true,
   });
 
   return taskFnExecutor as Task<ActualContext, V, R>;
 }
-
 
 /**
  * Defines a context-aware Task, specifying the expected Context type `C`.
@@ -915,32 +921,33 @@ async function runImpl<
         );
         currentIndex++;
       } catch (error) {
-        // --- START FIX: Check for pre-existing WorkflowError ---
-        if (error instanceof WorkflowError || isBacktrackSignal(error)) {
-          throw error; // Re-throw without re-wrapping
-        }
-        // --- END FIX ---
-
-        // Original logic for wrapping other errors remains
         if (isBacktrackSignal(error)) {
           backtrackCount++;
-          if (backtrackCount > maxBacktracks)
+          if (backtrackCount > maxBacktracks) {
             throw new WorkflowError(
               `Maximum backtrack limit (${maxBacktracks}) exceeded.`,
               error,
             );
+          }
           const targetIndex = allSteps.findIndex(
             (step: { __task_id?: symbol }) =>
               step.__task_id === error.target.__task_id,
           );
-          if (targetIndex === -1)
-            throw new WorkflowError(`BacktrackSignal target not found.`, error);
-          if (targetIndex > currentIndex)
-            throw new WorkflowError(`Cannot backtrack forward.`, error);
+          if (targetIndex === -1) {
+            throw new WorkflowError("BacktrackSignal target not found.", error);
+          }
+          if (targetIndex > currentIndex) {
+            throw new WorkflowError("Cannot backtrack forward.", error);
+          }
           currentIndex = targetIndex;
           currentValue = error.value;
           continue;
         }
+
+        if (error instanceof WorkflowError) {
+          throw error;
+        }
+
         throw new WorkflowError(
           `Task failed: ${error instanceof Error ? error.message : String(error)}`,
           error,
@@ -1093,6 +1100,7 @@ export function run<
   const executionContext = {
     ...parentContext,
     ...overrides,
+    ...(options.logger ? { logger: options.logger } : {}),
     scope: newScope,
   };
 
@@ -2301,14 +2309,13 @@ export function createContext<
     // but if G_AppGlobal is DefaultGlobalContext, it's fine.
   };
 
-  const defineTaskSpecific: ContextTools<C>['defineTask'] = (
+  const defineTaskSpecific: ContextTools<C>["defineTask"] = (
     fn: (value: any) => Promise<any> | AsyncIterable<any>,
     taskNameOrOptions?: string | DefineTaskOptions,
   ): Task<C, any, any> => {
     // Create a task bound to context `C`. This is now fully type-safe.
     return createTaskFunction<any, any, C, C>(fn, taskNameOrOptions);
-  }
-
+  };
   async function provideSpecific<Pr>(
     overrides: Partial<
       Omit<C, "scope" | typeof UNCTX_INSTANCE_SYMBOL> &
@@ -2317,76 +2324,22 @@ export function createContext<
     fn: () => Promise<Pr>,
     options?: ProvideImplOptions,
   ): Promise<Pr> {
-    // Correctly get the parent context without throwing.
-    // This call happens *before* a new scope is established.
     const parentDataForProvide = localUnctxInstance.use();
 
-    // If we are nested inside a `run` or another `provide` from the same tools,
-    // `parentDataForProvide` will exist.
-    if (parentDataForProvide) {
-      return _INTERNAL_provideImpl<Pr, C, C>(
-        localUnctxInstance,
-        parentDataForProvide, // Use the active context as the parent
-        overrides,
-        fn,
-        options,
-      );
-    } else {
-      // This is a top-level `provide` call for these specific tools.
-      // We must build a base context from the tool's defaults.
-      const baseContextForThisProvide: C = {
-        ...(toolsDefaultContextData as C),
-        scope: { signal: new AbortController().signal }, // Create a root scope
-      };
+    const baseContextForThisProvide = parentDataForProvide
+      ? parentDataForProvide
+      : ({
+          ...toolsDefaultContextData,
+          scope: { signal: new AbortController().signal },
+        } as C);
 
-      return _INTERNAL_provideImpl<Pr, C, C>(
-        localUnctxInstance,
-        baseContextForThisProvide, // Use the default context as the parent
-        overrides,
-        fn,
-        options,
-      );
-    }
-  }
-  async function _provideSpecific<Pr>(
-    overrides: Partial<
-      Omit<C, "scope" | typeof UNCTX_INSTANCE_SYMBOL> &
-        Record<string | symbol, any>
-    >,
-    fn: () => Promise<Pr>,
-    options?: ProvideImplOptions,
-  ): Promise<Pr> {
-    const parentDataForProvide = localUnctxInstance.use();
-
-    // The key change is here. If there is no active context for this instance,
-    // we build one from the defaults associated with *these tools*, not
-    // from a wrongly detected ambient context.
-    if (parentDataForProvide) {
-      // We are nested inside a `run` or another `provide` from the same tools.
-      // Correctly enhance the active context.
-      return _INTERNAL_provideImpl<Pr, C, C>(
-        localUnctxInstance,
-        parentDataForProvide,
-        overrides,
-        fn,
-        options,
-      );
-    } else {
-      // This is the outermost call for this context. Use its own defaults as the base.
-      const baseContextForThisProvide: C = {
-        ...(toolsDefaultContextData as C),
-        // Create a new root scope for this top-level provide.
-        scope: { signal: new AbortController().signal },
-      };
-
-      return _INTERNAL_provideImpl<Pr, C, C>(
-        localUnctxInstance,
-        baseContextForThisProvide,
-        overrides,
-        fn,
-        options,
-      );
-    }
+    return _INTERNAL_provideImpl<Pr, C, C>(
+      localUnctxInstance,
+      baseContextForThisProvide,
+      overrides,
+      fn,
+      options,
+    );
   }
   /**
    * Executes a workflow exclusively within this specific context `C`.
@@ -2444,6 +2397,7 @@ export function createContext<
     const executionContext: C = {
       ...(toolsDefaultContextData as C), // Base properties for this context type
       ...(overrides as Partial<C>), // Runtime overrides for this specific run
+
       scope: newScope, // The new scope always overrides any default
     };
 

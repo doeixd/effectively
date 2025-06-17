@@ -387,14 +387,16 @@ describe("Circuit Breaker (circuit-breaker.ts)", () => {
         );
 
         errorToThrow = new PermanentError();
-        await expect(run(protectedTask, "perm1")).rejects.toThrow(
-          PermanentError,
-        );
+        await checkErrorCause(run(protectedTask, "perm1"), PermanentError);
+        // await expect(run(protectedTask, "perm1")).rejects.toThrow(
+        //   PermanentError,
+        // );
 
         errorToThrow = new PermanentError();
-        await expect(run(protectedTask, "perm2")).rejects.toThrow(
-          PermanentError,
-        );
+        // await expect(run(protectedTask, "perm2")).rejects.toThrow(
+        //   PermanentError,
+        // );
+        await checkErrorCause(run(protectedTask, "perm2"), PermanentError);
         expect(globalMockLogger.error).toHaveBeenCalledWith(
           `[Circuit Breaker: ${circuitId}] Failure threshold reached. State changed to OPEN.`,
         );

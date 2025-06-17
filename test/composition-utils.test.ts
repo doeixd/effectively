@@ -1160,11 +1160,16 @@ describe("Composition Utilities (utils.ts)", () => {
         const result1 = await promise1;
         expect(result1).toBe("result-a");
 
-        await expect(promise2).rejects.toSatisfy(
-          (e: any) =>
-            e instanceof DOMException &&
-            e.message === "Call aborted before batch dispatch",
+        // Corrected assertion
+        await expect(promise2).rejects.toThrow(DOMException);
+        await expect(promise2).rejects.toThrow(
+          "Call aborted before batch dispatch",
         );
+        // await expect(promise2).rejects.toSatisfy(
+        //   (e: any) =>
+        //     e instanceof DOMException &&
+        //     e.message === "Call aborted before batch dispatch",
+        // );
         // The promise for the aborted call should reject.
         // await expect(promise2).rejects.toThrow(
         //   "Call aborted before batch dispatch",

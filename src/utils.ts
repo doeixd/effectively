@@ -1688,76 +1688,65 @@ export function withTimeout<C extends BaseContext, V, R>(
   if (durationMs < 0) {
     throw new Error("Timeout durationMs must be non-negative.");
   }
-
-  // Define TimeoutError class outside the returned task function if preferred,
-  // but keeping it here for closure over task.name and durationMs is fine.
-  // For this version, we'll use the exported TimeoutError class.
   const taskNameForError = task.name || "anonymous";
 
   const timeoutEnhancedTask: Task<C, V, R> = (
     context: C,
     value: V,
   ): Promise<R> => {
-    let timerId: ReturnType<typeof setTimeout> | undefined = undefined;
+    return new Promise<R>((resolve, reject) => {
+      let timerId: ReturnType<typeof setTimeout> | undefined = undefined;
 
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timerId = setTimeout(() => {
-        // Important: Clear the listener for 'abort' when the timeout fires
-        // to prevent potential memory leaks if the context outlives this operation.
+      const cleanup = () => {
         if (timerId !== undefined) {
-          // Check because it might have been cleared by abort
-          context.scope.signal.removeEventListener("abort", abortListener);
+          clearTimeout(timerId);
+          timerId = undefined;
         }
+        context.scope.signal.removeEventListener("abort", onAbort);
+      };
+
+      const onAbort = () => {
+        cleanup();
+        reject(
+          context.scope.signal.reason ??
+            new DOMException("Aborted", "AbortError"),
+        );
+      };
+
+      const onTimeout = () => {
+        cleanup();
         reject(new TimeoutError(taskNameForError, durationMs));
-      }, durationMs);
-    });
+      };
 
-    const abortListener = () => {
-      if (timerId !== undefined) {
-        clearTimeout(timerId);
-        timerId = undefined; // Indicate timer is cleared
-        // No need to reject timeoutPromise here; if the main task respects abort,
-        // Promise.race will settle with the main task's abort-related rejection.
-        // If the main task doesn't respect abort, it might still complete,
-        // but this timeout mechanism itself is cleaned up.
+      if (context.scope.signal.aborted) {
+        return onAbort();
       }
-    };
 
-    // Listen for abortion to clear the timeout
-    // Use { once: true } as we only need to clear it once.
-    context.scope.signal.addEventListener("abort", abortListener, {
-      once: true,
-    });
+      timerId = setTimeout(onTimeout, durationMs);
+      context.scope.signal.addEventListener("abort", onAbort, { once: true });
 
-    return Promise.race([
-      task(context, value), // The original task execution
-      timeoutPromise,
-    ]).finally(() => {
-      // Cleanup: Regardless of outcome (resolve, reject from task, or reject from timeoutPromise),
-      // ensure the timer is cleared if it hasn't fired yet, and remove the abort listener.
-      // This is crucial if the main `task` resolves/rejects *before* the timeout.
-      if (timerId !== undefined) {
-        clearTimeout(timerId);
-      }
-      // The abortListener is {once: true}, so it auto-removes if fired.
-      // If it wasn't fired, remove it manually.
-      // Note: Checking signal.aborted here might be too late if the event already fired.
-      // Relying on {once: true} is generally sufficient. For robustness, if not using {once:true},
-      // you would always call removeEventListener.
-      context.scope.signal.removeEventListener("abort", abortListener);
+      // Execute the task and handle its settlement
+      task(context, value)
+        .then((result) => {
+          cleanup();
+          resolve(result);
+        })
+        .catch((err) => {
+          cleanup();
+          reject(err);
+        });
     });
   };
 
-  // Set a descriptive name for the enhanced task
+  // Metadata propagation... (the rest of the function remains as before)
   Object.defineProperty(timeoutEnhancedTask, "name", {
     value: `withTimeout(${task.name || "anonymous"}, ${durationMs}ms)`,
     configurable: true,
   });
 
-  // Copy internal properties like __task_id and __steps for consistency
   if (task.__task_id) {
     Object.defineProperty(timeoutEnhancedTask, "__task_id", {
-      value: task.__task_id, // Or a new Symbol if enhancers should be distinct steps
+      value: task.__task_id,
       configurable: true,
       enumerable: false,
       writable: false,
