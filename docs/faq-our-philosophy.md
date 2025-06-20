@@ -106,6 +106,25 @@ Let's break this down.
 
 We provide the tools (`attempt`, `withErrorBoundary`, `neverthrow`) to handle errors in a structured way, but we don't enforce one single, dogmatic approach at the type-system level. It’s a pragmatic choice that prioritizes interoperability and developer freedom over absolute, provable correctness for every possible failure.
 
+## "You don't even have a `Mutex`! How can this be for 'resilient' applications?"
+
+This is another great question and a very intentional design choice. You're right, `Effectively` does not ship with high-level synchronization primitives like `Mutex`, `Semaphore`, or `ReentrantLock`.
+
+Libraries like Effect-TS, which control their own runtime, provide these fantastic, safe abstractions. They are fully integrated with the fiber model, making them interruption-aware and a natural fit within their ecosystem.
+
+So why doesn't `Effectively`?
+
+**The Effectively Philosophy:** We believe in providing structure for workflows, but not reinventing low-level concurrency tools that the platform already provides. Our goal is to lean on the platform, not replace it.
+
+Here’s the reasoning:
+
+1.  **Minimalism and Focus:** Building robust, correct, and performant synchronization primitives is a massive undertaking. To do so would significantly increase the size and complexity of `Effectively`. Our focus is on making `async/await` composition and error handling better, not on becoming a low-level concurrency toolkit.
+
+2.  **Platform Alignment:** When you need *true parallelism* with Web Workers, you must eventually use the platform's native tools for shared memory: `SharedArrayBuffer` and `Atomics`. A JavaScript-based `Mutex` implemented in our library wouldn't help you coordinate between different threads. Instead of providing a leaky abstraction, we believe it's more honest and powerful to encourage developers to use the native primitives for the low-level problems that require them.
+
+3.  **The Future is the Platform:** The web platform is continuously evolving. The [Web Locks API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API), for instance, provides a standardized, asynchronous locking mechanism directly in the browser. Why should we build and maintain our own complex version of something that the platform is moving to provide as a standard? By staying lean, we avoid creating redundant or conflicting tools.
+
+We trade the out-of-the-box convenience of bundled high-level abstractions for a leaner library that encourages the direct use of powerful, platform-native tools when they are truly needed. It's the pragmatic path for developers who aren't afraid to get close to the metal when solving genuinely low-level problems.
 
 ## Conclusion: A Different Point on the Spectrum
 
