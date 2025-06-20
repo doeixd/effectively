@@ -82,6 +82,31 @@ So what’s the point?
 
 You can use as much or as little as you want. The library meets you where you are. And yes, if all you need is a single helper, you can just copy the code from our repository—it's MIT licensed, after all!
 
+## "Why aren't errors tracked in the type system? This feels unsafe."
+
+This is one of the most significant philosophical departures from a pure effect system like Effect-TS, where a computation's potential errors are explicitly encoded in its return type (e.g., `Effect<A, E, R>`). This provides compile-time guarantees that all possible failures are handled. It’s a powerful safety net.
+
+So why doesn't Effectively do this? The short answer: **to maximize flexibility and maintain seamless integration with the existing JavaScript ecosystem.**
+
+**The Effectively Philosophy:** We believe that the *data* flowing through your system should be strictly typed, but the *control flow* should remain flexible. This is why we wholeheartedly recommend using a `Result` type (like from `neverthrow`) for your return values.
+
+Let's break this down.
+
+1.  **Embracing the `Promise`:** An Effectively `Task` is, at its heart, just a function that returns a `Promise`. The native `Promise` in JavaScript can only `reject` with a value of type `any`. Forcing every task to wrap its errors in a way that could be statically typed would mean abandoning the native `Promise` as our core primitive. This would break compatibility with virtually the entire `async/await` ecosystem. You couldn't `await` a function from a third-party library without explicitly wrapping it. We felt this trade-off was too high.
+
+2.  **Differentiating Domain vs. System Errors:** We encourage a clear separation between two types of errors:
+    *   **Domain Errors (Expected Failures):** These are part of your business logic. "User not found," "Invalid credit card," "Username already taken." These are not exceptions; they are predictable outcomes. **These absolutely *should* be in your type signature**, and the best way to do that is by returning a `Result<User, UserNotFoundError>`. This forces the caller to handle the predictable failure case.
+    *   **System Errors (Unexpected Panics):** "Database connection lost," "Network timeout," "Out of memory." These are runtime catastrophes. You often can't handle these locally anyway. Your goal is to catch them at a high level (with `withErrorBoundary` or a global error handler), log them, and either gracefully degrade or restart the service. Trying to plumb these panics through every type signature in your application can lead to noisy and complex types (`Result<User, UserNotFoundError | DbConnectionError | NetworkError | ...>`).
+
+3.  **Flexibility is a Feature:** By allowing tasks to throw, we let developers choose their preferred error handling strategy.
+    *   Want maximum type safety? Return a `Result` from your task.
+    *   Want to handle errors with a classic `try/catch`? Go for it.
+    *   Want to delegate error handling to a higher-level boundary? Just let it throw.
+    *   Need to integrate a third-party SDK that throws strings? It just works.
+
+We provide the tools (`attempt`, `withErrorBoundary`, `neverthrow`) to handle errors in a structured way, but we don't enforce one single, dogmatic approach at the type-system level. It’s a pragmatic choice that prioritizes interoperability and developer freedom over absolute, provable correctness for every possible failure.
+
+
 ## Conclusion: A Different Point on the Spectrum
 
 Effectively was born from a love of TypeScript, a respect for the power of functional programming, and the pragmatic reality of working on teams with diverse skill sets.
