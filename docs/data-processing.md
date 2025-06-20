@@ -90,36 +90,36 @@ Performs a parallel map over an array, then a sequential reduce.
 
 **Example:**
 ```typescript
-// import { mapReduce, defineTask, run, createContext, type BaseContext } from 'effectively';
-// import type { ParallelOptions } from 'path/to/scheduler'; // If needed for options
+import { mapReduce, defineTask, run, createContext, type BaseContext } from 'effectively';
+import type { ParallelOptions } from 'path/to/scheduler'; // If needed for options
 
-// interface MyContext extends BaseContext { /* ... */ }
-// const { run: appRun, defineTask: appDefineTask } = createContext<MyContext>({ /* ... */ });
+interface MyContext extends BaseContext { /* ... */ }
+const { run: appRun, defineTask: appDefineTask } = createContext<MyContext>({ /* ... */ });
 
-// const productIds = ["p1", "p2", "p3", "p4", "p5"];
-// const fetchPrice = appDefineTask(async (ctx, productId: string): Promise<number> => {
-//   // Simulate API call
-//   await new Promise(res => setTimeout(res, Math.random() * 100));
-//   if (productId === "p3") throw new Error(`Price unavailable for ${productId}`);
-//   return 10 + Math.random() * 5; // Random price
-// });
+const productIds = ["p1", "p2", "p3", "p4", "p5"];
+const fetchPrice = appDefineTask(async (ctx, productId: string): Promise<number> => {
+   // Simulate API call
+   await new Promise(res => setTimeout(res, Math.random() * 100));
+   if (productId === "p3") throw new Error(`Price unavailable for ${productId}`);
+   return 10 + Math.random() * 5; // Random price
+ });
 
-// const sumAllPrices = mapReduce(productIds, {
-//   map: fetchPrice,
-//   reduce: (total, price) => total + price,
-//   initial: 0,
-//   concurrency: 3
-// });
+const sumAllPrices = mapReduce(productIds, {
+   map: fetchPrice,
+   reduce: (total, price) => total + price,
+   initial: 0,
+   concurrency: 3
+});
 
-// async function main() {
-//   try {
-//     const totalPrice = await appRun(sumAllPrices, null);
-//     console.log("Total price of products:", totalPrice);
-//   } catch (error) {
-//     console.error("MapReduce failed:", error); // Will catch if p3 fails
-//   }
-// }
-// main();
+async function main() {
+   try {
+    const totalPrice = await appRun(sumAllPrices, null);
+    console.log("Total price of products:", totalPrice);
+  } catch (error) {
+    console.error("MapReduce failed:", error); // Will catch if p3 fails
+  }
+}
+main();
 ```
 
 #### `filter` (Pipeable Operator)
@@ -145,33 +145,33 @@ Filters an array by applying an asynchronous predicate `Task` to each item in pa
 **Example (as a pipeable operator):**
 
 ```typescript
-// import { filter, createWorkflow, fromValue, map, defineTask, run, ... } from 'effectively';
-// interface User { id: string; isActive: boolean; lastLogin?: Date; }
-// const users: User[] = [
-//   { id: '1', isActive: true, lastLogin: new Date(Date.now() - 10000) },
-//   { id: '2', isActive: false },
-//   { id: '3', isActive: true, lastLogin: new Date(Date.now() - 90000000) }, // Stale login
-// ];
+import { filter, createWorkflow, fromValue, map, defineTask, run, ... } from 'effectively';
+interface User { id: string; isActive: boolean; lastLogin?: Date; }
+const users: User[] = [
+  { id: '1', isActive: true, lastLogin: new Date(Date.now() - 10000) },
+  { id: '2', isActive: false },
+  { id: '3', isActive: true, lastLogin: new Date(Date.now() - 90000000) }, // Stale login
+];
 
-// const checkRecentLogin = appDefineTask(async (ctx, user: User): Promise<boolean> => {
-//   if (!user.isActive || !user.lastLogin) return false;
-//   // Simulate an async check, e.g., against an audit service
-//   await new Promise(res => setTimeout(res, 50));
-//   const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
-//   return user.lastLogin.getTime() > oneDayAgo;
-// });
+const checkRecentLogin = appDefineTask(async (ctx, user: User): Promise<boolean> => {
+  if (!user.isActive || !user.lastLogin) return false;
+  // Simulate an async check, e.g., against an audit service
+  await new Promise(res => setTimeout(res, 50));
+  const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+  return user.lastLogin.getTime() > oneDayAgo;
+});
 
-// const getRecentlyActiveUsers = createWorkflow(
-//   fromValue(users),
-//   filter(checkRecentLogin, { concurrency: 2 }),
-//   map(activeUsers => activeUsers.map(u => u.id))
-// );
+const getRecentlyActiveUsers = createWorkflow(
+  fromValue(users),
+  filter(checkRecentLogin, { concurrency: 2 }),
+  map(activeUsers => activeUsers.map(u => u.id))
+);
 
-// async function main() {
-//   const recentlyActiveUserIds = await appRun(getRecentlyActiveUsers, undefined);
-//   console.log("Recently active user IDs:", recentlyActiveUserIds); // e.g., ['1']
-// }
-// main();
+async function main() {
+  const recentlyActiveUserIds = await appRun(getRecentlyActiveUsers, undefined);
+  console.log("Recently active user IDs:", recentlyActiveUserIds); // e.g., ['1']
+}
+main();
 ```
 
 ---
@@ -200,33 +200,33 @@ Groups items from an array into a `Map` based on a key. The key for each item is
 **Example (as a pipeable operator):**
 
 ```typescript
-// import { groupBy, createWorkflow, fromValue, map, defineTask, run, ... } from 'effectively';
-// interface Product { id: string; category: string; price: number; }
-// const products: Product[] = [
-//   { id: '1', category: 'electronics', price: 100 },
-//   { id: '2', category: 'books', price: 20 },
-//   { id: '3', category: 'electronics', price: 150 },
-// ];
+import { groupBy, createWorkflow, fromValue, map, defineTask, run, ... } from 'effectively';
+interface Product { id: string; category: string; price: number; }
+const products: Product[] = [
+  { id: '1', category: 'electronics', price: 100 },
+  { id: '2', category: 'books', price: 20 },
+  { id: '3', category: 'electronics', price: 150 },
+];
 
-// const getProductCategory = (item: Product) => item.category; // Sync keying function
+const getProductCategory = (item: Product) => item.category; // Sync keying function
 
-// const groupProducts = createWorkflow(
-//   fromValue(products),
-//   groupBy(getProductCategory, { concurrency: 3 }), // Can also pass an async Task here
-//   map(groupedMap => {
-//     const summary: Record<string, number> = {};
-//     for (const [category, items] of groupedMap.entries()) {
-//       summary[category] = items.length;
-//     }
-//     return summary;
-//   })
-// );
+const groupProducts = createWorkflow(
+  fromValue(products),
+  groupBy(getProductCategory, { concurrency: 3 }), // Can also pass an async Task here
+  map(groupedMap => {
+    const summary: Record<string, number> = {};
+    for (const [category, items] of groupedMap.entries()) {
+      summary[category] = items.length;
+    }
+    return summary;
+  })
+);
 
-// async function main() {
-//   const categoryCounts = await appRun(groupProducts, undefined);
-//   console.log("Products by category:", categoryCounts); // { electronics: 2, books: 1 }
-// }
-// main();
+async function main() {
+  const categoryCounts = await appRun(groupProducts, undefined);
+  console.log("Products by category:", categoryCounts); // { electronics: 2, books: 1 }
+}
+main();
 ```
 
 ### 4. Key Concepts & How They Work
@@ -245,33 +245,33 @@ Groups items from an array into a `Map` based on a key. The key for each item is
 **General Pattern for `filter` and `groupBy` (as Pipeable Operators):**
 
 ```typescript
-// import { createWorkflow, fromValue, filter, groupBy, map, ... } from 'effectively/utils'; // And this module
+import { createWorkflow, fromValue, filter, groupBy, map, ... } from 'effectively/utils'; // And this module
 
-// const processingPipeline = createWorkflow(
-//   fromValue(initialArrayData),
-//   filter(someAsyncPredicateTask, { concurrency: 4 }),
-//   groupBy(someAsyncKeyingTask, { concurrency: 2 }),
-//   map(groupedData => {
-//     // Process the Map<Key, FilteredItem[]>
-//     return /* final result */;
-//   })
-// );
-// const finalOutput = await appRun(processingPipeline, undefined);
+const processingPipeline = createWorkflow(
+  fromValue(initialArrayData),
+  filter(someAsyncPredicateTask, { concurrency: 4 }),
+  groupBy(someAsyncKeyingTask, { concurrency: 2 }),
+  map(groupedData => {
+    // Process the Map<Key, FilteredItem[]>
+    return /* final result */;
+  })
+);
+const finalOutput = await appRun(processingPipeline, undefined);
 ```
 
 **General Pattern for `mapReduce` (Standalone Task):**
 
 ```typescript
-// const dataToProcess = [/* ... */];
-// const perItemMapTask = appDefineTask(async (ctx, item) => { /* ... return mappedItem ... */ });
-// const reduceResults = (accumulator, mappedItem) => { /* ... return newAccumulator ... */ };
+const dataToProcess = [/* ... */];
+const perItemMapTask = appDefineTask(async (ctx, item) => { /* ... return mappedItem ... */ });
+const reduceResults = (accumulator, mappedItem) => { /* ... return newAccumulator ... */ };
 
-// const mapReduceOperation = mapReduce(dataToProcess, {
-//   map: perItemMapTask,
-//   reduce: reduceResults,
-//   initial: initialAccumulatorValue,
-//   concurrency: 5
-// });
+const mapReduceOperation = mapReduce(dataToProcess, {
+  map: perItemMapTask,
+  reduce: reduceResults,
+  initial: initialAccumulatorValue,
+  concurrency: 5
+});
 
 // // mapReduceOperation is Task<C, null, UAccumulator>
 // const finalAggregatedValue = await appRun(mapReduceOperation, null);
