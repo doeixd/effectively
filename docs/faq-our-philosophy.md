@@ -78,7 +78,7 @@ So what’s the point?
     *   Then maybe use `withResource` to prevent a database connection leak.
     *   Later, refactor a messy controller into a clean `createWorkflow`.
     *   Need to mock a dependency for a test? Introduce `createContext` and `run`.
-4. It fills a need between a full runtime, and normal, uncomposable code.   
+4. To fill the crucial gap between ad-hoc helper functions and a full-blown runtime, it provides a pattern, not a framework. 
 
 You can use as much or as little as you want. The library meets you where you are. And yes, if all you need is a single helper, you can just copy the code from our repository—it's MIT licensed, after all!
 
