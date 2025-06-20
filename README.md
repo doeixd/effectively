@@ -539,127 +539,6 @@ const processBatch = defineTask(async (items: Item[]) => {
 
 <br />
 
-## 🔧 Common Patterns
-
-Here are practical examples of common patterns you'll use in production:
-
-### Authentication Flow with Token Refresh
-
-```typescript
-const checkTokenExpiry = defineTask(async (token: AuthToken) => {
-  return { token, isExpired: new Date() >= new Date(token.expiresAt) };
-});
-
-const refreshToken = defineTask(async ({ token }: { token: AuthToken }) => {
-  const { authApi } = getContext();
-  return authApi.refresh(token.refreshToken);
-});
-
-const authenticatedRequest = createWorkflow(
-  checkTokenExpiry,
-  ift(
-    (result) => result.isExpired,
-    refreshToken,
-    (result) => result.token
-  ),
-  makeApiRequest
-);
-```
-
-### Polling with Exponential Backoff
-
-```typescript
-const pollJobStatus = defineTask(async (params: { jobId: string; attempt: number }) => {
-  const { api } = getContext();
-  const result = await api.checkJobStatus(params.jobId);
-
-  if (!result.isComplete) {
-    const backoffMs = Math.min(1000 * Math.pow(2, params.attempt), 30000);
-    await new Promise(res => setTimeout(res, backoffMs)); // sleep
-
-    // Jump back to the start of this same task
-    throw new BacktrackSignal(pollJobStatus, {
-      jobId: params.jobId,
-      attempt: params.attempt + 1
-    });
-  }
-
-  return result.data;
-});
-```
-
-### Batch Processing with Progress
-
-```typescript
-const processBatch = defineTask(async (items: Item[]) => {
-  const { logger } = getContext();
-  const batchSize = 10;
-  let results: ProcessedItem[] = [];
-
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
-
-    const batchResults = await mapReduce(
-      batch,
-      processItem,
-      (acc, item) => [...acc, item],
-      [] as ProcessedItem[]
-    );
-
-    results = [...results, ...batchResults];
-    logger.info(`Processed ${results.length}/${items.length} items`);
-  }
-
-  return results;
-});
-```
-
-<br />
-
-## 🧪 Testing Your Workflows
-
-Effectively makes testing a breeze by allowing you to inject mock dependencies at runtime.
-
-```typescript
-import { describe, it, expect, jest } from '@jest/globals';
-
-describe('Payment Workflow', () => {
-  it('should process payment successfully', async () => {
-    // Mock your dependencies
-    const mockStripeApi = {
-      chargeCard: jest.fn().mockResolvedValue({ success: true, chargeId: 'ch_123' })
-    };
-
-    // Run the workflow with mocks
-    const result = await run(paymentWorkflow, { amount: 100, cardToken: 'tok_visa' }, {
-      overrides: { stripeApi: mockStripeApi }
-    });
-
-    // Assert on the result and mock calls
-    expect(result.chargeId).toBe('ch_123');
-    expect(mockStripeApi.chargeCard).toHaveBeenCalledWith({ amount: 100, cardToken: 'tok_visa' });
-  });
-
-  it('should handle payment failures gracefully', async () => {
-    const mockStripeApi = {
-      chargeCard: jest.fn().mockRejectedValue(new Error('Card declined'))
-    };
-
-    // Use { throw: false } to get a Result instead of throwing
-    const result = await run(paymentWorkflow, invalidCard, {
-      throw: false,
-      overrides: { stripeApi: mockStripeApi }
-    });
-
-    expect(result.isErr()).toBe(true);
-    expect(result.error).toBeInstanceOf(PaymentError);
-    expect(result.error.message).toContain('Card declined');
-  });
-});
-```
-
-<br />
-
 ## 🤔 Comparisons & Where It Fits
 
 Effectively offers a powerful and pragmatic approach to building resilient TypeScript applications. Understanding how it compares to other tools and paradigms can help you decide if it's the right fit for your project. Our core philosophy is to **enhance `async/await` with structured patterns and opt-in algebraic effects**, rather than requiring a full paradigm shift.
@@ -851,6 +730,12 @@ This provides a clean alternative to deeply nested `.then()` chains or complex w
 <br />
 
 ## 📚 Guides & Deeper Dives
+
+### Our Philosophy & FAQ 
+
+Curious about the "why" behind our design decisions? We've written a detailed article explaining our core philosophy of pragmatism, why we choose to enhance `async/await` rather than replace it, and how `Effectively` compares to powerful functional ecosystems like Effect-TS. If you've ever wondered about our take on runtimes, fibers, and typed errors, this is the definitive guide.
+[Why Effectively](docs/why-effectively.md) &nbsp;•&nbsp; [Philosophy & FAQ](docs/faq-our-philosophy.md) &nbsp;•&nbsp;  [Effectively vs Effect.ts](docs/effect-ts-vs-effectively.md)
+
 
 ### Smart Context System
 
@@ -1054,11 +939,127 @@ export default {
 
 <br />
 
-Excellent, you've provided the perfect starting point. I've done a comprehensive review based on your entire project codebase and fixed all the inconsistencies, added the missing functions, and updated the descriptions to be more accurate and helpful.
 
-Here is the complete, corrected, and comprehensive API reference section for your `README.md`.
+## 🔧 Common Patterns
 
-***
+Here are practical examples of common patterns you'll use in production:
+
+### Authentication Flow with Token Refresh
+
+```typescript
+const checkTokenExpiry = defineTask(async (token: AuthToken) => {
+  return { token, isExpired: new Date() >= new Date(token.expiresAt) };
+});
+
+const refreshToken = defineTask(async ({ token }: { token: AuthToken }) => {
+  const { authApi } = getContext();
+  return authApi.refresh(token.refreshToken);
+});
+
+const authenticatedRequest = createWorkflow(
+  checkTokenExpiry,
+  ift(
+    (result) => result.isExpired,
+    refreshToken,
+    (result) => result.token
+  ),
+  makeApiRequest
+);
+```
+
+### Polling with Exponential Backoff
+
+```typescript
+const pollJobStatus = defineTask(async (params: { jobId: string; attempt: number }) => {
+  const { api } = getContext();
+  const result = await api.checkJobStatus(params.jobId);
+
+  if (!result.isComplete) {
+    const backoffMs = Math.min(1000 * Math.pow(2, params.attempt), 30000);
+    await new Promise(res => setTimeout(res, backoffMs)); // sleep
+
+    // Jump back to the start of this same task
+    throw new BacktrackSignal(pollJobStatus, {
+      jobId: params.jobId,
+      attempt: params.attempt + 1
+    });
+  }
+
+  return result.data;
+});
+```
+
+### Batch Processing with Progress
+
+```typescript
+const processBatch = defineTask(async (items: Item[]) => {
+  const { logger } = getContext();
+  const batchSize = 10;
+  let results: ProcessedItem[] = [];
+
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+
+    const batchResults = await mapReduce(
+      batch,
+      processItem,
+      (acc, item) => [...acc, item],
+      [] as ProcessedItem[]
+    );
+
+    results = [...results, ...batchResults];
+    logger.info(`Processed ${results.length}/${items.length} items`);
+  }
+
+  return results;
+});
+```
+
+<br />
+
+## 🧪 Testing Your Workflows
+
+Effectively makes testing a breeze by allowing you to inject mock dependencies at runtime.
+
+```typescript
+import { describe, it, expect, jest } from '@jest/globals';
+
+describe('Payment Workflow', () => {
+  it('should process payment successfully', async () => {
+    // Mock your dependencies
+    const mockStripeApi = {
+      chargeCard: jest.fn().mockResolvedValue({ success: true, chargeId: 'ch_123' })
+    };
+
+    // Run the workflow with mocks
+    const result = await run(paymentWorkflow, { amount: 100, cardToken: 'tok_visa' }, {
+      overrides: { stripeApi: mockStripeApi }
+    });
+
+    // Assert on the result and mock calls
+    expect(result.chargeId).toBe('ch_123');
+    expect(mockStripeApi.chargeCard).toHaveBeenCalledWith({ amount: 100, cardToken: 'tok_visa' });
+  });
+
+  it('should handle payment failures gracefully', async () => {
+    const mockStripeApi = {
+      chargeCard: jest.fn().mockRejectedValue(new Error('Card declined'))
+    };
+
+    // Use { throw: false } to get a Result instead of throwing
+    const result = await run(paymentWorkflow, invalidCard, {
+      throw: false,
+      overrides: { stripeApi: mockStripeApi }
+    });
+
+    expect(result.isErr()).toBe(true);
+    expect(result.error).toBeInstanceOf(PaymentError);
+    expect(result.error.message).toContain('Card declined');
+  });
+});
+```
+
+<br />
 
 ## 🧰 API Reference
 
