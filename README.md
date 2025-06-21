@@ -113,7 +113,7 @@ const greet = defineTask(async (name: string) => {
 import { defineTask, getContext, run } from '@doeixd/effectively';
 
 // This task works in ANY context - it adapts automatically!
-const smartGreet = defineTask(async (name: string) => {
+const smartGreet = defineTask<BaseContext<{ greeting: string}>>(async (name: string) => {
   const context = getContext<BaseContext<{ greeting: string}>>(); // Smart: uses current context or global default
   const greeting = context.greeting || 'Hello';
   return `${greeting}, ${name}!`;
