@@ -9,6 +9,7 @@ interface AppContext {
   multiplier: number;
   logger: {
     log: (message: string) => void;
+    error: (message: string) => void;
   };
 }
 
@@ -17,8 +18,9 @@ const { run, defineTask, getContext } = createContext<AppContext>({
   apiKey: 'demo-key-123',
   multiplier: 2,
   logger: {
-    log: (message: string) => console.log(`[LOG] ${message}`)
-  }
+    log: (message: string) => console.log(`[LOG] ${message}`),
+    error: (message: string) => console.error(`[LOG] ${message}`),
+  },
 });
 
 // === Example 1: Basic Task Definition ===
@@ -127,7 +129,8 @@ async function testingExample() {
   const testResult = await run(greet, 'Test User', {
     overrides: {
       logger: {
-        log: (msg) => console.log(`[TEST] ${msg}`)
+        log: (msg) => console.log(`[TEST] ${msg}`),
+        error: (msg) => console.error(`[TEST] ${msg}`)
       }
     }
   });
