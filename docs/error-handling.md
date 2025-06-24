@@ -1,10 +1,10 @@
-### A Guide to Resilient Error Handling in Effectively
+# A Guide to Resilient Error Handling in Effectively
 
 In any real-world application, things go wrong. Networks fail, APIs return errors, and unexpected bugs occur. A robust application is not one that never fails, but one that handles failure gracefully, predictably, and safely.
 
 Effectively provides a powerful, multi-layered strategy for error handling, allowing you to choose the right tool for the job. This guide covers the full spectrum, from handling predictable failures with compile-time safety to catching unexpected panics with a resilient safety net.
 
-#### The Core Philosophy: Two Types of Errors
+## The Core Philosophy: Two Types of Errors
 
 To handle errors effectively, we must first classify them. This distinction is the most important concept in this guide.
 
