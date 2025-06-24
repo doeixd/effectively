@@ -1,4 +1,4 @@
-import { createContext, type Scope } from '../src/index';
+import { createContext, createWorkflow, tap, type Scope } from '../src/index';
 
 // === Simple Examples of the Effectively Library ===
 
@@ -147,7 +147,26 @@ async function testingExample() {
   console.log(`Test multiplication (5 * 10): ${testMultiply}`);
 }
 
-// === Example 6: Manual Workflow Composition ===
+// === Example 6: Create Workflow Composition ===
+
+async function workflowExample() {
+  console.log('\n=== Workflow Composition ===');
+  // Chain tasks together by createWorkflow
+  const userId = 'workflow-user-456';
+
+  // Step 1: Build workflow
+  const exampleWorkflow = createWorkflow(
+    fetchData,
+    tap((fetchedData) => { console.log('Fetched data', fetchedData) }),
+    processData,
+  )
+
+  // Step 2: Run workflow
+  const result = await run(exampleWorkflow, userId);
+  console.log('Workflow finished:', result)
+}
+
+// === Example 7: Manual Workflow Composition ===
 
 async function manualWorkflowExample() {
   console.log('\n=== Manual Workflow Composition ===');
@@ -180,6 +199,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   Promise.resolve()
     .then(() => runExamples())
     .then(() => testingExample())
+    .then(() => workflowExample())
     .then(() => manualWorkflowExample())
     .then(() => console.log('\nAll examples completed!'))
     .catch(console.error);
