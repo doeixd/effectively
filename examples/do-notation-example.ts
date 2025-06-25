@@ -19,11 +19,18 @@ import {
   sequence
 } from '../src/do-notation';
 
+interface UserProfile {
+  id: string; name: string; email: string; isActive: boolean;
+}
+interface AuthorPost {
+  id: string; title: string; content: string; authorId: string
+}
+
 // Define application context
 interface AppContext extends BaseContext {
   database: {
-    users: Map<string, { id: string; name: string; email: string; isActive: boolean }>;
-    posts: Map<string, { id: string; title: string; content: string; authorId: string }>;
+    users: Map<string, UserProfile>;
+    posts: Map<string, AuthorPost>;
   };
   logger: {
     info: (message: string) => void;
@@ -35,12 +42,12 @@ interface AppContext extends BaseContext {
 const { run } = createContext<AppContext>({
   database: {
     users: new Map([
-      ['1', { id: '1', name: 'Alice', email: 'alice@example.com', isActive: true }],
-      ['2', { id: '2', name: 'Bob', email: 'bob@example.com', isActive: false }],
+      ['1', { id: '1', name: 'Alice', email: 'alice@example.com', isActive: true } satisfies UserProfile],
+      ['2', { id: '2', name: 'Bob', email: 'bob@example.com', isActive: false } satisfies UserProfile],
     ]),
     posts: new Map([
-      ['1', { id: '1', title: 'Hello World', content: 'First post!', authorId: '1' }],
-      ['2', { id: '2', title: 'TypeScript Tips', content: 'Some tips...', authorId: '1' }],
+      ['1', { id: '1', title: 'Hello World', content: 'First post!', authorId: '1' } satisfies AuthorPost],
+      ['2', { id: '2', title: 'TypeScript Tips', content: 'Some tips...', authorId: '1' } satisfies AuthorPost],
     ])
   },
   logger: {
@@ -117,8 +124,8 @@ const getUserProfiles = appDoTask(function* (userIds: string[]) {
   ), undefined);
   
   // Filter out any failed profiles (this is simplified)
-  const validProfiles = profiles.filter(p => p !== null);
-  
+  const validProfiles = profiles.filter((p: UserProfile) => p !== null);
+
   yield call(logUserInfo, `Successfully processed ${validProfiles.length} profiles`);
   
   return validProfiles;
