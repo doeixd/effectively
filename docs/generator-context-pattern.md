@@ -1260,6 +1260,201 @@ But this approach has downsides:
 
 The `$` helper is a better balance - just 4 lines for perfect type inference!
 
+##### But if you want a deep-dive on how to get type saftey without the helper, see more below
+<details>
+  <summary> See more for a deep dive 🌊</summary>
+  
+### Deeper Dive: Removing the `$` Helper by Restructuring Operations
+
+The ultimate goal is to achieve perfect type inference with the cleanest possible syntax in our business logic. We want this:
+
+```typescript
+// The ideal syntax
+const user = yield* getUser(123); // No helpers, no type assertions
+// TypeScript should know user is of type `User | null`
+```
+
+To understand how to get there, let's first revisit *why* we needed the `$` helper in the first place.
+
+#### The Core Problem: TypeScript and `yield`
+
+The fundamental issue is that TypeScript cannot trace the type of a value across a standard `yield` expression.
+
+```typescript
+// When TypeScript sees this:
+const myValue = yield someOperation;
+
+// It thinks:
+// 1. The `someOperation` value is being sent OUT of the generator.
+// 2. At some later time, the runtime will call `generator.next(someExternalValue)`.
+// 3. The `someExternalValue` will then be assigned to `myValue`.
+//
+// TypeScript has no way to statically connect the type of `someOperation`
+// to the type of `someExternalValue` that will arrive later. It gives up
+// and assigns the type `any` to `myValue`.
+```
+
+The `yield*` keyword is different. It's a language feature for *delegating* to another generator. TypeScript understands this delegation.
+
+```typescript
+// When TypeScript sees this:
+const myValue = yield* anotherGenerator();
+
+// It thinks:
+// 1. I'm going to run `anotherGenerator` to completion.
+// 2. The final `return` value from `anotherGenerator` will be assigned to `myValue`.
+// 3. I can look at the signature of `anotherGenerator` to find its return type!
+```
+
+The `$ helper` was a clever trick. It was a tiny generator that wrapped our simple `Operation` function, allowing us to use `yield*` and leverage its type-tracking ability.
+
+#### The "Helper-less" Insight: Make the Operation Itself a Generator
+
+If `yield*` requires a generator to delegate to, the most direct way to eliminate the helper is to **make the operation itself a generator.**
+
+Instead of this:
+`getUser` is a function that **returns** an `Operation`.
+
+```typescript
+// Old way: A factory for operations
+const getUser = (id: number): Operation<User | null> => 
+  (ctx) => ctx.db.findUser(id);
+```
+
+We change it to this:
+`getUser` **is** a generator.
+
+```typescript
+// New way: The operation IS a generator
+function* getUser(id: number): Generator<..., User | null, ...> {
+  // ... logic ...
+}
+```
+
+Now our workflow can delegate directly to it: `yield* getUser(123)`. But this raises a new, critical question.
+
+#### The New Challenge: How Does the Generator Operation Get the Context?
+
+Our original `Operation` was a simple function that *received* the context: `(ctx) => ...`.
+
+Our new `getUser` generator is now running "inside" the `yield*` expression. It doesn't automatically have access to the `context` that lives in the runtime. So, how does it get it?
+
+It has to *ask for it*.
+
+And how does a generator ask for something from the outside world? **By yielding a value.**
+
+This is the most crucial part of the pattern. The generator operation must perform a two-step dance:
+1.  **Yield a special request** that tells the runtime, "Please give me the context object."
+2.  **Wait** for the runtime to send the context back via `.next(context)`.
+
+#### The Mechanism: The "Context Request" Signal
+
+We need to design a "signal" that the generator can yield. The simplest signal is a function that the runtime can execute with the context. What's the most direct function to get the context itself? The **identity function**: `(context) => context`.
+
+Let's trace the complete flow:
+
+**Step 1: The Generator Operation (`getUser`)**
+
+We define `getUser` as a generator that performs this dance.
+
+```typescript
+// The restructured generator operation
+function* getUser(id: number): Generator<
+  (ctx: AppContext) => AppContext,  // 1. I will YIELD a function that takes context and returns context.
+  Promise<User | null>,              // 2. I will RETURN a Promise that resolves to a User.
+  AppContext                         // 3. I EXPECT to receive the AppContext back via .next().
+> {
+  // The first thing I do is ask for the context.
+  // I yield the "context request" signal (the identity function).
+  const ctx = yield (c: AppContext) => c;
+  
+  // The runtime will send the context back, and it gets assigned to `ctx`.
+  // Now I have the context! I can perform my real work.
+  // I return the promise from the database call.
+  return ctx.db.findUser(id);
+}
+```
+
+**Step 2: The Workflow (`workflow`)**
+
+The workflow code is now beautifully clean.
+
+```typescript
+async function* workflow(userId: number) {
+  // `yield*` delegates to the `getUser` generator.
+  // It handles the entire two-step "context request" dance internally.
+  // The final `return` value from `getUser` (the Promise) is returned by `yield*`.
+  const userPromise = yield* getUser(userId);
+  const user = await userPromise;
+  //  ^--- We need this await because `getUser` returns a promise.
+  
+  // Or more concisely:
+  const user = await (yield* getUser(userId));
+
+  if (!user) throw new Error('Not found');
+  
+  return user;
+}
+```
+*Note: The `await` is required here because the generator operation `returns` a `Promise`, and `yield*` gives us that promise. This is a bit less elegant than the `$ helper` approach where the runtime handles the `await` for us.*
+
+**Step 3: The Runtime (The Catch!)**
+
+Our original 16-line runtime is no longer sufficient. It only knows how to handle one type of yielded value: an `Operation` like `(ctx) => ctx.db.findUser(...)`. It doesn't understand our new "context request" signal `(ctx) => ctx`.
+
+**The runtime must be modified** to distinguish between these two types of requests.
+
+```typescript
+// A conceptual modification to the runtime's loop
+while (!result.done) {
+  const yieldedValue = result.value;
+
+  // We need a way to know if this is a context request
+  if (isAContextRequest(yieldedValue)) { 
+    // If it is, don't execute it as a long operation.
+    // Just give the generator the context back immediately.
+    result = await generator.next(context);
+  } else {
+    // Otherwise, it's a normal operation.
+    // Execute it, await the result, and pass it back.
+    const operationResult = await yieldedValue(context);
+    result = await generator.next(operationResult);
+  }
+}
+```
+This modification breaks the beautiful simplicity of the original runtime.
+
+### Where the Type Safety Comes From
+
+The type safety in this helper-less approach is **100% powered by the `yield*` keyword and TypeScript's understanding of generator function signatures.**
+
+1.  **The Contract:** When you write `function* getUser(...): Generator<..., Promise<User | null>, ...>`, you are creating a strongly-typed contract. You're telling TypeScript, "No matter what happens inside this generator, its final `return` value will be of type `Promise<User | null>`."
+
+2.  **The Delegation:** When the workflow executes `yield* getUser(userId)`, TypeScript sees this and says:
+    *   "Aha, `yield*`! I'm delegating to `getUser`."
+    *   "Let me check the signature of `getUser`."
+    *   "I see its declared return type is `Promise<User | null>`."
+    *   "Therefore, the result of this entire `yield*` expression must be `Promise<User | null>`."
+
+The type information flows directly from the generator operation's definition to the variable in the workflow, all because `yield*` acts as a type-safe bridge. This is fundamentally different from a plain `yield`, which breaks the chain of type inference.
+
+### Summary: The Final Trade-Off
+
+Let's lay out the pros and cons clearly.
+
+**Benefits of the Helper-less Approach:**
+
+*   **Cleanest Workflow Syntax:** The business logic (`yield* getUser(userId)`) is as clean as it can possibly be, with no helpers or assertions.
+
+**Downsides of the Helper-less Approach:**
+
+*   **Complex Operations:** Every single operation must be converted from a simple, pure function into a more complex generator that does the "context request" dance. This adds boilerplate and cognitive overhead to every operation.
+*   **Modified Runtime:** You lose the elegant, universal 16-line runtime. Your runtime now needs special-case logic to handle different kinds of yielded values.
+*   **Harder to Understand:** The "magic" is now distributed. A developer needs to understand both the structure of generator operations *and* the special logic in the runtime. The cause-and-effect relationship is less direct.
+*   **Awkward `await (yield* ...)` syntax:** The need to manually `await` the result of the `yield*` expression is less ergonomic.
+
+</details>
+
 ### Complete Example with $ Helper
 
 ```typescript
