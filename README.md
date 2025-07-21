@@ -58,6 +58,10 @@ At its heart, Effectively is intuitively simple. Let's build your understanding 
 In Effectively, everything starts with a simple idea: a **Task** is just an async function that takes two parameters: a `context` and a `value`.
 
 ```typescript
+interface AppContext {
+  greeting: string;
+}
+
 // This is a Task - just a regular async function!
 async function greetTask(context: AppContext, name: string): Promise<string> {
   return `${context.greeting}, ${name}!`;
@@ -93,7 +97,7 @@ import { createContext, type Scope } from '@doeixd/effectively';
 
 // Define your context interface first
 interface AppContext {
-  scope: Scope;
+  scope: Scope;  // Required by the library but better solution exists
   greeting: string;
 }
 
@@ -106,15 +110,21 @@ const greet = defineTask(async (name: string) => {
   const { greeting } = getContext();  // Typesafe Context is now available via getContext()
   return `${greeting}, ${name}!`;
 });
+
+await run(greet, "World");
 ```
 
 **The Smart Way (Best of Both Worlds):**
 ```typescript
-import { defineTask, getContext, run } from '@doeixd/effectively';
+import { defineTask, getContext, run, type BaseContext } from '@doeixd/effectively';
+
+interface CustomContext extends BaseContext {
+  greeting?: string;
+}
 
 // This task works in ANY context - it adapts automatically!
-const smartGreet = defineTask<BaseContext<{ greeting: string}>>(async (name: string) => {
-  const context = getContext<BaseContext<{ greeting: string}>>(); // Smart: uses current context or global default
+const smartGreet = defineTask(async (name: string) => {
+  const context = getContext<CustomContext>(); // Smart: uses current context or global default
   const greeting = context.greeting || 'Hello';
   return `${greeting}, ${name}!`;
 });
@@ -135,6 +145,15 @@ That's it! **`defineTask` doesn't do anything magical**—it just wraps your fun
 Once you have tasks, you can chain them together using `createWorkflow`. The output of one task becomes the input to the next.
 
 ```typescript
+interface User {
+  id: string;
+  name: string;
+}
+
+interface EnrichedUser extends User {
+  profile: { title: string };
+}
+
 const fetchUser = defineTask(async (userId: string) => {
   const { api } = getContext();
   return api.getUser(userId);
@@ -159,6 +178,9 @@ const getUserDisplay = createWorkflow(
   formatUser
 );
 // This creates a new, single Task that runs all three in sequence.
+
+// 💥 this will fail because the context is missing. continue to a next step.
+await run(getUserDisplay, "123");
 ```
 
 
@@ -169,12 +191,23 @@ Tasks need a context to execute. The `run` function, created by `createContext`,
 ```typescript
 import { createContext, type Scope } from '@doeixd/effectively';
 
+interface ApiClient {
+  getUser: (userId: string) => Promise<User>;
+  getProfile: (userId: string) => Promise<{ title: string }>;
+}
+
 // Define your context interface (scope is required)
 interface AppContext {
   scope: Scope;  // Required by the library
   greeting: string;
   api: ApiClient;
 }
+
+// dummy implementation of the API client
+const myApiClient: ApiClient = {
+  getUser: async (userId: string) => ({ id: userId, name: "John Doe" }),
+  getProfile: async (userId: string) => ({ title: "Developer" }),
+};
 
 // Create your app's context with default dependencies
 const { run } = createContext<AppContext>({
