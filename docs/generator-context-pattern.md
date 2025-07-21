@@ -9,16 +9,16 @@ Learn how a tiny runtime using JavaScript generators can transform how you struc
 Imagine two restaurants:
 
 **Restaurant A (Dependency Passing)**
-- Every order must go through: Host → Manager → Head Chef → Line Cook → Prep Cook
-- Even if the prep cook just needs salt, the entire chain must know about salt
-- Adding a new ingredient requires updating everyone's job description
-- Each person handles things they don't need, just to pass them along
+- Every tool is passed down the chain: Manager → Head Chef → Line Cook → Prep Cook.
+- If the Prep Cook needs a salt shaker, the Manager, Head Chef, and Line Cook all have to handle the salt shaker just to pass it along.
+- Adding a new station with new tools requires updating everyone's passing duties.
+- Each person is burdened with handling supplies they don't need, just to pass them along.
 
 **Restaurant B (Our Pattern)**
-- Each cook has a button: "I need salt"
-- A runner brings exactly what's needed
-- Cooks focus on cooking, not supply chain management
-- New ingredients? Just add a new button
+- The kitchen has a Quartermaster who manages all supplies.
+- When a cook is hired, they simply state their role: "I'm the new Prep Cook."
+- The Quartermaster gives them exactly what a Prep Cook needs: a knife, a cutting board, and a salt shaker.
+- Cooks focus on cooking, not on the supply chain. New tools for a role? Just tell the Quartermaster.
 
 This is the shift we're making in code.
 
