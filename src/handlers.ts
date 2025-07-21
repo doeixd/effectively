@@ -151,57 +151,120 @@ export function defineEffect<T extends (...args: readonly unknown[]) => unknown>
 // Section 3: Effect Registry Helpers
 // =================================================================
 
+
+// Overload 1: The new, recommended generic-only signature.
+export function defineEffects<T extends Record<string, (...args: any[]) => any>>(): {
+  [K in keyof T]: Effect<T[K]>;
+};
+
+// Overload 2: The old, object-based signature for backward compatibility.
+export function defineEffects<T extends Record<string, (...args: readonly unknown[]) => unknown>>(
+  effectsConfig: T
+): { [K in keyof T]: Effect<T[K]> };
+
 /**
- * A helper function to define multiple effects at once from a type-safe configuration.
- * This is useful when you have many effects to define and want to avoid repetitive calls.
+ * A helper function to define multiple effects at once from a single, type-safe definition.
+ * This is the recommended way to declare all effects for a specific domain or your entire application.
  *
- * @template T A record type mapping effect names to their function signatures.
- * @param effectsConfig A configuration object where keys are effect names and values are their signatures.
- * @returns An object containing all the defined effects, with the same keys as the input.
+ * It creates a proxy object that lazily initializes each effect function upon first access,
+ * making it both efficient and highly ergonomic.
+ *
+ * @template T An interface or type literal describing the effects, where keys are effect names
+ *             and values are their function signatures.
+ *
+ * @recommended
+ * Use the generic-only version for the best developer experience. It is clean, uses standard
+ * TypeScript interfaces, and avoids runtime boilerplate.
  *
  * @example
  * ```typescript
- * import { defineEffects } from 'effectively/effects';
+ * import { defineEffects, defineTask, run, withHandlers, createHandlers } from 'effectively';
+ * import * as fs from 'fs'; // For a real implementation
  *
- * // Define multiple effects in one go
- * export const effects = defineEffects({
- *   log: (message: string) => void,
- *   getUniqueId: () => string,
- *   readFile: (path: string) => string,
- *   writeFile: (path: string, content: string) => void,
- * });
+ * // 1. Define all your application's effects in a single, clean interface.
+ * interface AppEffects {
+ *   log: (level: 'info' | 'error', message: string) => void;
+ *   getUniqueId: () => string;
+ *   readFile: (path: string) => Promise<string>;
+ * }
  *
- * // Use them in tasks
- * const myTask = defineTask(async (input: string) => {
+ * // 2. Create the effects object using the generic-only version. No runtime arguments needed.
+ * const effects = defineEffects<AppEffects>();
+ *
+ * // 3. Use the fully typed effects object in your tasks.
+ * const processFile = defineTask(async (filePath: string) => {
  *   const id = await effects.getUniqueId();
- *   await effects.log(`Processing ${input} with ID: ${id}`);
- *   const content = await effects.readFile('config.json');
- *   // ... etc
+ *   await effects.log('info', `Processing file with ID: ${id}`);
+ *   const content = await effects.readFile(filePath);
+ *   return { id, content };
  * });
  *
- * // Provide handlers for all effects
- * await run(myTask, 'test', {
- *   overrides: {
- *     [HANDLERS_KEY]: {
- *       log: console.log,
- *       getUniqueId: () => crypto.randomUUID(),
- *       readFile: (path) => fs.readFileSync(path, 'utf8'),
- *       writeFile: (path, content) => fs.writeFileSync(path, content),
- *     }
- *   }
+ * // 4. Provide concrete implementations (handlers) when you run the workflow.
+ * // The `createHandlers` and `withHandlers` helpers make this clean and type-safe.
+ * const productionHandlers = createHandlers({
+ *   log: (level, message) => console.log(`[${level.toUpperCase()}] ${message}`),
+ *   getUniqueId: () => crypto.randomUUID(),
+ *   readFile: (path) => fs.promises.readFile(path, 'utf8'),
+ * });
+ *
+ * async function main() {
+ *   const result = await run(processFile, 'my-file.txt', withHandlers(productionHandlers));
+ *   console.log(result);
+ * }
+ * ```
+ *
+ * @legacy
+ * The function also supports an older, object-based syntax for backward compatibility,
+ * though it is less ergonomic as it requires `null` casting to pass type information.
+ * @example
+ * ```typescript
+ * // Legacy object-based definition (less recommended)
+ * const legacyEffects = defineEffects({
+ *   log: null as any as (message: string) => void,
+ *   getUniqueId: null as any as () => string,
  * });
  * ```
  */
-export function defineEffects<T extends Record<string, (...args: readonly unknown[]) => unknown>>(
-  _effectsConfig: T
+export function defineEffects<T extends Record<string, (...args: any[]) => any>>(
+  effectsConfig?: T
 ): { [K in keyof T]: Effect<T[K]> } {
-  const effects = {} as { [K in keyof T]: Effect<T[K]> };
-  
-  for (const effectName in _effectsConfig) {
-    effects[effectName] = defineEffect<T[typeof effectName]>(effectName);
+  // --- Backward Compatibility Path ---
+  // If the old object-based approach is used, handle it by eagerly creating all effects.
+  if (effectsConfig) {
+    const effects = {} as { [K in keyof T]: Effect<T[K]> };
+    for (const effectName in effectsConfig) {
+      if (Object.prototype.hasOwnProperty.call(effectsConfig, effectName)) {
+        effects[effectName] = defineEffect<T[typeof effectName]>(effectName);
+      }
+    }
+    return effects;
   }
-  
-  return effects;
+
+  // --- Recommended Path: A Proxy-based implementation for the generic-only call. ---
+
+  // A cache to store created effect functions so they are not recreated on every access.
+  const effectCache: Partial<{ [K in keyof T]: Effect<T[K]> }> = {};
+
+  // Return a Proxy. When a property like `effects.log` is accessed, the `get` handler fires.
+  // This creates the effect functions on-demand (lazily and efficiently).
+  return new Proxy({} as { [K in keyof T]: Effect<T[K]> }, {
+    get(_target, prop, _receiver) {
+      const effectName = String(prop);
+
+      // Return the cached effect if it has already been created.
+      if (effectCache[effectName as keyof T]) {
+        return effectCache[effectName as keyof T];
+      }
+
+      // If not cached, create the effect function on the fly using the property name.
+      const newEffect = defineEffect(effectName);
+
+      // Cache the newly created effect for subsequent accesses to improve performance.
+      effectCache[effectName as keyof T] = newEffect as any;
+
+      return newEffect;
+    },
+  });
 }
 
 /**
