@@ -978,12 +978,33 @@ test('updateUserProfile updates user correctly', async () => {
 
 <br />
 
-## TypeScript Support
+## TypeScript
 
-The pattern works beautifully with TypeScript:
+The pattern works beautifully with TypeScript, but getting proper type inference requires understanding one quirk of generators. Let's build up to a fully type-safe solution, step by step.
+
+### Step 1: The Problem We're Solving
+
+Without proper typing, TypeScript can't help us catch errors:
 
 ```typescript
-// Define your context shape
+// ❌ PROBLEM: No type information
+async function* updateUserWorkflow(userId) {
+  const user = yield getUser(userId);
+  
+  // TypeScript thinks 'user' is 'any' - can't catch these errors:
+  console.log(user.nmae);           // ❌ Typo!
+  console.log(user.address.street); // ❌ Property might not exist
+  
+  return user;
+}
+```
+
+### Step 2: Adding Basic Types
+
+Let's add types to our operations:
+
+```typescript
+// Define your context and domain types
 interface AppContext {
   db: {
     findUser(id: number): Promise<User | null>;
@@ -992,34 +1013,323 @@ interface AppContext {
   logger: {
     info(message: string): void;
   };
-  email: {
-    send(to: string, subject: string, body: string): Promise<void>;
-  };
+}
+
+interface User {
+  id: number;
+  name: string;
+  email: string;
 }
 
 // Type for operations
 type Operation<T> = (context: AppContext) => Promise<T>;
 
-// Type-safe operations
+// Typed operations
 const getUser = (id: number): Operation<User | null> => 
   (ctx) => ctx.db.findUser(id);
 
-const log = (message: string): Operation<void> => 
+const log = (message: string): Operation<void> =>
   (ctx) => ctx.logger.info(message);
+```
 
-// Type-safe workflow
-async function* updateUserWorkflow(
-  userId: number, 
-  data: Partial<User>
-): AsyncGenerator<Operation<any>, User, any> {
-  yield log(`Updating user ${userId}`);
+### Step 3: The Simple Solution - Type Assertions
+
+TypeScript loses track of types through `yield`, but we can fix this with type assertions:
+
+```typescript
+// ✅ SOLUTION: Tell TypeScript what type comes back
+async function* updateUserWorkflow(userId: number) {
+  yield log('Starting update');
   
-  const user = yield getUser(userId);
-  if (!user) throw new Error('User not found');
+  // Add a type assertion after yield
+  const user = (yield getUser(userId)) as User | null;
+  //    ^--- TypeScript now knows the type! ✅
   
-  return user; // TypeScript knows this returns User
+  if (!user) {
+    throw new Error('User not found');
+  }
+  
+  // Full type safety and autocomplete!
+  console.log(user.name); // ✅ TypeScript helps us here
+  
+  const updated = (yield updateUser(userId, { 
+    name: 'Jane' 
+  })) as User;
+  
+  return updated;
 }
 ```
+
+### Step 4: Type-Safe Runtime
+
+Finally, let's add types to our runtime. This ensures type safety all the way through:
+
+```typescript
+// Generic workflow type
+// - First param: what we yield (operations)
+// - Second param: what we return at the end
+// - Third param: what comes back from yields (we use any)
+type Workflow<T> = AsyncGenerator<Operation<any>, T, any>;
+
+// Type-safe runtime with full generic support
+export function runtime<TArgs extends any[], TReturn>(
+  generatorFunction: (...args: TArgs) => Workflow<TReturn>
+) {
+  // Return an executor function that:
+  // 1. Takes the context and any workflow arguments
+  // 2. Returns a Promise of the workflow's return type
+  return async function execute(
+    context: AppContext, 
+    ...args: TArgs
+  ): Promise<TReturn> {
+    const generator = generatorFunction(...args);
+    let result = await generator.next();
+
+    while (!result.done) {
+      const operation = result.value as Operation<any>;
+      
+      try {
+        const operationResult = await operation(context);
+        result = await generator.next(operationResult);
+      } catch (error) {
+        result = await generator.throw(error);
+      }
+    }
+
+    return result.value;
+  };
+}
+
+// Usage - everything is fully typed!
+const updateUser = runtime(updateUserWorkflow);
+// updateUser is typed as: (context: AppContext, userId: number) => Promise<User>
+
+const user = await updateUser(context, 123);
+// user is typed as: User ✅
+```
+
+That's it! With simple type assertions, you get full type safety. Your IDE will provide autocomplete, catch typos, and ensure type correctness throughout your workflows.
+
+**Want to eliminate even the type assertions?** The advanced section below shows how to achieve full type inference with no manual annotations at all.
+
+<details>
+<summary>🚀 Advanced: Full Type Inference Without Assertions</summary>
+
+### Want Even Better? Use yield* for Automatic Type Inference
+
+There's a clever way to avoid type assertions entirely using `yield*` delegation. Here's how it works:
+
+### Understanding yield vs yield*
+
+```typescript
+// yield: Pauses and sends out a value
+function* example1() {
+  const result = yield 'hello';
+  // TypeScript doesn't know what 'result' is
+}
+
+// yield*: Delegates to another generator
+function* inner() {
+  yield 'hello';
+  return 42; // This return value matters!
+}
+
+function* example2() {
+  const result = yield* inner();
+  // TypeScript DOES know result is 42!
+}
+```
+
+The key insight: `yield*` **runs another generator to completion** and gives you its return value. TypeScript can track this!
+
+### The Magic $ Helper
+
+We can use this to create a tiny helper that preserves types:
+
+```typescript
+// A tiny generator that yields our operation and returns the result
+function* $(operation: Operation<any>) {
+  // This generator:
+  // 1. Yields the operation (for the runtime to execute)
+  // 2. Returns whatever gets passed back
+  return yield operation;
+}
+
+// Overloaded signature for perfect type inference
+function $<T>(operation: Operation<T>): Generator<Operation<T>, T, T>;
+function $(operation: Operation<any>) {
+  return (function* () {
+    return yield operation;
+  })();
+}
+```
+
+### Using the $ Helper
+
+Now your workflows need NO type assertions:
+
+```typescript
+// ✅ PERFECT: Full type inference, no assertions!
+async function* updateUserWorkflow(userId: number) {
+  // yield* runs the $ generator and gets its RETURN value
+  const user = yield* $(getUser(userId));
+  //    ^--- ✅ TypeScript knows: User | null
+  
+  if (!user) {
+    throw new Error('User not found');
+  }
+  
+  // Perfect type inference all the way down
+  console.log(user.name);  // ✅ Full autocomplete
+  console.log(user.email); // ✅ Type safe
+  
+  const updated = yield* $(updateUser(userId, {
+    name: 'Jane Doe'
+  }));
+  //    ^--- ✅ TypeScript knows: User
+  
+  return updated;
+}
+```
+
+### Why Does This Work?
+
+Let's trace through what happens:
+
+```typescript
+// Step by step:
+const user = yield* $(getUser(userId));
+
+// 1. $(getUser(userId)) creates a generator
+// 2. yield* runs that generator
+// 3. The generator yields getUser(userId) - runtime executes it
+// 4. Runtime passes back the result (e.g., a User)
+// 5. The generator returns that result
+// 6. yield* gives us that return value
+// 7. TypeScript tracked it all the way through!
+```
+
+Visual representation:
+
+```typescript
+// With plain yield - TypeScript loses track:
+workflow → yield operation → ??? → any
+
+// With yield* $ - TypeScript follows the path:
+workflow → yield* → $ generator → yield operation → return result → typed result!
+```
+
+### Can We Remove Even the $ Helper?
+
+Technically, yes! If we restructure how operations work:
+
+```typescript
+// Instead of operations being plain functions...
+const getUser = (id: number): Operation<User | null> => 
+  (ctx) => ctx.db.findUser(id);
+
+// We could make operations themselves generators:
+function* getUser(id: number): Generator<
+  (ctx: AppContext) => AppContext,  // Yield to get context
+  User | null,                       // Return user
+  AppContext                         // Receive context
+> {
+  // This yields a function that returns context (identity function)
+  const ctx = yield ((c: AppContext) => c);
+  
+  // Now we have context and can return the result
+  return ctx.db.findUser(id);
+}
+
+// Runtime would need to handle this new operation type
+async function* workflow(userId: number) {
+  // Direct delegation - no helper needed!
+  const user = yield* getUser(userId);
+  //    ^--- TypeScript infers: User | null
+  
+  if (!user) throw new Error('Not found');
+  
+  return user;
+}
+```
+
+But this approach has downsides:
+- Operations become more complex
+- Runtime needs modification
+- Harder to understand
+
+The `$` helper is a better balance - just 4 lines for perfect type inference!
+
+### Complete Example with $ Helper
+
+```typescript
+// The $ helper - just 4 lines!
+function $<T>(operation: Operation<T>): Generator<Operation<T>, T, T>;
+function $(operation: Operation<any>) {
+  return (function* () { return yield operation; })();
+}
+
+// Your workflows are now beautiful AND type-safe
+async function* createUserWorkflow(
+  userData: { name: string; email: string }
+): AsyncGenerator<Operation<any>, User, any> {
+  // Log with no return value
+  yield* $(log(`Creating user ${userData.email}`));
+  
+  // Check if exists - TypeScript knows it's User | null
+  const existing = yield* $(getUser(userData.email));
+  
+  if (existing) {
+    throw new Error('User already exists');
+  }
+  
+  // Create user - TypeScript knows it's User
+  const user = yield* $(createUser(userData));
+  
+  // Send welcome email
+  yield* $(sendEmail(user.email, 'Welcome!'));
+  
+  yield* $(log(`Created user ${user.id}`));
+  
+  // TypeScript ensures we return a User
+  return user;
+}
+```
+
+### Which Approach Should You Use?
+
+**Use type assertions if:**
+- You want to keep things simple
+- You don't mind the manual assertions
+- Your team is still learning the pattern
+
+```typescript
+const user = (yield getUser(id)) as User | null;
+```
+
+**Use the $ helper if:**
+- You want perfect type inference
+- You prefer cleaner code
+- You're comfortable with `yield*`
+
+```typescript
+const user = yield* $(getUser(id));
+```
+
+Both approaches give you full type safety. The helper approach is more elegant but requires understanding `yield*` delegation. Choose what works best for your team.
+
+</details>
+
+### The Bottom Line
+
+With TypeScript, our 16-line pattern becomes even more powerful. Whether you use simple type assertions or the advanced `yield*` approach, you get:
+
+- 🎯 **Compile-time safety** - Catch errors before runtime
+- 🚀 **Perfect autocomplete** - Your IDE knows every property
+- 🔧 **Refactoring confidence** - Change types and TypeScript guides you
+- 📚 **Self-documenting code** - Types are your documentation
+
+The pattern that eliminates dependency passing also eliminates type uncertainty. That's the power of good design - it works beautifully at every level.
 
 <br />
 
