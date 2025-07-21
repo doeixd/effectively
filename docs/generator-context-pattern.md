@@ -869,9 +869,9 @@ async function* sendNotification(userId, message) {
 
 ```javascript
 // Wrapper that works both ways
-function sendNotification(userId, message, db, emailService) {
+function sendNotification(userIdOrContext, message, db, emailService) {
   // New way: single context argument
-  if (arguments.length === 1 && typeof userId === 'object') {
+  if (arguments.length === 1 && typeof userIdOrContext === 'object') {
     const context = userId;
     return runtime(function* () {
       const user = yield getUser(context.userId);
@@ -997,7 +997,7 @@ const getUser = (id: number): Operation<User | null> =>
   (ctx) => ctx.db.findUser(id);
 
 const log = (message: string): Operation<void> => 
-  (ctx) => { ctx.logger.info(message); return Promise.resolve(); };
+  (ctx) => ctx.logger.info(message);
 
 // Type-safe workflow
 async function* updateUserWorkflow(
