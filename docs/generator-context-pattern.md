@@ -325,21 +325,29 @@ async function runtimeWithLoop(generatorFn, context) {
 
 // Version 3: Add error handling (our final version)
 function runtime(generatorFunction) {
+  // Return executor that will inject dependencies
   return async function execute(context) {
+    // Create new generator instance
     const generator = generatorFunction();
+    // Run generator until first yield
     let result = await generator.next();
     
+    // Process each yield until done
     while (!result.done) {
+      // Get the operation function that was yielded
       const operation = result.value;
-      
       try {
+        // Execute operation with context, get result
         const operationResult = await operation(context);
+        // Resume generator with result
         result = await generator.next(operationResult);
       } catch (error) {
+        // Forward errors into generator
         result = await generator.throw(error);
       }
     }
     
+    // Return final value
     return result.value;
   };
 }
