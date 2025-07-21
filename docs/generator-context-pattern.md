@@ -1,4 +1,4 @@
-# The 13-Line Pattern That Eliminates Dependency Passing
+# The 16-Line Pattern That Eliminates Dependency Passing
 
 Learn how a tiny runtime using JavaScript generators can transform how you structure applications
 
@@ -186,7 +186,7 @@ const UserContext = React.createContext();
 // ❌ Limited to component tree
 ```
 
-Our solution achieves the same goals with just 13 lines of vanilla JavaScript.
+Our solution achieves the same goals with just 16 lines of vanilla JavaScript.
 
 <br />
 
@@ -930,7 +930,7 @@ This is the same principle behind:
 - Middleware systems (Express, Koa)
 - Effect systems (Effect-TS, ZIO)
 
-But implemented in just 13 lines of vanilla JavaScript!
+But implemented in just 16 lines of vanilla JavaScript!
 
 <br />
 
@@ -1091,7 +1091,7 @@ async function* createUserWithProfile(userData, profileData) {
 
 ## Your Next Steps
 
-1. **Copy the 13-line runtime** from this article
+1. **Copy the 16-line runtime** from this article
 2. **Convert one function** in your codebase that has dependency passing
 3. **Create your first operations** - start with logging
 4. **Build your operation library** for your domain
@@ -1100,7 +1100,7 @@ async function* createUserWithProfile(userData, profileData) {
 Here's a starter template:
 
 ```javascript
-// runtime.js - The 13-line runtime
+// runtime.js - The 16-line runtime
 export function runtime(generatorFunction) {
   return async function execute(context) {
     const generator = generatorFunction();
@@ -1168,7 +1168,7 @@ const user = await createUser(context);
 
 ## Conclusion
 
-In just 13 lines of runtime code, we've built a powerful pattern that eliminates entire categories of problems. The beauty is in its simplicity: generators pause, the runtime provides what they need, they resume.
+In just 16 lines of runtime code, we've built a powerful pattern that eliminates entire categories of problems. The beauty is in its simplicity: generators pause, the runtime provides what they need, they resume.
 
 This isn't just a clever trick - it's a fundamental architectural pattern that scales from simple scripts to complex applications. The same principle that powers Redux-Saga, Effect-TS, and other production systems is now yours to use.
 
