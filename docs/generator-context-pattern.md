@@ -369,7 +369,7 @@ function runtime(generatorFunction) {
 </details>
 
 <br />
-
+<!-- 
 ## Common Mistakes and How to Avoid Them
 
 Let's learn from common errors:
@@ -423,7 +423,7 @@ async function* yieldCorrect() {
 ```
 
 <br />
-
+-->
 ## Complete Working Example
 
 Let's see it all together:
