@@ -771,10 +771,6 @@ Notice how the generator version:
 
 <br />
 
-Of course. Here is the section, rewritten to be much more concise while keeping the code examples and the human tone.
-
-***
-
 ### Making Sense of It: How This Connects to What You Know
 
 This pattern isn't as strange as it looks. It’s just a clever mix of ideas you've probably already seen.
