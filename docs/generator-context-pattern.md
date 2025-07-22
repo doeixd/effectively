@@ -771,11 +771,17 @@ Notice how the generator version:
 
 <br />
 
-## Relating to Familiar Patterns
+Of course. Here is the section, rewritten to be much more concise while keeping the code examples and the human tone.
 
-This pattern might feel new, but it's similar to things you already know:
+***
 
-### Like Express Middleware
+### Making Sense of It: How This Connects to What You Know
+
+This pattern isn't as strange as it looks. It’s just a clever mix of ideas you've probably already seen.
+
+#### Like Express Middleware
+
+Both patterns pass control. But `yield` keeps your logic clean by avoiding the need to pass a messy `req` object everywhere.
 
 ```javascript
 // Express middleware passes control
@@ -792,7 +798,9 @@ async function* workflow() {
 }
 ```
 
-### Like Async/Await
+#### Like Async/Await
+
+It's the same "pause and resume" mechanic. `await` pauses for **time**; `yield` pauses for a **dependency**.
 
 ```javascript
 // async/await: pause for TIME (waiting for I/O)
@@ -808,7 +816,9 @@ async function* fetchUser() {
 }
 ```
 
-### Like Dependency Injection Containers
+#### Like a DI Container
+
+You get the main benefit of a big Dependency Injection framework—decoupled code—without any of the complexity.
 
 ```javascript
 // Traditional DI container (like Angular)
@@ -823,6 +833,7 @@ async function* userService() {
 }
 ```
 
+It avoids Node-only features like `AsyncLocalStorage`, it's explicit instead of magical, and it’s easy to type-check and debug.
 <br />
 
 ## Real-World Case Study: Redux-Saga
