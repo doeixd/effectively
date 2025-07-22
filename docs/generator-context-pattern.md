@@ -1444,6 +1444,7 @@ Let's lay out the pros and cons clearly.
 *   **Harder to Understand:** The "magic" is now distributed. A developer needs to understand both the structure of generator operations *and* the special logic in the runtime. The cause-and-effect relationship is less direct.
 *   **Awkward `await (yield* ...)` syntax:** The need to manually `await` the result of the `yield*` expression is less ergonomic.
 
+<!--
 ### Complete Example with $ Helper
 
 ```typescript
@@ -1479,6 +1480,8 @@ async function* createUserWorkflow(
   return user;
 }
 ```
+
+-->
 
 ### Which Approach Should You Use?
 
