@@ -601,7 +601,7 @@ async function* createUserGenerator(name, email) {
   return user;
 }
 
-// Result: 71% fewer parameters, 100% clearer intent
+// Result: fewer parameters, clearer intent
 ```
 
 <br />
