@@ -300,7 +300,7 @@ The dedicated effects system provides type safety, better debugging, and clear s
 import { defineEffects, createHandlers, withHandlers } from '@doeixd/effectively/handlers';
 
 // Define multiple effects at once
-interface AppEffects {
+type AppEffects = {
   log: (message: string) => void;
   getUniqueId: () => string;
   readFile: (path: string) => string,
