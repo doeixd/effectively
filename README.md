@@ -300,11 +300,13 @@ The dedicated effects system provides type safety, better debugging, and clear s
 import { defineEffects, createHandlers, withHandlers } from '@doeixd/effectively/handlers';
 
 // Define multiple effects at once
-const effects = defineEffects({
-  log: (message: string) => void,
-  getUniqueId: () => string,
+interface AppEffects {
+  log: (message: string) => void;
+  getUniqueId: () => string;
   readFile: (path: string) => string,
-});
+}
+
+const effects = defineEffects<AppEffects>();
 
 // Create type-safe handlers
 const handlers = createHandlers({
@@ -1262,7 +1264,7 @@ describe('Payment Workflow', () => {
 | Function | Description |
 |----------|-------------|
 | `defineEffect<T>(effectName)` | Defines a typed, callable placeholder for a side effect. |
-| `defineEffects(effectsConfig)`| A helper to define multiple effects at once from a configuration object. |
+| `defineEffects<EffectsDefinitionObject>()`| A helper to define multiple effects at once. |
 | `createHandlers(handlers)` | A type-safe factory for creating a `Handlers` object for use with `withHandlers`. |
 | `withHandlers(handlers)` | A helper to create `run` options with effect handlers, abstracting `HANDLERS_KEY`. |
 | `HANDLERS_KEY` | The internal `Symbol` used as the key for storing effect handlers in the context. |
