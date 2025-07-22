@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.0.23
+
+[compare changes](https://github.com/doeixd/effectivly/compare/v0.0.22...v0.0.23)
+
+### 🩹 Fixes
+
+- Added overload to defineEffects for type saftey ([e37b522](https://github.com/doeixd/effectivly/commit/e37b522))
+
+### ❤️ Contributors
+
+- Patrick G <doeixd@gmail.com>
+
 ## v0.0.22
 
 [compare changes](https://github.com/doeixd/effectivly/compare/v0.0.21...v0.0.22)
