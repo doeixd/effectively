@@ -1108,12 +1108,7 @@ const user = await updateUser(context, 123);
 // user is typed as: User ✅
 ```
 
-That's it! With simple type assertions, you get full type safety. Your IDE will provide autocomplete, catch typos, and ensure type correctness throughout your workflows.
-
-**Want to eliminate even the type assertions?** The advanced section below shows how to achieve full type inference with no manual annotations at all.
-
-<details>
-<summary>🚀 Advanced: Full Type Inference Without Assertions</summary>
+That's it! With simple type assertions, you get full type safety. Your IDE will provide autocomplete, catch typos, and ensure type correctness throughout your workflows. However, that's not the full or ideal story to achieving type safty.
 
 ### Want Even Better? Use yield* for Automatic Type Inference
 
@@ -1259,10 +1254,6 @@ But this approach has downsides:
 - Harder to understand
 
 The `$` helper is a better balance - just 4 lines for perfect type inference!
-
-##### But if you want a deep-dive on how to get type saftey without the helper, see more below
-<details>
-  <summary> See more for a deep dive 🌊</summary>
   
 ### Deeper Dive: Removing the `$` Helper by Restructuring Operations
 
@@ -1453,8 +1444,6 @@ Let's lay out the pros and cons clearly.
 *   **Harder to Understand:** The "magic" is now distributed. A developer needs to understand both the structure of generator operations *and* the special logic in the runtime. The cause-and-effect relationship is less direct.
 *   **Awkward `await (yield* ...)` syntax:** The need to manually `await` the result of the `yield*` expression is less ergonomic.
 
-</details>
-
 ### Complete Example with $ Helper
 
 ```typescript
@@ -1513,7 +1502,6 @@ const user = yield* $(getUser(id));
 
 Both approaches give you full type safety. The helper approach is more elegant but requires understanding `yield*` delegation. Choose what works best for your team.
 
-</details>
 
 ### The Bottom Line
 
