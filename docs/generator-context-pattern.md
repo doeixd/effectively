@@ -1220,7 +1220,7 @@ workflow → yield operation → ??? → any
 // With yield* $ - TypeScript follows the path:
 workflow → yield* → $ generator → yield operation → return result → typed result!
 ```
-
+<!--
 ### Can We Remove Even the $ Helper?
 
 Technically, yes! If we restructure how operations work:
@@ -1261,6 +1261,8 @@ But this approach has downsides:
 - Harder to understand
 
 The `$` helper is a better balance - just 4 lines for perfect type inference!
+
+-->
   
 ### Deeper Dive: Removing the `$` Helper by Restructuring Operations
 
