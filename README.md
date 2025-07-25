@@ -55,7 +55,7 @@ At its heart, Effectively is intuitively simple. Let's build your understanding 
 
 #### Step 1: A Task is Just an Async Function
 
-In Effectively, everything starts with a simple idea: a **Task** is just an async function that takes two parameters: a `context` and a `value`.
+In Effectively, everything starts with a simple idea: a **Task** is just an async function that a `context` as its first parameter, followed by any input arguments it needs."
 
 ```typescript
 interface AppContext {
@@ -118,7 +118,7 @@ await run(greet, "World");
 ```typescript
 import { defineTask, getContext, run, type BaseContext } from '@doeixd/effectively';
 
-interface CustomContext extends BaseContext {
+interface CustomContext extends BaseContext { // The BaseContext type automatically includes the necessary scope property, solving this boilerplate for you.
   greeting?: string;
 }
 
@@ -270,7 +270,7 @@ This system lets you formally define effects as callable placeholders.
 **1. Define the "what"** using `defineEffect`. This creates a function that, when called, will look for its implementation in the context.
 
 ```typescript
-import { defineEffect, withHandlers, run } from 'effectively';
+import { defineEffect, withHandlers, run } from '@doeixd/effectively';
 
 // Define effects - the "what" without the "how"
 const log = defineEffect<(message: string) => void>('log');
@@ -307,7 +307,7 @@ await run(greetUser, undefined, withHandlers(testHandlers)); // Test version
 For applications with multiple effects, you can manage them with the `defineEffects` and `createHandlers` helpers. This is where you can also add a layer of **opt-in type safety**.
 
 ```typescript
-import { defineEffects, createHandlers, withHandlers, run } from 'effectively';
+import { defineEffects, createHandlers, withHandlers, run } from '@doeixd/effectively';
 
 // 1. Define all your effects at once from a single type contract
 type AppEffects = {
@@ -340,7 +340,7 @@ To solve this and provide permanent, end-to-end type safety, the library include
 It creates a single, unified toolkit where your effects and handlers are **always** linked to the same contract.
 
 ```typescript
-import { createEffectSuite, defineTask, run } from 'effectively';
+import { createEffectSuite, defineTask, run } from '@doeixd/effectively';
 
 // 1. Define the contract, just like before.
 type AppEffects = {
