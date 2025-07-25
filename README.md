@@ -222,9 +222,11 @@ const message = await run(greet, 'World');
 const display = await run(getUserDisplay, 'user-123');
 ```
 
-#### Step 5: Effect Handlers
+### Step 5: Effect Handlers
 
 Here's where Effectively gets powerful: you can build **algebraic effect handlers** on top of the context system. These allow you to define abstract effects (like "get user input" or "log a message") and provide different implementations in different contexts.
+
+At its most fundamental level, you can manage this with the raw context system:
 
 ```typescript
 // Define an effect interface
@@ -233,7 +235,7 @@ interface Effects {
   log: (message: string) => Promise<void>;
 }
 
-// A task that uses effects abstractly
+// A task that uses effects abstractly by pulling them from the context
 const greetUser = defineTask(async () => {
   const { input, log } = getContext<AppContext & Effects>();
 
@@ -259,25 +261,33 @@ await run(greetUser, undefined, { overrides: webEffects });    // Web version
 await run(greetUser, undefined, { overrides: testEffects });  // Test version
 ```
 
-Algebraic effect handlers let you write code that's abstract over side effects, making it highly testable and composable. The context system naturally provides this capability without additional complexity.
+This raw approach works, but for convenience, Effectively provides a **dedicated effects system** that adds better structure, type safety, and error handling.
 
-For convenience, Effectively also provides a **dedicated effects system** that adds type safety and better error handling:
+#### A Dedicated System for Effects
+
+This system lets you formally define effects as callable placeholders.
+
+**1. Define the "what"** using `defineEffect`. This creates a function that, when called, will look for its implementation in the context.
 
 ```typescript
-import { defineEffect, withHandlers } from '@doeixd/effectively/handlers';
+import { defineEffect, withHandlers, run } from 'effectively';
 
 // Define effects - the "what" without the "how"
 const log = defineEffect<(message: string) => void>('log');
 const input = defineEffect<(prompt: string) => string>('input');
 
-// A task that uses effects abstractly
+// A task that uses the effects directly
 const greetUser = defineTask(async () => {
   const name = await input("What's your name?");
   const greeting = `Hello, ${name}!`;
   await log(greeting);
   return greeting;
 });
+```
 
+**2. Provide the "how"** using `withHandlers`. This helper correctly places your handler implementations into the context where the effects can find them.
+
+```typescript
 // Provide different implementations for different contexts
 const webHandlers = {
   input: (prompt: string) => window.prompt(prompt) || '',
@@ -294,33 +304,73 @@ await run(greetUser, undefined, withHandlers(webHandlers)); // Web version
 await run(greetUser, undefined, withHandlers(testHandlers)); // Test version
 ```
 
-The dedicated effects system provides type safety, better debugging, and clear separation between effect declaration and implementation. For multiple effects, use the `defineEffects` helper:
+For applications with multiple effects, you can manage them with the `defineEffects` and `createHandlers` helpers. This is where you can also add a layer of **opt-in type safety**.
 
 ```typescript
-import { defineEffects, createHandlers, withHandlers } from '@doeixd/effectively/handlers';
+import { defineEffects, createHandlers, withHandlers, run } from 'effectively';
 
-// Define multiple effects at once
+// 1. Define all your effects at once from a single type contract
 type AppEffects = {
   log: (message: string) => void;
   getUniqueId: () => string;
   readFile: (path: string) => string,
 }
-
 const effects = defineEffects<AppEffects>();
 
-// Create type-safe handlers
+// 2. Create a handlers object
 const handlers = createHandlers({
   log: console.log,
   getUniqueId: () => crypto.randomUUID(),
   readFile: (path) => fs.readFileSync(path, 'utf8'),
 });
 
-await run(myTask, input, withHandlers(handlers));
+// 3. To ensure safety, you can provide the contract type to `withHandlers`.
+//    This lets TypeScript validate that your handlers match the contract.
+await run(myTask, input, withHandlers<AppEffects>(handlers));
 ```
 
-Algebraic effect handlers let you write code that's abstract over side effects, making it highly testable and composable.
+#### The Challenge: Ensuring Safety Across Your App
 
-This simple, layered approach—from plain async functions to composable workflows with effect handlers—is the core of Effectively.
+While adding `<AppEffects>` to `withHandlers` is a great way to add safety, it's a manual step. You have to remember to do it for every `run` call. In a large application, it's easy to forget, re-introducing the risk that your effect definitions and handler implementations could drift out of sync. A typo or a missing handler might not be caught by the compiler.
+
+#### The Recommended Solution: createEffectSuite
+
+To solve this and provide permanent, end-to-end type safety, the library includes the **`createEffectSuite`** factory.
+
+It creates a single, unified toolkit where your effects and handlers are **always** linked to the same contract.
+
+```typescript
+import { createEffectSuite, defineTask, run } from 'effectively';
+
+// 1. Define the contract, just like before.
+type AppEffects = {
+  log: (message: string) => void;
+  getUniqueId: () => string;
+};
+
+// 2. Create the suite. This is the key step.
+const { effects, createHandlers, withHandlers } = createEffectSuite<AppEffects>();
+
+// 3. The task definition is identical.
+const myTask = defineTask(async () => {
+  const id = await effects.getUniqueId();
+  await effects.log(`Task run with ID: ${id}`);
+});
+
+// 4. Create handlers using the suite's `createHandlers`.
+//    ✅ It's impossible to make a mistake here. If a handler is missing
+//       or has a typo, you will get a COMPILE-TIME ERROR.
+const myHandlers = createHandlers({
+  log: console.log,
+  getUniqueId: () => 'test-id-123',
+});
+
+// 5. Run the task using the suite's `withHandlers`.
+//    This is also validated against the contract automatically.
+await run(myTask, undefined, withHandlers(myHandlers));
+```
+
+This simple, layered approach—from plain async functions to composable workflows with a robust and automatically safe effects system—is the core of Effectively.
 
 <br />
 
@@ -1261,13 +1311,18 @@ describe('Payment Workflow', () => {
 | `TimeoutError` | Class. The error thrown when a `withTimeout` operation exceeds its duration. |
 
 ### Effect Handlers
-| Function | Description |
-|----------|-------------|
-| `defineEffect<T>(effectName)` | Defines a typed, callable placeholder for a side effect. |
-| `defineEffects<EffectsDefinitionObject>()`| A helper to define multiple effects at once. |
-| `createHandlers(handlers)` | A type-safe factory for creating a `Handlers` object for use with `withHandlers`. |
-| `withHandlers(handlers)` | A helper to create `run` options with effect handlers, abstracting `HANDLERS_KEY`. |
-| `HANDLERS_KEY` | The internal `Symbol` used as the key for storing effect handlers in the context. |
+
+| Function / Property                      | Description                                                                                                                                                                                                                               |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`createEffectSuite<T>()`**             | **(Recommended)** The primary entry point for the effects system. Creates a complete, type-safe suite of tools (`effects`, `createHandlers`, `withHandlers`) that are all bound to the same effects contract `T` for end-to-end type safety. |
+| `.effects`                               | (Returned by `createEffectSuite`) The proxy object used to declare effects in your tasks. Its methods are fully typed according to the suite's contract.                                                                                   |
+| `.createHandlers(handlers)`              | (Returned by `createEffectSuite`) A type-safe factory for creating handler implementations that are guaranteed to match the suite's contract.                                                                                               |
+| `.withHandlers(handlers)`                | (Returned by `createEffectSuite`) A type-safe wrapper to provide handlers to a `run` call, ensuring the handlers match the suite's contract.                                                                                                |
+| `defineEffect<T>(effectName)`            | Defines a single, low-level typed placeholder for a side effect.                                                                                                                                                                          |
+| `defineEffects<T>()`                     | A legacy helper to define multiple effects at once. For new projects, `createEffectSuite` is the recommended alternative.                                                                                                                   |
+| `createHandlers<T>(handlers)`            | A standalone factory for creating a `Handlers` object. This legacy helper can be used with an explicit generic (`<T>`) to **opt-in** to stricter type validation against a contract.                                                            |
+| `withHandlers<T>(handlers)`              | A standalone helper to create `run` options. This legacy helper can be used with an explicit generic (`<T>`) to **opt-in** to stricter type validation, catching mismatches at compile time.                                                  |
+| `HANDLERS_KEY`                           | The internal `Symbol` used as the key for storing effect handlers in the context. This is typically abstracted away by `withHandlers` and is only needed for advanced, manual context manipulation.                                            |
 
 ### Task Enhancers
 | Function | Description |
