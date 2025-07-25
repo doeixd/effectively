@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.0.25
+
+[compare changes](https://github.com/doeixd/effectivly/compare/v0.0.24...v0.0.25)
+
+### 🚀 Enhancements
+
+- **effects:** Add effects suite overload to `withHandler` ([9d9af0c](https://github.com/doeixd/effectivly/commit/9d9af0c))
+
+### ❤️ Contributors
+
+- Doeixd <doeixd@gmail.com>
+
 ## v0.0.24
 
 [compare changes](https://github.com/doeixd/effectivly/compare/v0.0.23...v0.0.24)
