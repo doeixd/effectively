@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.0.24
+
+[compare changes](https://github.com/doeixd/effectivly/compare/v0.0.23...v0.0.24)
+
+### 🚀 Enhancements
+
+- **effects:** Introduce Effect Suite and enhance type safety ([a550f8f](https://github.com/doeixd/effectivly/commit/a550f8f))
+
+### ❤️ Contributors
+
+- Doeixd <doeixd@gmail.com>
+
 ## v0.0.23
 
 [compare changes](https://github.com/doeixd/effectivly/compare/v0.0.22...v0.0.23)
