@@ -1677,6 +1677,141 @@ const createUser = runtime(() =>
 const user = await createUser(context);
 ```
 
+#### Typescript version
+
+```ts
+// ============================================================================
+// The Generator/Runtime Pattern: The "Helper-less" Type-Safe Implementation
+//
+// This version achieves perfect type inference with no helpers or assertions.
+// The trade-off: operations and the runtime are more complex, but the
+// business logic in the workflow is exceptionally clean.
+// ============================================================================
+
+// 1. CORE TYPES: Define the contracts for our application.
+
+/** A simple domain model for a user. */
+interface User {
+  id: number;
+  name: string;
+}
+
+/** The dependency container holding all external services. */
+interface AppContext {
+  db: {
+    findUserById(id: number): Promise<User | null>;
+  };
+  logger: {
+    info(message: string): void;
+  };
+}
+
+// 2. THE CONTEXT REQUEST: A special signal for requesting the context.
+// Instead of being passed around, the context is now explicitly requested by
+// operations when they need it.
+
+/** A typed function that represents a request for the context. */
+type ContextRequest = (context: AppContext) => AppContext;
+
+/** A constant holding the actual request signal. We check for this in the runtime. */
+const GetContext: ContextRequest = (context) => context;
+
+// 3. THE "SMART" RUNTIME: The modified engine that understands context requests.
+// This runtime is no longer a generic "operation executor". It now has special logic
+// to handle the GetContext signal, which is the only thing operations are allowed to yield.
+
+/**
+ * The modified runtime that understands how to inject the context into operations.
+ * @param generatorFn The generator function defining the business logic.
+ * @returns An async function that takes a context and arguments, then runs the workflow.
+ */
+function runtime<TArgs extends any[], TReturn>(
+  generatorFn: (...args: TArgs) => AsyncGenerator<ContextRequest, TReturn, AppContext>
+) {
+  return async function execute(
+    context: AppContext,
+    ...args: TArgs
+  ): Promise<TReturn> {
+    const generator = generatorFn(...args);
+
+    // Start the generator. It will run until the first `yield GetContext`.
+    let result = await generator.next();
+
+    // Loop until the generator is done.
+    while (!result.done) {
+      const yieldedValue = result.value;
+
+      // This is the "catch" from your prompt, now implemented.
+      // We check if the yielded value is our specific context request signal.
+      if (yieldedValue === GetContext) {
+        // If it is, we don't execute it. We just send the real context
+        // back into the generator so it can continue its work.
+        result = await generator.next(context);
+      } else {
+        // In this pure pattern, no other values should be yielded.
+        // A more complex system could handle other signals here.
+        throw new Error("Invalid value yielded. Only GetContext is allowed.");
+      }
+    }
+
+    return result.value;
+  };
+}
+
+// 4. GENERATOR OPERATIONS: The application's "vocabulary" as generators.
+// Operations are no longer simple functions. They are now generators themselves
+// that follow a specific two-step pattern:
+// 1. `yield` the `GetContext` signal.
+// 2. Receive the context and `return` the final result (often a Promise).
+
+/**
+ * The log operation, redefined as a generator.
+ * Its signature declares what it yields, what it returns, and what it expects back.
+ */
+function* log(message: string): Generator<ContextRequest, void, AppContext> {
+  // Step 1: Ask for the context.
+  const ctx = yield GetContext;
+  // Step 2: Use the context.
+  ctx.logger.info(message);
+}
+
+/**
+ * The findUserById operation, redefined as a generator.
+ * It returns a Promise, which the workflow will need to `await`.
+ */
+function* findUserById(id: number): Generator<ContextRequest, Promise<User | null>, AppContext> {
+  const ctx = yield GetContext;
+  // The `return` keyword is crucial. It's what `yield*` will evaluate to.
+  return ctx.db.findUserById(id);
+}
+
+// 5. THE WORKFLOW: The business logic, now exceptionally clean.
+// It uses `yield*` to delegate directly to the generator operations.
+// This is where the type safety from generator signatures pays off.
+
+/** A workflow to find a user and greet them. It must be `async`. */
+async function* findAndGreetWorkflow(userId: number) {
+  // `yield*` runs the `log` generator to completion.
+  yield* log(`Searching for user with ID: ${userId}...`);
+
+  // `yield*` delegates to `findUserById`. TypeScript knows its return type is
+  // `Promise<User | null>`, so we must `await` it.
+  const user = await (yield* findUserById(userId));
+
+  if (!user) {
+    yield* log(`User not found.`);
+    return null;
+  }
+
+  const greeting = `Hello, ${user.name}!`;
+  yield* log(greeting);
+
+  return greeting;
+}
+
+
+```
+
 <br />
 
 ## Conclusion
