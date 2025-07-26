@@ -146,8 +146,7 @@ Once you have tasks, you can chain them together using `createWorkflow`. The out
 
 ```typescript
 interface User {
-  id: string;
-  name: string;
+  id: string; name: string;
 }
 
 interface EnrichedUser extends User {
@@ -189,18 +188,19 @@ await run(getUserDisplay, "123");
 Tasks need a context to execute. The `run` function, created by `createContext`, provides it.
 
 ```typescript
-import { createContext, type Scope } from '@doeixd/effectively';
+import { createContext, createWorkflow, type BaseContext } from '@doeixd/effectively';
+
+interface User {
+  id: string; name: string;
+}
+
+interface EnrichedUser extends User {
+  profile: { title: string };
+}
 
 interface ApiClient {
   getUser: (userId: string) => Promise<User>;
   getProfile: (userId: string) => Promise<{ title: string }>;
-}
-
-// Define your context interface (scope is required)
-interface AppContext {
-  scope: Scope;  // Required by the library
-  greeting: string;
-  api: ApiClient;
 }
 
 // dummy implementation of the API client
@@ -209,14 +209,46 @@ const myApiClient: ApiClient = {
   getProfile: async (userId: string) => ({ title: "Developer" }),
 };
 
+interface AppContext {
+  greeting: string;
+  api: ApiClient;
+}
+
 // Create your app's context with default dependencies
-const { run } = createContext<AppContext>({
+const { run, defineTask, getContext } = createContext<AppContext>({
   greeting: 'Hello',
   api: myApiClient
 });
 
+// define task in AppContext scope
+const greet = defineTask(async (name: string) => {
+  const { greeting } = getContext();
+  return `${greeting}, ${name}!`;
+});
+
 // Run a single task
 const message = await run(greet, 'World');
+
+// We used these in Step 3 chapter for workflow but defined task in context
+const fetchUser = defineTask(async (userId: string) => {
+  const { api } = getContext();
+  // type-safe method calling
+  return api.getUser(userId);
+});
+
+const enrichUser = defineTask(async (user: User) => {
+  const { api } = getContext();
+  // type-safe method calling
+  const profile = await api.getProfile(user.id);
+  return { ...user, profile };
+});
+
+// "lift" it into a Task automatically in the workflow
+async function formatUser(enrichedUser: EnrichedUser): Promise<string> {
+  return `${enrichedUser.name} (${enrichedUser.profile.title})`;
+}
+
+const getUserDisplay = createWorkflow(fetchUser, enrichUser, formatUser);
 
 // Run a workflow (which is also just a Task!)
 const display = await run(getUserDisplay, 'user-123');
@@ -229,6 +261,10 @@ Here's where Effectively gets powerful: you can build **algebraic effect handler
 At its most fundamental level, you can manage this with the raw context system:
 
 ```typescript
+import { defineTask, getContext, run, type BaseContext } from '@doeixd/effectively';
+
+interface AppContext extends BaseContext {}
+
 // Define an effect interface
 interface Effects {
   input: (prompt: string) => Promise<string>;
@@ -270,7 +306,7 @@ This system lets you formally define effects as callable placeholders.
 **1. Define the "what"** using `defineEffect`. This creates a function that, when called, will look for its implementation in the context.
 
 ```typescript
-import { defineEffect, withHandlers, run } from '@doeixd/effectively';
+import { defineEffect, withHandlers, defineTask, run } from '@doeixd/effectively';
 
 // Define effects - the "what" without the "how"
 const log = defineEffect<(message: string) => void>('log');
@@ -307,7 +343,9 @@ await run(greetUser, undefined, withHandlers(testHandlers)); // Test version
 For applications with multiple effects, you can manage them with the `defineEffects` and `createHandlers` helpers. This is where you can also add a layer of **opt-in type safety**.
 
 ```typescript
-import { defineEffects, createHandlers, withHandlers, run } from '@doeixd/effectively';
+import crypto from "node:crypto";
+import fs from "node:fs";
+import { defineEffects, createHandlers, withHandlers, defineTask, run } from '@doeixd/effectively';
 
 // 1. Define all your effects at once from a single type contract
 type AppEffects = {
@@ -323,6 +361,15 @@ const handlers = createHandlers({
   getUniqueId: () => crypto.randomUUID(),
   readFile: (path) => fs.readFileSync(path, 'utf8'),
 });
+
+// build a task to run
+const myTask = defineTask(async (input) => {
+  const id = await effects.getUniqueId();
+  await effects.log(`Generated ID: ${id}`);
+  const content = await effects.readFile(input);
+  await effects.log(`File content: ${content}`);
+});
+const input = 'src/toc.txt';
 
 // 3. To ensure safety, you can provide the contract type to `withHandlers`.
 //    This lets TypeScript validate that your handlers match the contract.
