@@ -224,7 +224,7 @@ const display = await run(getUserDisplay, 'user-123');
 
 ### Step 5: Effect Handlers
 
-Here's where Effectively gets powerful: you can build **algebraic effect handlers** on top of the context system. These allow you to define abstract effects (like "get user input" or "log a message") and provide different implementations in different contexts.
+Here's where Effectively gets powerful: you can build **algebraic(ish) effect handlers** on top of the context system. These allow you to define abstract effects (like "get user input" or "log a message") and provide different implementations in different contexts.
 
 At its most fundamental level, you can manage this with the raw context system:
 
