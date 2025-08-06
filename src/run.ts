@@ -34,6 +34,10 @@ export type WithOptionalContext<
   Extension extends Record<string, unknown>,
 > = Base & Partial<Extension>;
 
+export type EnhancedOverrides<C extends BaseContext> = Partial<Omit<C, "scope">> & {
+  [HANDLERS_KEY]?: Record<string, any>;
+};
+
 /**
  * Type for context validation functions.
  */
@@ -203,7 +207,7 @@ export class WorkflowError extends Error {
 export interface RunOptionsThrow<C extends BaseContext> {
   throw?: true;
   logger?: Logger;
-  overrides?: Partial<Omit<C, "scope">>;
+  overrides?: EnhancedOverrides<C>;
   parentSignal?: AbortSignal;
 }
 
@@ -213,7 +217,7 @@ export interface RunOptionsThrow<C extends BaseContext> {
 export interface RunOptionsResult<C extends BaseContext> {
   throw: false;
   logger?: Logger;
-  overrides?: Partial<Omit<C, "scope">>;
+  overrides?: EnhancedOverrides<C>;
   parentSignal?: AbortSignal;
 }
 
