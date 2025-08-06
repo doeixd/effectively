@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.0.28
+
+[compare changes](https://github.com/doeixd/effectivly/compare/v0.0.27...v0.0.28)
+
+### 🩹 Fixes
+
+- Effective system types ([1388665](https://github.com/doeixd/effectivly/commit/1388665))
+
+### ❤️ Contributors
+
+- Doeixd <doeixd@gmail.com>
+
 ## v0.0.27
 
 [compare changes](https://github.com/doeixd/effectivly/compare/v0.0.26...v0.0.27)
