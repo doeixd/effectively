@@ -1,6 +1,16 @@
-import { createContext, type BaseContext } from './run';
-import { createEffectSuite, type EffectsSchema } from './handlers';
+import { createContext, type BaseContext, type ContextTools } from './run';
+import { createEffectSuite, type EffectsSchema, type EffectSuiteTools } from './handlers';
 import { type ContextWithEffects } from './run';
+
+/**
+ * Represents the complete, unified set of tools returned by `createEffectiveSystem`.
+ * This type combines the tools from `createContext` and `createEffectSuite`,
+ * ensuring they are correctly typed to work together.
+ */
+export type EffectiveSystem<
+  TContext extends BaseContext,
+  TEffects extends EffectsSchema
+> = ContextTools<ContextWithEffects<TContext>> & EffectSuiteTools<TEffects>;
 
 /**
  * Creates a new, fully integrated "Effectively" system, providing a
@@ -19,7 +29,7 @@ import { type ContextWithEffects } from './run';
 export function createEffectiveSystem<
   TContext extends BaseContext,
   TEffects extends EffectsSchema
->(config: { context: Omit<TContext, 'scope'> }) {
+>(config: { context: Omit<TContext, 'scope'> }): EffectiveSystem<TContext, TEffects> {
 
   // 1. Create the combined context type internally using our new helper
   type CombinedContext = ContextWithEffects<TContext>;

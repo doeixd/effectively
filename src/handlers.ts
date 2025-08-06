@@ -44,6 +44,12 @@ export type Effect<T extends AnyFn> =
 /** A generic mapping of effect names to their concrete handler implementations. */
 export type Handlers = Record<string, AnyFn>;
 
+export type EffectSuiteTools<T extends EffectsSchema> = {
+  effects: EffectsSuite<T>,
+  createHandlers: (handlers: T) => T;
+  withHandlers(handlers: T): { overrides: { [HANDLERS_KEY]: Handlers } };
+};
+
 /**
  * The return type of the `defineEffect` function. It is the callable effect
  * function with attached helper methods for easily providing an implementation.
@@ -66,7 +72,7 @@ export type EffectWithHelpers<T extends AnyFn> = Effect<T> & {
 };
 
 /** The return type of `defineEffects` or the `effects` property from `createEffectSuite`. */
-type EffectsSuite<T extends EffectsSchema> = { [K in keyof T]: EffectWithHelpers<T[K]> };
+export type EffectsSuite<T extends EffectsSchema> = { [K in keyof T]: EffectWithHelpers<T[K]> };
 
 /** The shape a context must have to support the effects pattern. */
 export interface EffectsContext extends BaseContext {

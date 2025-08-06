@@ -534,7 +534,7 @@ export function getContextOrUndefinedFromActiveInstance<
 /**
  * Default context interface that can be used without explicit context creation
  */
-interface DefaultGlobalContext extends BaseContext {}
+export interface DefaultGlobalContext extends BaseContext {}
 
 const DEFAULT_GLOBAL_CONTEXT_KEY = "__effectively_default_context__" as const;
 
