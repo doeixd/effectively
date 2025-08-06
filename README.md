@@ -454,7 +454,8 @@ The error occurs because our `appRun` function only knows about the `AppContext`
 
 The first solution is to explicitly teach your context about the effects it will need to handle. Instead of requiring you to know the library's internal details, you can now use the `ContextWithHandlers<TContext, THandlers>` utility type.
 
-**Before (Verbose and requires internal knowledge):**```typescript
+**Before (Verbose and requires internal knowledge):**
+```typescript
 import { HANDLERS_KEY, type BaseContext } from '@doeixd/effectively';
 
 interface AppContext extends BaseContext {
