@@ -1,6 +1,19 @@
 # Changelog
 
 
+## v0.0.27
+
+[compare changes](https://github.com/doeixd/effectivly/compare/v0.0.26...v0.0.27)
+
+### 🚀 Enhancements
+
+- Added ContextWithHandlers ([4ac8639](https://github.com/doeixd/effectivly/commit/4ac8639))
+- Updated run types to better support overides and handlers ([01238ef](https://github.com/doeixd/effectivly/commit/01238ef))
+
+### ❤️ Contributors
+
+- Doeixd <doeixd@gmail.com>
+
 ## v0.0.26
 
 [compare changes](https://github.com/doeixd/effectivly/compare/v0.0.25...v0.0.26)
