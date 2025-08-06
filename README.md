@@ -419,6 +419,134 @@ await run(myTask, undefined, withHandlers(myHandlers));
 
 This simple, layered approach—from plain async functions to composable workflows with a robust and automatically safe effects system—is the core of Effectively.
 
+### Step 6: 🤝 Unifying Custom Context and Effects
+
+So far, we've treated custom contexts (for dependencies like an `api` client) and effect handlers (for abstracting side effects like `log`) as separate tools. But what happens when a single task needs access to **both**? This is where the true power of composition shines, but it also reveals a common TypeScript challenge that `Effectively` now elegantly solves.
+
+#### The Challenge: A Tale of Two Systems
+
+Let's try to use the `run` function from our custom `AppContext` (from Step 4) with the `withHandlers` from our `AppEffects` suite (from Step 5).
+
+```typescript
+// From Step 4: We have a context system for AppContext
+interface AppContext extends BaseContext { api: ApiClient; }
+const { run: appRun } = createContext<AppContext>({ api: myApiClient });
+
+// From Step 5: We have a suite of effects and handlers
+type AppEffects = { log: (message: string) => void; };
+const { effects, withHandlers, createHandlers } = createEffectSuite<AppEffects>();
+const myHandlers = createHandlers({ log: console.log });
+
+const myTask = defineTask(async () => {
+  // This task wants to use BOTH the custom context and the effects
+  const { api } = getContext<AppContext>();
+  await effects.log(`Using the API...`);
+  // ...
+});
+
+// 💥 This will cause a TypeScript error!
+await appRun(myTask, undefined, withHandlers(myHandlers));
+```
+
+The error occurs because our `appRun` function only knows about the `AppContext` interface (`{ api }`). The `withHandlers` helper tries to add effect handler implementations to the context, but the `AppContext` type doesn't know anything about them. TypeScript, doing its job, correctly tells us these two worlds are disconnected.
+
+#### Solution A (The Manual Way): `ContextWithHandlers` Helper Type
+
+The first solution is to explicitly teach your context about the effects it will need to handle. Instead of requiring you to know the library's internal details, you can now use the `ContextWithHandlers<TContext, THandlers>` utility type.
+
+**Before (Verbose and requires internal knowledge):**```typescript
+import { HANDLERS_KEY, type BaseContext } from '@doeixd/effectively';
+
+interface AppContext extends BaseContext {
+  api: ApiClient;
+  // Manually adding the internal property
+  [HANDLERS_KEY]?: Record<string, any>;
+}
+
+const { run } = createContext<AppContext>({ api: myApiClient });
+```
+
+**After (Clean and declarative with the helper):**
+```typescript
+import {
+  createContext,
+  createEffectSuite,
+  type BaseContext,
+  type ContextWithHandlers // <-- Import the helper type
+} from '@doeixd/effectively';
+
+// Define your context and effects as before
+interface AppContext extends BaseContext {
+  api: ApiClient;
+}
+type AppEffects = {
+  log: (message: string) => void;
+};
+
+// ✅ Use the helper to create the combined type. It's much cleaner.
+type AppServiceContext = ContextWithHandlers<AppContext, AppEffects>;
+
+// Create your tools using the combined type
+const { run } = createContext<AppServiceContext>({
+  api: myApiClient,
+});
+const { effects, withHandlers, createHandlers } = createEffectSuite<AppEffects>();
+/* ... task definition ... */
+const myHandlers = createHandlers({ log: console.log });
+
+// ✅ No more errors!
+await run(myTask, undefined, withHandlers(myHandlers));
+```
+This is a clean and explicit way to compose the two systems. But we can do even better.
+
+#### Solution B (The Recommended Way): `createEffectiveSystem`
+
+For the most seamless experience, the library now includes a "batteries-included" factory function called `createEffectiveSystem`. It combines your custom context and your effects contract into a single, unified toolkit from the very beginning.
+
+This is now the **recommended entry point for most applications.**
+
+```typescript
+import { createEffectiveSystem, type BaseContext } from '@doeixd/effectively';
+
+// 1. Define your context and effects types as usual.
+interface AppContext extends BaseContext {
+  api: ApiClient;
+}
+type AppEffects = {
+  log: (message: string) => void;
+};
+
+// 2. Use the factory to create a fully integrated system.
+//    Pass both types as generics and provide the default context data.
+const {
+  run,
+  getContext,
+  defineTask,
+  effects,
+  createHandlers,
+  withHandlers
+} = createEffectiveSystem<AppContext, AppEffects>({
+  context: { api: myApiClient }
+});
+
+// 3. Define tasks and handlers using the tools from the system.
+//    Everything is automatically and correctly typed.
+const myTask = defineTask(async () => {
+  const { api } = getContext(); // ✅ Correctly infers `api` property
+  await effects.log('This just works!');
+});
+
+const myHandlers = createHandlers({
+  // ✅ This is fully aware of AppEffects. A typo here is a compile-error.
+  log: (message) => console.log(`[SYSTEM LOG] ${message}`),
+});
+
+// 4. Run the task. It works perfectly with zero manual type-juggling.
+await run(myTask, undefined, withHandlers(myHandlers));
+```
+
+With `createEffectiveSystem`, you get the power of both a custom context and a type-safe effects system with none of the friction. This simple, layered approach is the core of building robust, maintainable applications with `Effectively`.
+
 <br />
 
 
