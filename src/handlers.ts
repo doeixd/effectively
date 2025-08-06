@@ -32,7 +32,7 @@ export const HANDLERS_KEY = Symbol.for('effectively.handlers');
 type AnyFn = (...args: any[]) => any;
 
 /** An object type where keys are strings and values are functions. Used as a generic constraint. */
-type EffectsSchema = Record<string, AnyFn>;
+export type EffectsSchema = Record<string, AnyFn>;
 
 /**
  * Represents a callable effect function. It is an async-first version of the

@@ -1330,7 +1330,7 @@ describe('Payment Workflow', () => {
 
 
 ### Context & Dependency Injection
-| Function | Description |
+| Export | Description |
 |----------|-------------|
 | `mergeContexts(contextA, contextB)` | Type-safely merges two contexts, with `B`'s properties taking precedence. |
 | `validateContext(schema, context)` | Performs runtime validation of a context object against a provided Zod-like schema. |
@@ -1339,6 +1339,8 @@ describe('Payment Workflow', () => {
 | `inject(token)` | Injects a dependency by its token from the current context. Throws if not found. |
 | `injectOptional(token)` | Safely injects a dependency by its token, returning `undefined` if not found. |
 | `withContextEnhancement(enhancement, task)`| A `Task` enhancer that provides additional context properties to a child task. |
+| `ContextWithEffects<T extends BaseContext>` | A utility type to add effect handlers to context.
+
 
 ### Advanced Context Tools
 | Function | Description |
@@ -1373,6 +1375,11 @@ describe('Payment Workflow', () => {
 | `createHandlers<T>(handlers)`            | A standalone factory for creating a `Handlers` object. Can be made safer by using an explicit generic (`<T>`).                                                                                                                                                                                                               |
 | `withHandlers<T>(handlers)`              | A standalone helper to provide multiple handlers to `run`. Can be made safer by using an explicit generic (`<T>`).                                                                                                                                                                                                           |
 | `HANDLERS_KEY`                           | The internal `Symbol` used as the key for storing effect handlers in the context. This is typically abstracted away by helpers and is only needed for advanced, manual context manipulation.                                                                                                                                       |
+
+#### Effective System
+| Function | Description |
+|----------|-------------|
+| `createEffectiveSystem` | Creates a new effective system with the given handlers, and properly typed context. |
 
 ### Task Enhancers
 | Function | Description |

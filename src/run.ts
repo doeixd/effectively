@@ -2,6 +2,7 @@
 import { createContext as createUnctx } from "unctx";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { type Result, type Ok, type Err, ok, err } from "neverthrow";
+import type { EffectsContext } from "./handlers";
 
 // =================================================================
 // Section 1: Core Type Definitions
@@ -2467,3 +2468,26 @@ export function createContext<
     injectOptional: injectOptionalSpecific,
   } as ContextTools<C, G>;
 }
+
+/**
+ * A utility type that combines a base context with the necessary properties
+ * for the effect handler system. Use this when you are manually composing
+ * a custom context with the effects system.
+ *
+ * @template T A type that extends BaseContext.
+ *
+ * @example
+ * ```typescript
+ * import { type ContextWithEffects, createContext } from '@doeixd/effectively';
+ *
+ * interface MyAppContext extends BaseContext {
+ *   // ... my app properties
+ * }
+ *
+ * // Use the helper to create the final context type
+ * type AppServiceContext = ContextWithEffects<MyAppContext>;
+ *
+ * const { run } = createContext<AppServiceContext>({ ... });
+ * ```
+ */
+export type ContextWithEffects<T extends BaseContext> = T & EffectsContext;
