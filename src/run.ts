@@ -2,7 +2,7 @@
 import { createContext as createUnctx } from "unctx";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { type Result, type Ok, type Err, ok, err } from "neverthrow";
-import type { EffectsContext } from "./handlers";
+import type { EffectsContext, EffectsSchema, HANDLERS_KEY } from "./handlers";
 
 // =================================================================
 // Section 1: Core Type Definitions
@@ -2491,3 +2491,47 @@ export function createContext<
  * ```
  */
 export type ContextWithEffects<T extends BaseContext> = T & EffectsContext;
+
+
+/**
+ * A utility type that combines a base context with an effect handlers contract,
+ * creating a single, unified type for use with `createContext`. This is the
+
+ * recommended helper for manually composing a context system with a specific
+ * set of effect handlers.
+ *
+ * It provides sane defaults, allowing you to specify only the context, only the
+ * handlers, or both.
+ *
+ * @template TContext The custom context interface to include. Defaults to `BaseContext`.
+ * @template THandlers The effect handlers contract (a type mapping effect names to functions). Defaults to an empty object `{}`.
+ *
+ * @example
+ * ```typescript
+ * import { type ContextWithHandlers, createContext, type BaseContext } from '@doeixd/effectively';
+ *
+ * // 1. Define your context and effects contract
+ * interface AppContext extends BaseContext {
+ *   site: string;
+ * }
+ * type AppEffects = {
+ *   log: (message: string) => void;
+ * };
+ *
+ * // 2. Create the combined type using the helper
+ * type AppServiceContext = ContextWithHandlers<AppContext, AppEffects>;
+ *
+ * // 3. Use the new type with createContext for full type safety
+ * const { run } = createContext<AppServiceContext>({ site: 'MYLIGHT' });
+ *
+ * // `run` is now aware of both `site` and the effects contract.
+ * ```
+ */
+export type ContextWithHandlers<
+  TContext extends BaseContext = BaseContext,
+  THandlers extends EffectsSchema = {}
+> = TContext & {
+  [HANDLERS_KEY]?: THandlers;
+};
+
+// ... (rest of the file)

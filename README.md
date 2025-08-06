@@ -1339,7 +1339,8 @@ describe('Payment Workflow', () => {
 | `inject(token)` | Injects a dependency by its token from the current context. Throws if not found. |
 | `injectOptional(token)` | Safely injects a dependency by its token, returning `undefined` if not found. |
 | `withContextEnhancement(enhancement, task)`| A `Task` enhancer that provides additional context properties to a child task. |
-| `ContextWithEffects<T extends BaseContext>` | A utility type to add effect handlers to context.
+| `ContextWithEffects<T extends BaseContext>` | A utility type to add effect handlers property to context.
+| `ContextWithHandlers<T extends BaseContext, H extends EffectsSchema>` | A utility type to combine effect handlers and a context.
 
 
 ### Advanced Context Tools
