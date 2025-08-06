@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.0.26
+
+[compare changes](https://github.com/doeixd/effectivly/compare/v0.0.25...v0.0.26)
+
+### 🚀 Enhancements
+
+- Added effectiveSystem ([69d68fa](https://github.com/doeixd/effectivly/commit/69d68fa))
+
+### ❤️ Contributors
+
+- Doeixd <doeixd@gmail.com>
+
 ## v0.0.25
 
 [compare changes](https://github.com/doeixd/effectivly/compare/v0.0.24...v0.0.25)
